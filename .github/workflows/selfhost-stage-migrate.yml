@@ -1,0 +1,391 @@
+name: Selfhost | Migrate & Configure
+run-name: Selfhost Stage ${{ inputs.correlation_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      payload_json:
+        {required: true, type: string}
+      parent_run_id:
+        {required: true, type: string}
+      parent_run_attempt:
+        {required: true, type: string}
+      correlation_id:
+        {required: true, type: string}
+      provision_context:
+        {required: true, type: string}
+      deploy_context:
+        {required: true, type: string}
+      infra_run_id:
+        {required: true, type: string}
+      deploy_run_id:
+        {required: true, type: string}
+
+permissions:
+  contents: read
+  actions: write
+  id-token: write
+
+env:
+  VAULT_ADDR: ${{ fromJSON(inputs.payload_json || '{}').vault_addr || 'https://vault.svc.plus' }}
+  # Branches select a complete deployment profile:
+  # - pull_request -> sit
+  # - main / release/* -> uat, except release/v* -> prod
+  # - tags (v*) -> prod
+  DEPLOY_ENV: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  VAULT_ENV_PATH: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  VAULT_ROLE: github-actions-platform-ops-toolkit-${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  # 公共服务 secret: 三个环境共读、只读不可改 (GHCR 镜像拉取凭据等)。
+  # 拉的是同一批镜像, 不存在环境维度, 不拆分。
+  VAULT_KV: kv/data/CICD
+  # 基础凭据: 按环境拆分, 各 role 只读自己那份。
+  # VULTR_API_KEY / TF_STATE_* / SSH_PRIVATE_DEPLOY_KEY_B64 授予的是"控制基础
+  # 设施"和"登录主机"的能力, 是提权的实际载体, 必须隔离 —— sit 失陷不应拿到
+  # prod 的云账号与主机私钥。
+  VAULT_KV_BASE: kv/data/CICD/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  VAULT_KV_IAC_STATE: kv/data/CICD/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/iac_state
+  VAULT_KV_OPENCLAW: kv/data/openclaw
+  VAULT_KV_WEB_SAAS: kv/data/WEB_SAAS
+  # 计费域密钥按环境隔离, 与 databases / agent-proxy 同形。此前是共享的
+  # kv/data/billing-service, 靠 SANDBOX_/PROD_ 键前缀区分两套密钥 —— 但
+  # KV v2 的读权限是整份 secret 粒度, 那样 uat 角色必然连 PROD_STRIPE_SECRET_KEY
+  # 一起读到, 而那把密钥能对真实客户扣款退款。拆开之后, 既有的
+  # kv/data/<env>/* 规则天然完成隔离, 不需要任何额外 policy。
+  VAULT_KV_BILLING: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/billing-service
+  VAULT_KV_DATABASES: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/databases
+  VAULT_KV_SMTP: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/platform/smtp/google
+  VAULT_KV_AGENT_PROXY: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/agent-proxy
+  PLAYBOOKS_DIR: infra/playbooks
+  AKAMAI_ACCOUNT: ${{ fromJSON(inputs.payload_json || '{}').akamai_account || 'manbuzhe2026' }}
+
+jobs:
+  parent-gate:
+    name: Verify authorized parent run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Validate request and prior stage evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELFHOST_STAGE: migrate
+          PARENT_RUN_ID: ${{ inputs.parent_run_id }}
+          PARENT_RUN_ATTEMPT: ${{ inputs.parent_run_attempt }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
+          SELFHOST_REQUEST_JSON: ${{ inputs.payload_json }}
+          SELFHOST_CONTEXTS_JSON: ${{ toJSON(inputs) }}
+        run: python3 .github/scripts/platform-ops/stage-dispatch.py verify-parent
+
+  stage-context:
+    name: "Load prior stage contracts"
+    needs: parent-gate
+    runs-on: ubuntu-latest
+    outputs:
+      provision_context: ${{ inputs.provision_context }}
+      deploy_context: ${{ inputs.deploy_context }}
+    steps:
+      - name: Validate prior stage contracts
+        env:
+          PROVISION_CONTEXT: ${{ inputs.provision_context }}
+          DEPLOY_CONTEXT: ${{ inputs.deploy_context }}
+        run: python3 -c 'import json,os; [assertion for assertion in ()]; [json.loads(os.environ[k] or "{}") for k in ("PROVISION_CONTEXT","DEPLOY_CONTEXT")]'
+  trigger_data_migration:
+    name: "[4/5] Migrate | dispatch external data pipeline"
+    # The toolkit operation selects whether this execution includes migration.
+    # GitOps supplies the declarative runtime topology only; its migration
+    # capability flag is not a control-plane authorization for this run.
+    # Import is explicit and gated by confirm_legacy_import in the unified
+    # control plane. Older migrate/deploy+migrate callers fail closed.
+    needs: [stage-context]
+    if: >-
+      ${{ always() && !cancelled() &&
+      fromJSON(needs.stage-context.outputs.provision_context).result == 'success' &&
+      ((fromJSON(needs.stage-context.outputs.provision_context).outputs.toolkit_action == 'migrate' &&
+      fromJSON(needs.stage-context.outputs.deploy_context).deploy_web_saas.result == 'skipped' &&
+      fromJSON(needs.stage-context.outputs.deploy_context).accept_web_saas_upgrade.result == 'skipped') ||
+      (fromJSON(needs.stage-context.outputs.provision_context).outputs.toolkit_action == 'deploy+migrate' &&
+      fromJSON(needs.stage-context.outputs.deploy_context).deploy_web_saas.result == 'success' &&
+      fromJSON(needs.stage-context.outputs.deploy_context).accept_web_saas_upgrade.result == 'success')) }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out the toolkit dispatcher
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ github.sha }}
+
+    - name: Dispatch explicitly gated legacy import and wait for its verdict
+      env:
+        GH_TOKEN: ${{ github.token }}
+        DATA_OPERATION: legacy_import
+        DATA_ENVIRONMENT: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env }}
+        DATA_CONFIG_JSON: '{"confirm_legacy_import":false,"caller_run_id":"${{ github.run_id }}","accounts_source_host":"${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.source_host }}","accounts_target_host":"${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.migration_target_host }}","accounts_transport":"ssh","accounts_source_backend":"vps","accounts_target_backend":"vps","accounts_migration_mode":"data","accounts_dry_run":false}'
+        RELEASE_TAG: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deploy_tag }}
+        ACCOUNTS_REF: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deploy_tag || 'main' }}
+        DATA_WORKFLOW_REF: main
+      run: python3 .github/scripts/environment-upgrade/dispatch.py
+  switch_dns:
+    name: "[4/5] Configure | DNS update"
+    # This stage only reconciles DNS. Service validation runs in the two
+    # parallel matrix jobs after this job succeeds.
+    needs: [stage-context, trigger_data_migration]
+    if: >-
+      ${{ always() && !cancelled() &&
+      fromJSON(needs.stage-context.outputs.provision_context).result == 'success' &&
+      (needs.trigger_data_migration.result == 'success' ||
+      (needs.trigger_data_migration.result == 'skipped' &&
+      fromJSON(needs.stage-context.outputs.provision_context).outputs.toolkit_action != 'migrate' &&
+      fromJSON(needs.stage-context.outputs.provision_context).outputs.toolkit_action != 'deploy+migrate')) &&
+      (fromJSON(needs.stage-context.outputs.deploy_context).deploy_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains)) &&
+      (fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env != 'uat' ||
+      !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains) ||
+      fromJSON(needs.stage-context.outputs.deploy_context).accept_web_saas_upgrade.result == 'success') &&
+      (fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env != 'prod' || fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains != 'web-saas' || fromJSON(needs.stage-context.outputs.deploy_context).prod_availability.result == 'success') &&
+      (fromJSON(needs.stage-context.outputs.deploy_context).deploy_infra_platform.result == 'success' ||
+      fromJSON(needs.stage-context.outputs.deploy_context).deploy_infra_platform.result == 'skipped' ||
+      !contains(fromJSON('["all","infra-platform","open-platform"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains)) &&
+      (fromJSON(needs.stage-context.outputs.deploy_context).deploy_agent_proxy.result == 'success' || !contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains)) &&
+      (fromJSON(needs.stage-context.outputs.deploy_context).deploy_agent_proxy_non_iac.result == 'success' || fromJSON(needs.stage-context.outputs.provision_context).outputs.hosts_agent_proxy_non_iac == '[]' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains)) &&
+      (fromJSON(needs.stage-context.outputs.deploy_context).deploy_ai_workspace.result == 'success' || !contains(fromJSON('["all","ai-workspace"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains)) &&
+      fromJSON(needs.stage-context.outputs.provision_context).outputs.terraform_action == 'apply' &&
+      contains(fromJSON('["prod-cutover","uat-records"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.dns_mode) }}
+    runs-on: ${{ fromJSON(inputs.payload_json || '{}').runner_type || 'ubuntu-latest' }}
+    concurrency:
+      group: public-dns-${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env }}
+      cancel-in-progress: false
+    env:
+      PROVISION_TARGET_DOMAIN_BASE:  ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domain_base }}
+      PROVISION_SOURCE_DOMAIN_BASE:  ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.source_domain_base }}
+      INPUT_RUN_INFRASTRUCTURE:      ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.run_infrastructure }}
+      DEPLOY_ENV:                    ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env }}
+      TARGET_DOMAINS:                ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains }}
+      AGENT_CONTROLLER_URL:          ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.agent_controller_url }}
+      DNS_SERVICE_NAMES:             console accounts billing
+      VAULT_ADDR:                    https://vault.svc.plus
+      VAULT_ROLE:                    github-actions-platform-ops-toolkit-${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.vault_env_path }}
+      VAULT_KV:                      kv/data/CICD
+      CMDB_FILE:                     cmdb/cmdb.json
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.toolkit_ref }}
+
+    - name: Checkout GitOps selfhost routing declaration
+      if: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env == 'uat' && fromJSON(needs.stage-context.outputs.provision_context).outputs.dns_mode == 'uat-records' }}
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/gitops
+        ref: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.gitops_ref }}
+        path: gitops
+        sparse-checkout-cone-mode: false
+        sparse-checkout: |
+          topology/uat/selfhost/runtime-topology.yaml
+
+    - name: Checkout GitOps XConnect topology
+      if: >-
+        ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env == 'prod' &&
+        fromJSON(needs.stage-context.outputs.provision_context).outputs.dns_mode == 'prod-cutover' &&
+        contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
+        fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains) }}
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/gitops
+        ref: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.gitops_ref }}
+        path: gitops-xconnect
+        sparse-checkout-cone-mode: false
+        sparse-checkout: topology/prod/selfhost/xconnect-regional-pools.yaml
+
+    - name: Render GitOps selfhost routing declaration
+      if: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env == 'uat' && fromJSON(needs.stage-context.outputs.provision_context).outputs.dns_mode == 'uat-records' }}
+      run: ${{ github.workspace }}/.github/scripts/gitops/prepare_gitops_routing_config.sh
+      env:
+        GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/uat/selfhost/runtime-topology.yaml
+        GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/selfhost-edge-routing.json
+
+    - name: Download CMDB
+      # 与上传条件保持一致: artifact 只在基础设施阶段 apply 时产生。
+      if: >-
+        ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.run_infrastructure == 'true' &&
+        fromJSON(needs.stage-context.outputs.provision_context).outputs.terraform_action == 'apply' }}
+      uses: actions/download-artifact@v8
+      with:
+        name: platform-ops-toolkit-cmdb
+        run-id: ${{ inputs.infra_run_id }}
+        github-token: ${{ github.token }}
+        repository: ${{ github.repository }}
+        path: cmdb
+
+    - name: Checkout playbooks
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/playbooks
+        ref: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.playbooks_ref }}
+        path: playbooks
+
+    - name: Load Vault secrets for DNS
+      id: vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: ${{ env.VAULT_ROLE }}
+        jwtGithubAudience: vault
+        exportToken: true
+        ignoreNotFound: true
+        secrets: |
+          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64 ;
+          ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN
+
+    - name: Setup DNS deployment runner
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
+      with:
+        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        install_ansible: 'true'
+
+    - name: Switch production Cloudflare DNS records
+      if: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.dns_mode == 'prod-cutover' }}
+      env:
+        CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
+      run: |-
+        ${{ github.workspace }}/playbooks/scripts/pipeline/switch-cloudflare-dns-records.sh
+
+    - name: Reconcile production XConnect regional entrypoints
+      if: >-
+        ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env == 'prod' &&
+        fromJSON(needs.stage-context.outputs.provision_context).outputs.dns_mode == 'prod-cutover' &&
+        contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
+        fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains) }}
+      working-directory: playbooks
+      env:
+        CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
+        XCONNECT_GITOPS_CONFIG: ${{ github.workspace }}/gitops-xconnect/topology/prod/selfhost/xconnect-regional-pools.yaml
+        XCONNECT_CMDB_FILE: ${{ github.workspace }}/cmdb/cmdb.json
+      run: |-
+        for pool in jp us sg ph; do
+          XCONNECT_POOL="${pool}" ansible-playbook reconcile_xconnect_entrypoint.yml
+        done
+
+    - name: Check out reviewed UAT DNS provider owner
+      if: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env == 'uat' && fromJSON(needs.stage-context.outputs.provision_context).outputs.dns_mode == 'uat-records' }}
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/iac_modules
+        ref: ed299ac0cbf0d7f3c355b36f2ecbed794ceebd7f
+        path: iac-dns-owner
+        persist-credentials: false
+
+    - name: Reconcile UAT DNS records
+      if: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env == 'uat' && fromJSON(needs.stage-context.outputs.provision_context).outputs.dns_mode == 'uat-records' }}
+      env:
+        CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
+        SOURCE_DOMAIN_BASE: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.source_domain_base }}
+        TARGET_DOMAIN_BASE: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domain_base }}
+        DEPLOY_ENV: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env }}
+        CMDB_FILE: ${{ runner.temp }}/uat-dns-cmdb.json
+        GITOPS_ROUTING_CONFIG: ${{ runner.temp }}/selfhost-edge-routing.json
+      run: |
+        jq -e 'with_entries(select((.value | type) == "object") | select((.value.groups | type) == "array"))' \
+          cmdb/cmdb.json > "$CMDB_FILE"
+        bash ${{ github.workspace }}/iac-dns-owner/scripts/pipeline/cloudflare-uat-dns-reconcile.sh
+
+    - name: Reconcile SIT all-in-one DNS records
+      if: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env == 'sit' && fromJSON(needs.stage-context.outputs.provision_context).outputs.dns_mode == 'uat-records' }}
+      env:
+        CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
+        SOURCE_DOMAIN_BASE: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.source_domain_base }}
+        TARGET_DOMAIN_BASE: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domain_base }}
+        DEPLOY_ENV: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env }}
+        CMDB_FILE: cmdb/cmdb.json
+      uses: ai-workspace-infra/iac_modules/.github/actions/platform-resource-operations@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077
+      with:
+        operation: sit-dns
+        environment: sit
+
+    - name: Remove temporary agent controller host pin
+      if: >-
+        ${{ contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
+        fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains) }}
+      run: ${{ github.workspace }}/playbooks/scripts/pipeline/remove-temporary-agent-controller-host.sh
+  bootstrap_stripe_catalog:
+    name: "[4/5] Configure | Stripe catalog"
+    needs: [stage-context, switch_dns]
+    if: >-
+      ${{ always() && !cancelled() &&
+      fromJSON(needs.stage-context.outputs.provision_context).result == 'success' &&
+      needs.switch_dns.result == 'success' &&
+      fromJSON(inputs.payload_json || '{}').skip_stripe_catalog != true &&
+      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains) }}
+    runs-on: ${{ fromJSON(inputs.payload_json || '{}').runner_type || 'ubuntu-latest' }}
+    steps:
+    - name: Checkout platform toolkit
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.toolkit_ref || github.sha }}
+
+    - name: Checkout Accounts catalog source
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-services/accounts
+        ref: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deploy_tag || 'main' }}
+        path: accounts
+        sparse-checkout-cone-mode: false
+        sparse-checkout: |
+          scripts/stripe-catalog.yaml
+          scripts/stripe-sync-catalog.sh
+
+    - name: Install catalog bootstrap dependencies
+      run: python3 -m pip install --user pyyaml
+
+    - name: Install Vault CLI
+      run: ./.github/scripts/serverless/install_vault_cli.sh
+
+    - name: Authenticate to Vault with GitHub OIDC
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: github-actions-platform-ops-toolkit-${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.vault_env_path }}
+        jwtGithubAudience: vault
+        exportToken: true
+
+    - name: Synchronize Stripe catalog to Accounts
+      run: ./scripts/serverless_uat/bootstrap_stripe_catalog.sh
+      env:
+        VAULT_ADDR: ${{ env.VAULT_ADDR }}
+        VAULT_ENV_PATH: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.vault_env_path }}
+        ACCOUNTS_DIR: ${{ github.workspace }}/accounts
+        ACCOUNTS_BASE_URL: >-
+          https://accounts-${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env }}.${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domain_base }}
+        DOMAIN_BASE: ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domain_base }}
+        SKIP_DATABASE_SEED: 'true'
+  stage-output:
+    name: "Export migration and configuration results"
+    if: ${{ always() && !cancelled() && needs.trigger_data_migration.result != '' && needs.switch_dns.result != '' && needs.bootstrap_stripe_catalog.result != '' }}
+    needs: [trigger_data_migration, switch_dns, bootstrap_stripe_catalog]
+    runs-on: ubuntu-latest
+    outputs:
+      context: ${{ toJSON(needs) }}
+    steps:
+      - name: Write correlated stage context
+        env:
+          STAGE_NAME: migrate
+          STAGE_CONTEXT: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          context = json.loads(os.environ["STAGE_CONTEXT"])
+          result = {"schema": 1, "stage": os.environ["STAGE_NAME"],
+                    "run_id": os.environ["GITHUB_RUN_ID"],
+                    "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                    "context": context}
+          target = Path(os.environ["RUNNER_TEMP"]) / "stage-context.json"
+          target.write_text(json.dumps(result, separators=(",", ":")) + "\n", encoding="utf-8")
+          PY
+      - name: Publish stage context for the parent run
+        uses: actions/upload-artifact@v7
+        with:
+          name: selfhost-stage-context-migrate
+          path: ${{ runner.temp }}/stage-context.json
+          if-no-files-found: error

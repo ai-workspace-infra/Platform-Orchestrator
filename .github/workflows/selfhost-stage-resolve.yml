@@ -1,0 +1,691 @@
+name: Selfhost | Resolve & Validate
+run-name: Selfhost Stage ${{ inputs.correlation_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      payload_json:
+        {required: true, type: string}
+      parent_run_id:
+        {required: true, type: string}
+      parent_run_attempt:
+        {required: true, type: string}
+      correlation_id:
+        {required: true, type: string}
+
+permissions:
+  contents: read
+  actions: write
+  id-token: write
+
+env:
+  VAULT_ADDR: ${{ fromJSON(inputs.payload_json || '{}').vault_addr || 'https://vault.svc.plus' }}
+  # Branches select a complete deployment profile:
+  # - pull_request -> sit
+  # - main / release/* -> uat, except release/v* -> prod
+  # - tags (v*) -> prod
+  DEPLOY_ENV: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  VAULT_ENV_PATH: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  VAULT_ROLE: github-actions-platform-ops-toolkit-${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  # 公共服务 secret: 三个环境共读、只读不可改 (GHCR 镜像拉取凭据等)。
+  # 拉的是同一批镜像, 不存在环境维度, 不拆分。
+  VAULT_KV: kv/data/CICD
+  # 基础凭据: 按环境拆分, 各 role 只读自己那份。
+  # VULTR_API_KEY / TF_STATE_* / SSH_PRIVATE_DEPLOY_KEY_B64 授予的是"控制基础
+  # 设施"和"登录主机"的能力, 是提权的实际载体, 必须隔离 —— sit 失陷不应拿到
+  # prod 的云账号与主机私钥。
+  VAULT_KV_BASE: kv/data/CICD/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  VAULT_KV_IAC_STATE: kv/data/CICD/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/iac_state
+  VAULT_KV_OPENCLAW: kv/data/openclaw
+  VAULT_KV_WEB_SAAS: kv/data/WEB_SAAS
+  # 计费域密钥按环境隔离, 与 databases / agent-proxy 同形。此前是共享的
+  # kv/data/billing-service, 靠 SANDBOX_/PROD_ 键前缀区分两套密钥 —— 但
+  # KV v2 的读权限是整份 secret 粒度, 那样 uat 角色必然连 PROD_STRIPE_SECRET_KEY
+  # 一起读到, 而那把密钥能对真实客户扣款退款。拆开之后, 既有的
+  # kv/data/<env>/* 规则天然完成隔离, 不需要任何额外 policy。
+  VAULT_KV_BILLING: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/billing-service
+  VAULT_KV_DATABASES: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/databases
+  VAULT_KV_SMTP: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/platform/smtp/google
+  VAULT_KV_AGENT_PROXY: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/agent-proxy
+  PLAYBOOKS_DIR: infra/playbooks
+  AKAMAI_ACCOUNT: ${{ fromJSON(inputs.payload_json || '{}').akamai_account || 'manbuzhe2026' }}
+
+jobs:
+  parent-gate:
+    name: Verify authorized parent run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Validate request and prior stage evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELFHOST_STAGE: resolve
+          PARENT_RUN_ID: ${{ inputs.parent_run_id }}
+          PARENT_RUN_ATTEMPT: ${{ inputs.parent_run_attempt }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
+          SELFHOST_REQUEST_JSON: ${{ inputs.payload_json }}
+          SELFHOST_CONTEXTS_JSON: ${{ toJSON(inputs) }}
+        run: python3 .github/scripts/platform-ops/stage-dispatch.py verify-parent
+
+  native_prod_standby:
+    name: "[1] PROD | native database standby only"
+    needs: parent-gate
+    if: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' && fromJSON(inputs.payload_json || '{}').operation == 'native-standby' }}
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Checkout immutable control source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Checkout fixed IaC GCP authentication owner
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: .github/actions/auth-gcp-cloud
+      - name: Verify approved resource run and original CMDB artifact
+        id: native_control
+        env:
+          GH_TOKEN: ${{ github.token }}
+        uses: ./.github/actions/prod-selfhost-control
+        with:
+          mode: standby
+          contract: .github/config/prod-native-standby.yaml
+          destination: ${{ runner.temp }}/native-resource-cmdb
+      - name: Checkout fixed GitOps declaration
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ steps.native_control.outputs.gitops_commit }}
+          path: native-gitops
+          persist-credentials: false
+      - name: Configure exact PROD GitHub OIDC deploy identity
+        uses: ./.github/actions/configure-gcp-oidc
+        with:
+          environment: prod
+          account_id: xworktech
+          load_state_contract: 'false'
+          vault_addr: https://vault.svc.plus
+      - name: Configure cloud access runtime
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Read only target PostgreSQL and registry runtime secrets
+        id: native_vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-prod
+          jwtGithubAudience: vault
+          exportToken: false
+          secrets: |
+            kv/data/prod/databases postgres_root_password | NATIVE_POSTGRES_PASSWORD ;
+            kv/data/CICD GHCR_USERNAME | NATIVE_GHCR_USERNAME ;
+            kv/data/CICD GHCR_TOKEN | NATIVE_GHCR_TOKEN
+      - name: Open same-run cloud access through fixed IaC owner
+        id: native_access
+        uses: ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@254dd6321449ab12b862220c8876b482d7032fcd
+        with:
+          phase: open
+          cmdb_file: ${{ runner.temp }}/native-resource-cmdb/cmdb.json
+          cmdb_sha256: ${{ steps.native_control.outputs.cmdb_sha256 }}
+          access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Deploy only PostgreSQL standby through fixed Playbooks owner
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-native-standby@c6a4cb6c54c7e6dd2d63c43767f44a228385312a
+        with:
+          cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
+          cmdb_sha256: ${{ steps.native_control.outputs.cmdb_sha256 }}
+          gitops_checkout: ${{ github.workspace }}/native-gitops
+          gitops_commit: ${{ steps.native_control.outputs.gitops_commit }}
+          access_file: ${{ steps.native_access.outputs.access_file }}
+          postgres_password: ${{ steps.native_vault.outputs.NATIVE_POSTGRES_PASSWORD }}
+          ghcr_username: ${{ steps.native_vault.outputs.NATIVE_GHCR_USERNAME }}
+          ghcr_token: ${{ steps.native_vault.outputs.NATIVE_GHCR_TOKEN }}
+      - name: Revoke cloud access even if standby deployment failed
+        if: ${{ always() && steps.native_access.outcome != '' && steps.native_access.outcome != 'skipped' }}
+        uses: ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@254dd6321449ab12b862220c8876b482d7032fcd
+        with:
+          phase: close
+          cmdb_file: ${{ runner.temp }}/native-resource-cmdb/cmdb.json
+          cmdb_sha256: ${{ steps.native_control.outputs.cmdb_sha256 }}
+          access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Retain original authoritative CMDB for the next controlled stage
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-ops-toolkit-cmdb
+          path: ${{ runner.temp }}/native-resource-cmdb
+          if-no-files-found: error
+      - name: Publish sanitized standby evidence only after successful cleanup
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-native-standby-receipt
+          path: ${{ runner.temp }}/prod-native-standby-receipt.json
+          if-no-files-found: error
+      - name: State the completed boundary
+        run: |
+          echo '## PROD PostgreSQL standby' >> "$GITHUB_STEP_SUMMARY"
+          echo 'PostgreSQL and independent storage verified; application/CD writers remain paused. Schema initialization, full business copy, equality and main database cutover are pending.' >> "$GITHUB_STEP_SUMMARY"
+  native_prod_init:
+    name: "[2] PROD | native empty schema only"
+    needs: parent-gate
+    if: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' && (fromJSON(inputs.payload_json || '{}').operation == 'native-init-plan' || fromJSON(inputs.payload_json || '{}').operation == 'native-init') }}
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Checkout immutable control source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Checkout fixed IaC GCP authentication owner
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: .github/actions/auth-gcp-cloud
+      - name: Verify configured PROD data review policy and exact successful standby/resource evidence
+        id: native_init_control
+        env:
+          GH_TOKEN: ${{ github.token }}
+        uses: ./.github/actions/prod-selfhost-control
+        with:
+          mode: initialization
+          contract: .github/config/prod-native-init.yaml
+          destination: ${{ runner.temp }}/native-resource-cmdb
+      - name: Checkout fixed GitOps declaration
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ steps.native_init_control.outputs.gitops_commit }}
+          path: native-gitops
+          persist-credentials: false
+      - name: Configure exact PROD GitHub OIDC deploy identity
+        uses: ./.github/actions/configure-gcp-oidc
+        with:
+          environment: prod
+          account_id: xworktech
+          load_state_contract: 'false'
+          vault_addr: https://vault.svc.plus
+      - name: Configure cloud access runtime
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Read only target PostgreSQL and registry runtime secrets
+        id: native_vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-prod
+          jwtGithubAudience: vault
+          exportToken: false
+          exportEnv: false
+          secrets: |
+            kv/data/prod/databases postgres_root_password | NATIVE_POSTGRES_PASSWORD ;
+            kv/data/CICD GHCR_USERNAME | NATIVE_GHCR_USERNAME ;
+            kv/data/CICD GHCR_TOKEN | NATIVE_GHCR_TOKEN
+      - name: Open same-run cloud access through fixed IaC owner
+        id: native_access
+        uses: ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@254dd6321449ab12b862220c8876b482d7032fcd
+        with:
+          phase: open
+          cmdb_file: ${{ runner.temp }}/native-resource-cmdb/cmdb.json
+          cmdb_sha256: ${{ steps.native_init_control.outputs.cmdb_sha256 }}
+          access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Preview or initialize only the absent or empty account schema through fixed Playbooks owner
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-native-init@1bc8531c23c6f51f7010c240f5d949463d8c9099
+        with:
+          cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
+          cmdb_sha256: ${{ steps.native_init_control.outputs.cmdb_sha256 }}
+          gitops_checkout: ${{ github.workspace }}/native-gitops
+          gitops_commit: ${{ steps.native_init_control.outputs.gitops_commit }}
+          access_file: ${{ steps.native_access.outputs.access_file }}
+          spec_file: ${{ runner.temp }}/native-init-spec.json
+          dry_run: ${{ steps.native_init_control.outputs.dry_run }}
+          data_gate_verified: ${{ steps.native_init_control.outputs.data_gate_verified }}
+          postgres_password: ${{ steps.native_vault.outputs.NATIVE_POSTGRES_PASSWORD }}
+          ghcr_username: ${{ steps.native_vault.outputs.NATIVE_GHCR_USERNAME }}
+          ghcr_token: ${{ steps.native_vault.outputs.NATIVE_GHCR_TOKEN }}
+      - name: Revoke cloud access even if native schema operation failed
+        if: ${{ always() && steps.native_access.outcome != '' && steps.native_access.outcome != 'skipped' }}
+        uses: ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@254dd6321449ab12b862220c8876b482d7032fcd
+        with:
+          phase: close
+          cmdb_file: ${{ runner.temp }}/native-resource-cmdb/cmdb.json
+          cmdb_sha256: ${{ steps.native_init_control.outputs.cmdb_sha256 }}
+          access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Retain original authoritative CMDB for the next controlled stage
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-ops-toolkit-cmdb
+          path: ${{ runner.temp }}/native-resource-cmdb
+          if-no-files-found: error
+      - name: Publish sanitized native schema evidence only after successful cleanup
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-native-init-receipt
+          path: ${{ runner.temp }}/prod-native-init-receipt.json
+          if-no-files-found: error
+      - name: State the completed boundary
+        run: |
+          echo '## PROD native schema operation' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Native schema operation receipt published after access cleanup; application/CD writers remain paused. Full business copy, Billing extra schema, equality and main database cutover are pending. Preview does not initialize schema.' >> "$GITHUB_STEP_SUMMARY"
+  native_prod_billing:
+    name: "[2B] PROD | native Billing additive schema only"
+    needs: parent-gate
+    if: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' && (fromJSON(inputs.payload_json || '{}').operation == 'native-billing-plan' || fromJSON(inputs.payload_json || '{}').operation == 'native-billing') }}
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Checkout immutable control source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Checkout fixed IaC GCP authentication owner
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: .github/actions/auth-gcp-cloud
+      - name: Verify configured PROD data review policy and exact successful initialization/standby/resource evidence
+        id: native_billing_control
+        env:
+          GH_TOKEN: ${{ github.token }}
+        uses: ./.github/actions/prod-selfhost-control
+        with:
+          mode: billing
+          contract: .github/config/prod-native-billing.yaml
+          destination: ${{ runner.temp }}/native-resource-cmdb
+      - name: Checkout fixed GitOps declaration
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ steps.native_billing_control.outputs.gitops_commit }}
+          path: native-gitops
+          persist-credentials: false
+      - name: Checkout fixed Billing schema owner
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-services/billing-service
+          ref: ${{ steps.native_billing_control.outputs.billing_commit }}
+          path: native-billing
+          persist-credentials: false
+      - name: Configure exact PROD GitHub OIDC deploy identity
+        uses: ./.github/actions/configure-gcp-oidc
+        with:
+          environment: prod
+          account_id: xworktech
+          load_state_contract: 'false'
+          vault_addr: https://vault.svc.plus
+      - name: Configure cloud access runtime
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Read only target PostgreSQL and registry runtime secrets
+        id: native_vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-prod
+          jwtGithubAudience: vault
+          exportToken: false
+          exportEnv: false
+          secrets: |
+            kv/data/prod/databases postgres_root_password | NATIVE_POSTGRES_PASSWORD ;
+            kv/data/CICD GHCR_USERNAME | NATIVE_GHCR_USERNAME ;
+            kv/data/CICD GHCR_TOKEN | NATIVE_GHCR_TOKEN
+      - name: Open same-run cloud access through fixed IaC owner
+        id: native_access
+        uses: ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@254dd6321449ab12b862220c8876b482d7032fcd
+        with:
+          phase: open
+          cmdb_file: ${{ runner.temp }}/native-resource-cmdb/cmdb.json
+          cmdb_sha256: ${{ steps.native_billing_control.outputs.cmdb_sha256 }}
+          access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Preview or apply only the reviewed Billing additive schema through fixed Playbooks owner
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-native-billing-upgrade@ff7b09e135f52301e7605dcdf6f3b303c9c2dd32
+        with:
+          cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
+          cmdb_sha256: ${{ steps.native_billing_control.outputs.cmdb_sha256 }}
+          gitops_checkout: ${{ github.workspace }}/native-gitops
+          gitops_commit: ${{ steps.native_billing_control.outputs.gitops_commit }}
+          access_file: ${{ steps.native_access.outputs.access_file }}
+          billing_checkout: ${{ github.workspace }}/native-billing
+          billing_commit: ${{ steps.native_billing_control.outputs.billing_commit }}
+          spec_file: ${{ runner.temp }}/native-billing-spec.json
+          dry_run: ${{ steps.native_billing_control.outputs.dry_run }}
+          data_gate_verified: ${{ steps.native_billing_control.outputs.data_gate_verified }}
+          postgres_password: ${{ steps.native_vault.outputs.NATIVE_POSTGRES_PASSWORD }}
+          ghcr_username: ${{ steps.native_vault.outputs.NATIVE_GHCR_USERNAME }}
+          ghcr_token: ${{ steps.native_vault.outputs.NATIVE_GHCR_TOKEN }}
+      - name: Revoke cloud access even if Billing schema operation failed
+        if: ${{ always() && steps.native_access.outcome != '' && steps.native_access.outcome != 'skipped' }}
+        uses: ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@254dd6321449ab12b862220c8876b482d7032fcd
+        with:
+          phase: close
+          cmdb_file: ${{ runner.temp }}/native-resource-cmdb/cmdb.json
+          cmdb_sha256: ${{ steps.native_billing_control.outputs.cmdb_sha256 }}
+          access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Retain original authoritative CMDB for the next controlled stage
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-ops-toolkit-cmdb
+          path: ${{ runner.temp }}/native-resource-cmdb
+          if-no-files-found: error
+      - name: Publish sanitized Billing schema evidence only after successful cleanup
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-native-billing-receipt
+          path: ${{ runner.temp }}/prod-native-billing-receipt.json
+          if-no-files-found: error
+      - name: State the completed boundary
+        run: |
+          echo '## PROD native Billing schema operation' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Billing schema receipt published after access cleanup; application/CD writers remain paused. Full business copy, equality and main database cutover remain pending. Preview makes no schema changes.' >> "$GITHUB_STEP_SUMMARY"
+  native_prod_business:
+    name: "${{ startsWith(fromJSON(inputs.payload_json || '{}').operation, 'native-core-users') && '[3] PROD | core users sync and four-field comparison' || '[3] PROD | full-business preview, copy or comparison' }}"
+    needs: parent-gate
+    if: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' && (fromJSON(inputs.payload_json || '{}').operation == 'native-business-plan' || fromJSON(inputs.payload_json || '{}').operation == 'native-business-copy' || fromJSON(inputs.payload_json || '{}').operation == 'native-business-compare' || fromJSON(inputs.payload_json || '{}').operation == 'native-core-users' || fromJSON(inputs.payload_json || '{}').operation == 'native-core-users-compare') }}
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Checkout immutable control source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Checkout fixed IaC GCP authentication owner
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: .github/actions/auth-gcp-cloud
+      - name: Prepare PROD source and target records before runtime checks
+        id: full_business_control
+        env:
+          GH_TOKEN: ${{ github.token }}
+        uses: ./.github/actions/prod-selfhost-control
+        with:
+          mode: full-business
+          contract: .github/config/prod-full-business.yaml
+          destination: ${{ runner.temp }}/native-resource-cmdb
+      - name: Checkout fixed GitOps declaration
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ steps.full_business_control.outputs.gitops_commit }}
+          path: native-gitops
+          persist-credentials: false
+      - name: Configure exact PROD GitHub OIDC deploy identity
+        uses: ./.github/actions/configure-gcp-oidc
+        with:
+          environment: prod
+          account_id: xworktech
+          load_state_contract: 'false'
+          vault_addr: https://vault.svc.plus
+      - name: Configure cloud access runtime
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Read approved readonly PROD source, target and registry runtime secrets
+        id: native_vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-prod
+          jwtGithubAudience: vault
+          exportToken: false
+          exportEnv: false
+          secrets: |
+            kv/data/prod/databases postgres_root_password | NATIVE_POSTGRES_PASSWORD ;
+            kv/data/prod/database-upgrade PROD_SUPABASE_READONLY_DSN | NATIVE_SOURCE_DSN ;
+            kv/data/CICD GHCR_USERNAME | NATIVE_GHCR_USERNAME ;
+            kv/data/CICD GHCR_TOKEN | NATIVE_GHCR_TOKEN
+      - name: Open same-run cloud access through fixed IaC owner
+        id: native_access
+        uses: ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@254dd6321449ab12b862220c8876b482d7032fcd
+        with:
+          phase: open
+          cmdb_file: ${{ runner.temp }}/native-resource-cmdb/cmdb.json
+          cmdb_sha256: ${{ steps.full_business_control.outputs.cmdb_sha256 }}
+          access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Run only the explicit full-business mode through fixed Playbooks owner
+        uses: ai-workspace-infra/playbooks/.github/actions/prod-full-business@934e1e1f729d8d5ecf1adcbae05a02c6b1ff7939
+        with:
+          cmdb_dir: ${{ runner.temp }}/native-resource-cmdb
+          cmdb_sha256: ${{ steps.full_business_control.outputs.cmdb_sha256 }}
+          gitops_checkout: ${{ github.workspace }}/native-gitops
+          gitops_commit: ${{ steps.full_business_control.outputs.gitops_commit }}
+          access_file: ${{ steps.native_access.outputs.access_file }}
+          spec_file: ${{ runner.temp }}/full-business-spec.json
+          mode: ${{ steps.full_business_control.outputs.mode }}
+          source_dsn: ${{ steps.native_vault.outputs.NATIVE_SOURCE_DSN }}
+          data_gate_verified: ${{ steps.full_business_control.outputs.data_gate_verified }}
+          postgres_password: ${{ steps.native_vault.outputs.NATIVE_POSTGRES_PASSWORD }}
+          ghcr_username: ${{ steps.native_vault.outputs.NATIVE_GHCR_USERNAME }}
+          ghcr_token: ${{ steps.native_vault.outputs.NATIVE_GHCR_TOKEN }}
+      - name: Revoke cloud access even if full-business operation failed
+        if: ${{ always() && steps.native_access.outcome != '' && steps.native_access.outcome != 'skipped' }}
+        uses: ai-workspace-infra/iac_modules/.github/actions/prod-selfhost-access@254dd6321449ab12b862220c8876b482d7032fcd
+        with:
+          phase: close
+          cmdb_file: ${{ runner.temp }}/native-resource-cmdb/cmdb.json
+          cmdb_sha256: ${{ steps.full_business_control.outputs.cmdb_sha256 }}
+          access_dir: ${{ runner.temp }}/prod-native-access-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Retain original authoritative CMDB for the next controlled stage
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-ops-toolkit-cmdb
+          path: ${{ runner.temp }}/native-resource-cmdb
+          if-no-files-found: error
+      - name: Publish sanitized full-business evidence only after successful cleanup
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-full-business-receipt
+          path: ${{ runner.temp }}/prod-full-business-receipt.json
+          if-no-files-found: error
+      - name: State the completed boundary
+        run: |
+          echo '## PROD database operation receipt' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Receipt published after access cleanup. Core-user mode proves latest source/target count, email, password hash and Proxy UUID equality with a read-only source. It requires the exact native schema, without dynamic 53-table row equality. Business acceptance and Cloudflare switching are subsequent operations, outside this workflow acceptance.' >> "$GITHUB_STEP_SUMMARY"
+  resolve-targets:
+    needs: parent-gate
+    if: ${{ fromJSON(inputs.payload_json || '{}').operation != 'native-standby' && fromJSON(inputs.payload_json || '{}').operation != 'native-init-plan' && fromJSON(inputs.payload_json || '{}').operation != 'native-init'
+      && fromJSON(inputs.payload_json || '{}').operation != 'native-billing-plan' && fromJSON(inputs.payload_json || '{}').operation != 'native-billing' && fromJSON(inputs.payload_json || '{}').operation != 'native-business-plan'
+      && fromJSON(inputs.payload_json || '{}').operation != 'native-business-copy' && fromJSON(inputs.payload_json || '{}').operation != 'native-business-compare' && fromJSON(inputs.payload_json || '{}').operation != 'native-core-users'
+      && fromJSON(inputs.payload_json || '{}').operation != 'native-core-users-compare' && fromJSON(inputs.payload_json || '{}').operation != 'native-availability' }}
+    name: '[1/5] Resolve & Validate | fixed GitOps target'
+    environment: ${{ (fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' && fromJSON(inputs.payload_json || '{}').vault_env_path == 'prod') && 'prod' || (fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch'
+      && fromJSON(inputs.payload_json || '{}').vault_env_path == 'uat' && 'uat' || (fromJSON(inputs.payload_json || '{}').__parent_event_name == 'push' && github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref,
+      'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || ''))) }}
+    runs-on: ${{ fromJSON(inputs.payload_json || '{}').runner_type || 'ubuntu-latest' }}
+    env:
+      INPUT_CLOUD_PROVIDER: ${{ fromJSON(inputs.payload_json || '{}').cloud_provider }}
+      INPUT_CLOUD_ACCOUNT: ${{ fromJSON(inputs.payload_json || '{}').cloud_account }}
+      INPUT_VAULT_ENV_PATH: ${{ fromJSON(inputs.payload_json || '{}').vault_env_path }}
+      INPUT_TARGET_DOMAINS: ${{ fromJSON(inputs.payload_json || '{}').target_domains }}
+      INPUT_INSTANCE_PLAN: ${{ fromJSON(inputs.payload_json || '{}').instance_plan || '4C8G' }}
+      INPUT_AGENT_PROXY_PLAN: ${{ fromJSON(inputs.payload_json || '{}').agent_proxy_plan || '1C2G' }}
+      INPUT_OPERATION: ${{ fromJSON(inputs.payload_json || '{}').operation }}
+      INPUT_SOURCE_REF: ${{ fromJSON(inputs.payload_json || '{}').source_ref }}
+      INPUT_OFFLINE_MODE: ${{ fromJSON(inputs.payload_json || '{}').offline_mode }}
+      INPUT_SOURCE_HOST: ${{ fromJSON(inputs.payload_json || '{}').source_host }}
+      INPUT_SOURCE_DOMAIN_BASE: ${{ fromJSON(inputs.payload_json || '{}').source_domain_base }}
+      INPUT_TARGET_DOMAIN_BASE: ${{ fromJSON(inputs.payload_json || '{}').target_domain_base }}
+      INPUT_DNS_MODE: ${{ fromJSON(inputs.payload_json || '{}').dns_mode }}
+      INPUT_DEPLOY_TAG: ${{ fromJSON(inputs.payload_json || '{}').deploy_tag }}
+      INPUT_AGENT_CONTROLLER_URL: ${{ fromJSON(inputs.payload_json || '{}').agent_controller_url }}
+      INPUT_AKAMAI_ACCOUNT: ${{ fromJSON(inputs.payload_json || '{}').akamai_account || 'manbuzhe2026' }}
+      INPUT_INCLUDE_EXTERNAL_AGENT_PROXY: ${{ fromJSON(inputs.payload_json || '{}').include_external_agent_proxy != false && fromJSON(inputs.payload_json || '{}').include_external_agent_proxy != 'false' && 'true' || 'false' }}
+      INPUT_EXISTING_TARGET_HOST: ${{ fromJSON(inputs.payload_json || '{}').existing_target_host }}
+    outputs:
+      deployment_env: ${{ steps.route.outputs.deployment_env }}
+      resource_file: ${{ steps.route.outputs.resource_file }}
+      terraform_workspace: ${{ steps.route.outputs.terraform_workspace }}
+      state_key: ${{ steps.route.outputs.state_key }}
+      terraform_namespace: ${{ steps.route.outputs.terraform_namespace }}
+      terraform_workdir: ${{ steps.route.outputs.terraform_workdir }}
+      run_infrastructure: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' && steps.route.outputs.run_infrastructure || 'false' }}
+      run_application_deploy: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' && steps.route.outputs.run_application_deploy || 'false' }}
+      target_domains: ${{ steps.route.outputs.target_domains }}
+      deploy_tag: ${{ steps.route.outputs.deploy_tag }}
+      terraform_action: ${{ steps.route.outputs.terraform_action }}
+      toolkit_action: ${{ steps.route.outputs.toolkit_action }}
+      toolkit_ref: ${{ steps.route.outputs.toolkit_ref }}
+      infra_ref: ${{ steps.route.outputs.infra_ref }}
+      playbooks_ref: ${{ steps.route.outputs.playbooks_ref }}
+      gitops_ref: ${{ steps.route.outputs.gitops_ref }}
+      console_ref: ${{ steps.route.outputs.console_ref }}
+      offline_mode: ${{ steps.route.outputs.offline_mode }}
+      source_host: ${{ steps.route.outputs.source_host }}
+      source_domain_base: ${{ steps.route.outputs.source_domain_base }}
+      target_domain_base: ${{ steps.route.outputs.target_domain_base }}
+      env_suffix: ${{ steps.route.outputs.env_suffix }}
+      dns_mode: ${{ steps.route.outputs.dns_mode }}
+      vault_env_path: ${{ steps.route.outputs.vault_env_path }}
+      agent_controller_url: ${{ steps.route.outputs.agent_controller_url }}
+      agent_accounts_base_url: ${{ steps.agent_proxy_origins.outputs.accounts_service_base_url || steps.route.outputs.agent_controller_url }}
+      billing_service_base_url: ${{ steps.agent_proxy_origins.outputs.billing_service_base_url || steps.route.outputs.billing_service_base_url }}
+      cloud_provider: ${{ steps.route.outputs.cloud_provider }}
+      provider_gitops_dir: ${{ steps.route.outputs.provider_gitops_dir }}
+      account: ${{ steps.route.outputs.account }}
+      migration_target_host: ${{ steps.resolve_migration_target.outputs.target_host }}
+      include_external_agent_proxy: ${{ steps.route.outputs.include_external_agent_proxy || 'true' }}
+      reuse_existing_host: ${{ steps.route.outputs.reuse_existing_host || 'false' }}
+      existing_target_host: ${{ steps.route.outputs.existing_target_host || '' }}
+      existing_target_user: ${{ steps.route.outputs.existing_target_user || '' }}
+      hosts: ${{ steps.route.outputs.hosts || '[]' }}
+      hosts_web_saas: ${{ steps.route.outputs.hosts_web_saas || '[]' }}
+      hosts_ai_workspace: ${{ steps.route.outputs.hosts_ai_workspace || '[]' }}
+      count: ${{ steps.route.outputs.count || '0' }}
+      target_manifest: ${{ steps.iac_target.outputs.target_manifest }}
+      gitops_sha: ${{ steps.iac_target.outputs.gitops_sha }}
+      iac_sha: ${{ steps.iac_target.outputs.iac_sha }}
+      selectors: ${{ steps.iac_target.outputs.selectors }}
+      terraform_project: ${{ steps.route.outputs.terraform_project }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && fromJSON(inputs.payload_json || '{}').__parent_head_sha || fromJSON(inputs.payload_json || '{}').source_ref || 'main' }}
+    - name: Route ref to an explicit profile
+      id: route
+      # env block inherited from job level — no repetition needed here
+      run: |-
+        ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_route-ref-to-an-explicit-profile.sh
+
+    - name: Checkout GitOps selfhost routing declaration
+      if: steps.route.outputs.run_infrastructure == 'true' || steps.route.outputs.run_application_deploy == 'true' || steps.route.outputs.toolkit_action == 'migrate'
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/gitops
+        ref: ${{ steps.route.outputs.gitops_ref }}
+        path: gitops
+    - name: Set up YAML reader for the existing-host owner
+      if: steps.route.outputs.reuse_existing_host == 'true' && steps.route.outputs.run_application_deploy == 'true'
+      uses: ./.github/actions/setup-yq
+
+    - name: Render existing AI Workspace CMDB through IaC
+      if: steps.route.outputs.reuse_existing_host == 'true' && steps.route.outputs.run_application_deploy == 'true'
+      uses: ai-workspace-infra/iac_modules/.github/actions/platform-resource-operations@bd098cba5acde525f2f1c4d3bc3a7bd6338c9077
+      with:
+        operation: existing-host
+        environment: ${{ steps.route.outputs.deployment_env }}
+        declaration: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/selfhost/ai-workspace-existing.yaml
+      env:
+        EXISTING_TARGET_HOST: ${{ steps.route.outputs.existing_target_host }}
+        EXISTING_TARGET_USER: ${{ steps.route.outputs.existing_target_user }}
+        OUTPUT_DIR: ${{ runner.temp }}/existing-ai-workspace-cmdb
+
+    - name: Resolve Agent Proxy machine service origins from GitOps
+      id: agent_proxy_origins
+      if: ${{ steps.route.outputs.run_application_deploy == 'true' && steps.route.outputs.terraform_action != 'destroy' && contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas
+        + agent-proxy"]'), steps.route.outputs.target_domains) }}
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_resolve-agent-proxy-service-origins.sh
+      env:
+        AGENT_CONTROLLER_URL: ${{ steps.route.outputs.agent_controller_url }}
+        BILLING_SERVICE_BASE_URL: ${{ steps.route.outputs.billing_service_base_url }}
+        DEPLOYMENT_ENV: ${{ steps.route.outputs.deployment_env }}
+        GITOPS_SERVERLESS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/serverless/runtime-topology.yaml
+    - name: Render GitOps selfhost routing declaration
+      if: ${{ (steps.route.outputs.run_infrastructure == 'true' || steps.route.outputs.toolkit_action == 'migrate') && steps.route.outputs.terraform_action != 'destroy'
+        && contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), steps.route.outputs.target_domains) }}
+      run: ${{ github.workspace }}/.github/scripts/gitops/prepare_gitops_routing_config.sh
+      env:
+        GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/selfhost/runtime-topology.yaml
+        GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/selfhost-edge-routing.json
+    - name: Validate GitOps selfhost routing contract
+      if: ${{ (steps.route.outputs.run_infrastructure == 'true' || steps.route.outputs.toolkit_action == 'migrate') && steps.route.outputs.terraform_action != 'destroy'
+        && contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), steps.route.outputs.target_domains) }}
+      run: python3 ${{ github.workspace }}/.github/scripts/gitops/validate_selfhost_contract.py
+      env:
+        GITOPS_ROUTING_CONFIG: ${{ runner.temp }}/selfhost-edge-routing.json
+        EXPECTED_ENV: ${{ steps.route.outputs.deployment_env }}
+        EXPECTED_TARGET_DOMAIN_BASE: ${{ steps.route.outputs.target_domain_base }}
+    - name: Resolve Accounts migration target from GitOps
+      id: resolve_migration_target
+      if: ${{ (steps.route.outputs.run_infrastructure == 'true' || steps.route.outputs.toolkit_action == 'migrate') && steps.route.outputs.terraform_action != 'destroy'
+        && contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), steps.route.outputs.target_domains) }}
+      run: ${{ github.workspace }}/.github/scripts/gitops/resolve_gitops_migration_target.sh
+      env:
+        GITOPS_ROUTING_CONFIG: ${{ runner.temp }}/selfhost-edge-routing.json
+        MIGRATION_SERVICE: console
+    - if: fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' && steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.reuse_existing_host != 'true'
+      uses: actions/checkout@v4
+      with:
+        repository: ai-workspace-infra/iac_modules
+        ref: fbb3100f40ee40d2ac276bffc7b3b6c1a7440b20
+        path: iac_modules
+        persist-credentials: false
+    - id: iac_target
+      if: fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' && steps.route.outputs.run_infrastructure == 'true' && steps.route.outputs.reuse_existing_host != 'true'
+      uses: ./iac_modules/.github/actions/iac-caller-targets
+      with:
+        iac-root: ${{ github.workspace }}/iac_modules
+        gitops-root: ${{ github.workspace }}/gitops
+        target-manifest: ${{ '' }}
+        caller: selfhost
+        topology-path: ''
+        state-key: ${{ steps.route.outputs.state_key }}
+        selectors: ${{ format('{{"environment":"{0}","project":"{1}","provider":"{2}","account":"{3}","workspace":"{4}"}}', steps.route.outputs.deployment_env, steps.route.outputs.terraform_project,
+          steps.route.outputs.cloud_provider, steps.route.outputs.account, steps.route.outputs.terraform_namespace) }}
+    - if: steps.route.outputs.reuse_existing_host == 'true' && steps.route.outputs.run_application_deploy == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: iac-existing-host-${{ github.run_id }}-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/existing-ai-workspace-cmdb
+        if-no-files-found: error
+  stage-output:
+    name: "Export resolve context"
+    if: ${{ always() && !cancelled() && needs.resolve-targets.result != '' }}
+    needs: [resolve-targets]
+    runs-on: ubuntu-latest
+    outputs:
+      context: ${{ toJSON(needs.resolve-targets) }}
+    steps:
+      - name: Write correlated stage context
+        env:
+          STAGE_NAME: resolve
+          STAGE_CONTEXT: ${{ toJSON(needs.resolve-targets) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          context = json.loads(os.environ["STAGE_CONTEXT"])
+          result = {"schema": 1, "stage": os.environ["STAGE_NAME"],
+                    "run_id": os.environ["GITHUB_RUN_ID"],
+                    "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                    "context": context}
+          target = Path(os.environ["RUNNER_TEMP"]) / "stage-context.json"
+          target.write_text(json.dumps(result, separators=(",", ":")) + "\n", encoding="utf-8")
+          PY
+      - name: Publish stage context for the parent run
+        uses: actions/upload-artifact@v7
+        with:
+          name: selfhost-stage-context-resolve
+          path: ${{ runner.temp }}/stage-context.json
+          if-no-files-found: error

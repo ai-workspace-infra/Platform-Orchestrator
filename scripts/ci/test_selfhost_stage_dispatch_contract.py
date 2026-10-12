@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Contracts for the compact five-run Selfhost parent orchestrator."""
+
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+import os
+import re
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import yaml
+
+
+ROOT = Path(__file__).resolve().parents[2]
+STAGES = ("resolve", "infra", "deploy", "migrate", "verify")
+PARENT_JOBS = ("resolve", "infrastructure", "deploy", "migrate", "verify")
+SCRIPT = ROOT / ".github/scripts/platform-ops/stage-dispatch.py"
+SPEC = spec_from_file_location("stage_dispatch", SCRIPT)
+stage_dispatch = module_from_spec(SPEC)
+SPEC.loader.exec_module(stage_dispatch)
+
+
+def load_workflow(path: Path):
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+
+
+class SelfhostStageDispatchContractTest(unittest.TestCase):
+    def test_parent_graph_has_five_dispatch_and_wait_jobs(self):
+        parent = load_workflow(ROOT / ".github/workflows/selfhost-orchestrator.yml")
+        jobs = parent["jobs"]
+        self.assertEqual(list(jobs), list(PARENT_JOBS))
+        self.assertNotIn("id-token", parent["permissions"])
+        for stage, job_id in zip(STAGES, PARENT_JOBS, strict=True):
+            job = jobs[job_id]
+            self.assertEqual(job["runs-on"], "ubuntu-latest", stage)
+            self.assertNotIn("uses", job, stage)
+            dispatch = next(step for step in job["steps"] if step.get("id") == "dispatch")
+            self.assertIn("stage-dispatch.py", dispatch["run"], stage)
+        self.assertEqual(jobs["infrastructure"]["needs"], "resolve")
+        self.assertEqual(jobs["deploy"]["needs"], ["resolve", "infrastructure"])
+        self.assertEqual(jobs["migrate"]["needs"], ["resolve", "infrastructure", "deploy"])
+        self.assertEqual(jobs["verify"]["needs"], ["resolve", "infrastructure", "deploy", "migrate"])
+
+    def test_dispatched_stage_requires_parent_and_uploads_context(self):
+        for stage in STAGES:
+            workflow_path = ROOT / f".github/workflows/selfhost-stage-{stage}.yml"
+            workflow = load_workflow(workflow_path)
+            dispatch_inputs = workflow["on"]["workflow_dispatch"]["inputs"]
+            self.assertLessEqual(len(dispatch_inputs), 10, stage)
+            input_refs = set(re.findall(r"\binputs\.([A-Za-z_][A-Za-z0-9_-]*)", workflow_path.read_text(encoding="utf-8")))
+            self.assertLessEqual(input_refs, set(dispatch_inputs), (stage, sorted(input_refs - set(dispatch_inputs))))
+            for field in ("payload_json", "parent_run_id", "parent_run_attempt", "correlation_id"):
+                self.assertEqual(dispatch_inputs[field]["required"], "true", (stage, field))
+            self.assertIn("parent-gate", workflow["jobs"])
+            gate = workflow["jobs"]["parent-gate"]
+            self.assertIn("verify-parent", gate["steps"][-1]["run"])
+
+            def depends_on_gate(job_id, seen=None):
+                seen = set() if seen is None else seen
+                if job_id == "parent-gate":
+                    return True
+                if job_id in seen:
+                    return False
+                seen.add(job_id)
+                needs = workflow["jobs"][job_id].get("needs", [])
+                needs = [needs] if isinstance(needs, str) else needs
+                return any(depends_on_gate(dependency, seen) for dependency in needs)
+
+            for job_id in workflow["jobs"]:
+                self.assertTrue(depends_on_gate(job_id), (stage, job_id))
+            if stage != "verify":
+                output = workflow["jobs"]["stage-output"]
+                artifact = next(step for step in output["steps"] if step.get("uses") == "actions/upload-artifact@v7")
+                self.assertEqual(artifact["with"]["name"], f"selfhost-stage-context-{stage}")
+
+    def test_cross_run_context_artifacts_are_bound_to_exact_runs(self):
+        infra = (ROOT / ".github/workflows/selfhost-stage-infra.yml").read_text(encoding="utf-8")
+        self.assertIn("iac-existing-host-${{ inputs.resolve_run_id }}-${{ inputs.resolve_run_attempt }}", infra)
+        for stage in ("deploy", "migrate", "verify"):
+            workflow = load_workflow(ROOT / f".github/workflows/selfhost-stage-{stage}.yml")
+            downloads = [
+                step for job in workflow["jobs"].values()
+                for step in job.get("steps", [])
+                if step.get("uses", "").startswith("actions/download-artifact@")
+                and step.get("with", {}).get("name") == "platform-ops-toolkit-cmdb"
+            ]
+            for download in downloads:
+                self.assertEqual(download["with"]["run-id"], "${{ inputs.infra_run_id }}")
+                self.assertEqual(download["with"]["repository"], "${{ github.repository }}")
+
+    def test_child_run_lookup_requires_exact_correlation_name(self):
+        original = stage_dispatch.gh
+        try:
+            stage_dispatch.gh = lambda *_args, **_kwargs: {
+                "workflow_runs": [
+                    {"id": 1, "display_title": "Selfhost Stage resolve-123-1"},
+                    {"id": 2, "display_title": "Selfhost Stage resolve-123-10"},
+                ]
+            }
+            selected = stage_dispatch.find_child("org/repo", "child.yml", "2026-01-01T00:00:00Z", "resolve-123-1")
+            self.assertEqual(selected["id"], 1)
+        finally:
+            stage_dispatch.gh = original
+
+    def test_parent_run_identifiers_are_numeric_before_api_lookup(self):
+        self.assertEqual(stage_dispatch.require_positive_decimal("12345", "Parent run ID"), "12345")
+        for value in ("0", "-1", "12/../../secrets", "１２３"):
+            with self.subTest(value=value), self.assertRaises(SystemExit):
+                stage_dispatch.require_positive_decimal(value, "Parent run ID")
+
+    def test_terminal_verify_stage_uses_run_conclusion_without_context_artifact(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "github-output"
+            summary = Path(directory) / "step-summary"
+            with patch.dict(os.environ, {
+                "GITHUB_OUTPUT": str(output),
+                "GITHUB_STEP_SUMMARY": str(summary),
+            }), patch("subprocess.run", side_effect=AssertionError("verify must not download a context artifact")):
+                stage_dispatch.download_context(
+                    "org/repo",
+                    {"id": 123, "run_attempt": 2, "html_url": "https://example.invalid/run/123"},
+                    "verify",
+                )
+            self.assertIn("run_id=123", output.read_text(encoding="utf-8"))
+            self.assertIn("run_attempt=2", output.read_text(encoding="utf-8"))
+            self.assertIn("open child run", summary.read_text(encoding="utf-8"))
+
+
+if __name__ == "__main__":
+    unittest.main()

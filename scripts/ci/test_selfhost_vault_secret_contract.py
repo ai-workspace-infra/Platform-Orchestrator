@@ -7,12 +7,12 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW = ROOT / ".github/workflows/selfhost-orchestrator.yml"
+WORKFLOWS = [ROOT / f".github/workflows/selfhost-stage-{stage}.yml" for stage in ("resolve", "infra", "deploy", "migrate", "verify")]
 
 
 class SelfhostVaultSecretContractTest(unittest.TestCase):
     def test_each_multiline_vault_secret_entry_has_a_delimiter(self) -> None:
-        lines = WORKFLOW.read_text().splitlines()
+        lines = "\n".join(path.read_text() for path in WORKFLOWS).splitlines()
         vault_step = False
         index = 0
 

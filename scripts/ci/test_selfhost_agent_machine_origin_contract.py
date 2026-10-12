@@ -7,17 +7,17 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW = ROOT / ".github/workflows/selfhost-orchestrator.yml"
+WORKFLOWS = [ROOT / f".github/workflows/selfhost-stage-{stage}.yml" for stage in ("deploy", "migrate", "verify")]
 
 
 class SelfhostAgentMachineOriginContractTest(unittest.TestCase):
     def test_deployments_use_resolved_accounts_machine_origin(self) -> None:
-        workflow = WORKFLOW.read_text()
+        workflow = "\n".join(path.read_text() for path in WORKFLOWS)
 
         self.assertEqual(
             len(
                 re.findall(
-                    r"AGENT_CONTROLLER_URL:\s+\$\{\{ needs\.provision\.outputs\.agent_accounts_base_url \}\}",
+                    r"AGENT_CONTROLLER_URL:\s+\$\{\{ (?:needs\.provision\.outputs\.agent_accounts_base_url|fromJSON\(inputs\.provision_context \|\| .\{\}.*?\)\.outputs\.agent_accounts_base_url) \}\}",
                     workflow,
                 )
             ),
@@ -33,7 +33,7 @@ class SelfhostAgentMachineOriginContractTest(unittest.TestCase):
         self.assertEqual(
             len(
                 re.findall(
-                    r"AGENT_CONTROLLER_URL:\s+\$\{\{ needs\.provision\.outputs\.agent_controller_url \}\}",
+                    r"AGENT_CONTROLLER_URL:\s+\$\{\{ fromJSON\(needs\.stage-context\.outputs\.provision_context\)\.outputs\.agent_controller_url \}\}",
                     workflow,
                 )
             ),

@@ -9,7 +9,11 @@ OWNER_SHA = "d7e49189a5de9c105a940f1c79abfb3b2b33bbd4"
 CONFIGURE = ROOT / ".github/actions/configure-gcp-oidc/action.yml"
 IDENTITY = ROOT / ".github/actions/load-gcp-cloud-identity/action.yml"
 AUTH_CALLERS = (
-    "selfhost-orchestrator.yml",
+    "selfhost-stage-resolve.yml",
+    "selfhost-stage-infra.yml",
+    "selfhost-stage-deploy.yml",
+    "selfhost-stage-migrate.yml",
+    "selfhost-stage-verify.yml",
     "ai-aggregator-v1.yml",
     "observability-server.yml",
     "zitadel-server.yml",
