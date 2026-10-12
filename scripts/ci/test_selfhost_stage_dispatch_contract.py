@@ -31,6 +31,11 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
         jobs = parent["jobs"]
         self.assertEqual(list(jobs), list(PARENT_JOBS))
         self.assertNotIn("id-token", parent["permissions"])
+        request_step = next(step for step in jobs["resolve"]["steps"] if step.get("id") == "request")
+        self.assertEqual(
+            request_step["env"]["REQUEST_INPUTS_JSON"],
+            "${{ toJSON(inputs || github.event.inputs || fromJSON('{}')) }}",
+        )
         for stage, job_id in zip(STAGES, PARENT_JOBS, strict=True):
             job = jobs[job_id]
             self.assertEqual(job["runs-on"], "ubuntu-latest", stage)
