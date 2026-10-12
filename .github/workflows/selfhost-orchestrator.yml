@@ -238,9 +238,9 @@ env:
   AKAMAI_ACCOUNT: ${{ github.event.inputs.akamai_account || 'manbuzhe2026' }}
 
 jobs:
-  # GitHub Actions renders jobs as a dependency graph.  Keep every job and
-  # dependency intact, but use four stable visual stages in job names so the
-  # matrix fan-out remains readable: Prepare, Bootstrap, Workloads, Gate.
+  # GitHub Actions has no native stage primitive. Stable [1/5]...[5/5] labels
+  # expose the lifecycle while retaining the workload matrices and their gates.
+  # IaC and data migration execute only through their owning external workflows.
   native_prod_standby:
     name: "[1] PROD | native database standby only"
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.operation == 'native-standby' }}
@@ -744,7 +744,7 @@ jobs:
       && github.event.inputs.operation != 'native-billing-plan' && github.event.inputs.operation != 'native-billing' && github.event.inputs.operation != 'native-business-plan'
       && github.event.inputs.operation != 'native-business-copy' && github.event.inputs.operation != 'native-business-compare' && github.event.inputs.operation != 'native-core-users'
       && github.event.inputs.operation != 'native-core-users-compare' && github.event.inputs.operation != 'native-availability' }}
-    name: '[0] Resolve | fixed GitOps target'
+    name: '[1/5] Resolve & Validate | fixed GitOps target'
     environment: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.vault_env_path == 'prod') && 'prod' || (github.event_name == 'workflow_dispatch'
       && github.event.inputs.vault_env_path == 'uat' && 'uat' || (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref,
       'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || ''))) }}
@@ -906,26 +906,44 @@ jobs:
         path: ${{ runner.temp }}/existing-ai-workspace-cmdb
         if-no-files-found: error
   iac:
-    name: '[0A] IaC | unified resources pipeline'
+    name: '[2/5] IaC | dispatch external pipeline'
     needs: resolve-targets
     if: needs.resolve-targets.result == 'success' && needs.resolve-targets.outputs.run_infrastructure == 'true' && needs.resolve-targets.outputs.reuse_existing_host
       != 'true'
-    uses: ./.github/workflows/iac-pipeline-multi-cloud-master.yaml
-    with:
-      action: ${{ needs.resolve-targets.outputs.terraform_action }}
-      environment: ${{ needs.resolve-targets.outputs.deployment_env }}
-      target_manifest: ${{ needs.resolve-targets.outputs.target_manifest }}
-      gitops_ref: ${{ needs.resolve-targets.outputs.gitops_sha }}
-      iac_ref: ${{ needs.resolve-targets.outputs.iac_sha }}
-      stage_scope: resources
-      bootstrap_mode: verify
-      correlation_id: ${{ github.run_id }}:${{ github.run_attempt }}:selfhost
-      selectors: ${{ needs.resolve-targets.outputs.selectors }}
-    secrets: inherit
+    runs-on: ubuntu-latest
+    outputs:
+      child_run_id: ${{ steps.dispatch.outputs.child_run_id }}
+      child_run_attempt: ${{ steps.dispatch.outputs.child_run_attempt }}
+      receipt_artifact_id: ${{ steps.dispatch.outputs.receipt_artifact_id }}
+      receipt_sha256: ${{ steps.dispatch.outputs.receipt_sha256 }}
+      gitops_sha: ${{ steps.dispatch.outputs.gitops_sha }}
+      iac_sha: ${{ steps.dispatch.outputs.iac_sha }}
+    steps:
+      - name: Check out the exact dispatcher source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Dispatch external IaC workflow and verify its exact receipt
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IAC_ACTION: ${{ needs.resolve-targets.outputs.terraform_action }}
+          IAC_ENVIRONMENT: ${{ needs.resolve-targets.outputs.deployment_env }}
+          IAC_TARGET_MANIFEST: ${{ needs.resolve-targets.outputs.target_manifest }}
+          IAC_GITOPS_REF: ${{ needs.resolve-targets.outputs.gitops_sha }}
+          IAC_REF: ${{ needs.resolve-targets.outputs.iac_sha }}
+          IAC_STAGE_SCOPE: resources
+          IAC_BOOTSTRAP_MODE: verify
+          IAC_SELECTORS: ${{ needs.resolve-targets.outputs.selectors }}
+          IAC_DISPATCH_REF: ${{ needs.resolve-targets.outputs.toolkit_ref }}
+          IAC_CORRELATION_ID: ${{ github.run_id }}:${{ github.run_attempt }}:selfhost
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: python3 .github/scripts/platform-ops/provision/dispatch-iac-pipeline.py
   provision:
     if: ${{ !cancelled() && needs.resolve-targets.result == 'success' && (needs.iac.result == 'success' || (needs.iac.result == 'skipped' && (needs.resolve-targets.outputs.run_infrastructure
       != 'true' || needs.resolve-targets.outputs.reuse_existing_host == 'true'))) }}
-    name: '[0B] Verify | receipt + deployment inventory'
+    name: '[2/5] Provision | verify receipt + deployment inventory'
     environment: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.vault_env_path == 'prod') && 'prod' || (github.event_name == 'workflow_dispatch'
       && github.event.inputs.vault_env_path == 'uat' && 'uat' || (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref,
       'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || ''))) }}
@@ -990,6 +1008,9 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         artifact-ids: ${{ needs.iac.outputs.receipt_artifact_id }}
+        run-id: ${{ needs.iac.outputs.child_run_id }}
+        github-token: ${{ github.token }}
+        repository: ${{ github.repository }}
         merge-multiple: true
         path: ${{ runner.temp }}/iac-summary
     - id: verified_iac
@@ -998,8 +1019,8 @@ jobs:
       with:
         summary-file: ${{ runner.temp }}/iac-summary/summary.json
         receipt-sha256: ${{ needs.iac.outputs.receipt_sha256 }}
-        run-id: ${{ github.run_id }}
-        run-attempt: ${{ github.run_attempt }}
+        run-id: ${{ needs.iac.outputs.child_run_id }}
+        run-attempt: ${{ needs.iac.outputs.child_run_attempt }}
         gitops-sha: ${{ needs.resolve-targets.outputs.gitops_sha }}
         iac-sha: ${{ needs.resolve-targets.outputs.iac_sha }}
         target-manifest: ${{ needs.resolve-targets.outputs.target_manifest }}
@@ -1082,7 +1103,7 @@ jobs:
   # The external Gateway and One records are configurable inputs; the defaults
   # are the current UAT topology, not provider-specific logic.
   deploy_xconnect_zero_uat:
-    name: "[0B] XConnect Zero UAT / existing One"
+    name: "[3/5] Deploy | XConnect Zero UAT / existing One"
     needs: [provision]
     if: >-
       ${{ !cancelled() &&
@@ -1114,7 +1135,7 @@ jobs:
   # 步骤 2: 基础环境安装 (Bootstrap Deploy)
   # ---------------------------------------------------------------------------
   deploy_base:
-    name: "[1] Bootstrap | ${{ matrix.host }}"
+    name: "[3/5] Deploy | bootstrap ${{ matrix.host }}"
     # 只初始化节点；服务安装由后续 deploy_* jobs 负责。
     needs: provision
     if: >-
@@ -1469,7 +1490,7 @@ jobs:
   # PROD is excluded until promotion of this gate to PROD is decided explicitly.
   # ---------------------------------------------------------------------------
   capture_web_saas_baseline:
-    name: "[1] Web SaaS baseline | ${{ matrix.host }}"
+    name: "[3/5] Deploy | Web SaaS baseline ${{ matrix.host }}"
     outputs:
       baseline_data_run_id: ${{ steps.dispatch.outputs.data_run_id }}
       baseline_state: ${{ steps.receipt.outputs.captured_state }}
@@ -1541,7 +1562,7 @@ jobs:
   # ai-workspace-infra/gitops 并提交，以打通 CI 到 Pull-Only CD 的闭环。
   # ---------------------------------------------------------------------------
   update_gitops_tags:
-    name: "[1] GitOps | deploy tags"
+    name: "[3/5] Deploy | GitOps release tags"
     needs: [provision, capture_web_saas_baseline]
     if: >-
       ${{ !cancelled() &&
@@ -1659,7 +1680,7 @@ jobs:
   # A schema init is routed through the unified data control plane only when
   # specifically requested there; ordinary deploys never create schema.
   initialize_empty_web_saas:
-    name: "[2] Explicit empty UAT database initialization"
+    name: "[3/5] Deploy | explicit empty UAT database initialization"
     needs: [provision, deploy_base, capture_web_saas_baseline, update_gitops_tags]
     if: >-
       ${{ !cancelled() && github.event.inputs.operation == 'deploy+init' &&
@@ -1686,7 +1707,7 @@ jobs:
         python3 .github/scripts/environment-upgrade/dispatch.py
 
   deploy_web_saas:
-    name: "[2] Web SaaS | ${{ matrix.host }}"
+    name: "[3/5] Deploy | Web SaaS ${{ matrix.host }}"
     needs: [provision, deploy_base, update_gitops_tags, initialize_empty_web_saas]
     if: >-
       ${{ !cancelled() &&
@@ -1725,7 +1746,7 @@ jobs:
   # services through the exact CMDB host; a failure fails the run and summary.
   # ---------------------------------------------------------------------------
   accept_web_saas_upgrade:
-    name: "[3] Web SaaS acceptance | ${{ matrix.host }}"
+    name: "[3/5] Deploy gate | Web SaaS pre-route acceptance ${{ matrix.host }}"
     needs: [provision, capture_web_saas_baseline, deploy_web_saas]
     if: >-
       ${{ always() && !cancelled() &&
@@ -1758,7 +1779,7 @@ jobs:
       run: python3 .github/scripts/environment-upgrade/dispatch.py
 
   switch_dns:
-    name: "[3] DNS Update"
+    name: "[4/5] Configure | DNS update"
     # This stage only reconciles DNS. Service validation runs in the two
     # parallel matrix jobs after this job succeeds.
     needs: [
@@ -1769,11 +1790,16 @@ jobs:
       deploy_infra_platform,
       deploy_agent_proxy,
       deploy_agent_proxy_non_iac,
-      deploy_ai_workspace
+      deploy_ai_workspace,
+      trigger_data_migration
     ]
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
+      (needs.trigger_data_migration.result == 'success' ||
+      (needs.trigger_data_migration.result == 'skipped' &&
+      needs.provision.outputs.toolkit_action != 'migrate' &&
+      needs.provision.outputs.toolkit_action != 'deploy+migrate')) &&
       (needs.deploy_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
       (needs.provision.outputs.deployment_env != 'uat' ||
       !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) ||
@@ -1944,7 +1970,7 @@ jobs:
       run: ${{ github.workspace }}/playbooks/scripts/pipeline/remove-temporary-agent-controller-host.sh
 
   bootstrap_stripe_catalog:
-    name: "[4] Stripe catalog"
+    name: "[4/5] Configure | Stripe catalog"
     needs: [provision, switch_dns]
     if: >-
       ${{ always() && !cancelled() &&
@@ -1997,7 +2023,7 @@ jobs:
         SKIP_DATABASE_SEED: 'true'
 
   observe_web_saas_after_dns:
-    name: "[4] Web SaaS status | ${{ matrix.host }}"
+    name: "[5/5] Verify | Web SaaS status ${{ matrix.host }}"
     needs: [provision, switch_dns]
     if: >-
       ${{ always() && !cancelled() &&
@@ -2084,7 +2110,7 @@ jobs:
       run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
 
   observe_agent_proxy_after_dns:
-    name: "[4] Agent Proxy status | ${{ matrix.host }}"
+    name: "[5/5] Verify | Agent Proxy status ${{ matrix.host }}"
     needs: [provision, switch_dns]
     if: >-
       ${{ always() && !cancelled() &&
@@ -2153,7 +2179,7 @@ jobs:
         --extra-vars "readiness_target_host=${MATRIX_HOST}"
 
   deployment_summary:
-    name: "[5] Deployment summary"
+    name: "[5/5] Verify & Report | deployment summary"
     needs: [
       provision,
       deploy_web_saas,
@@ -2230,7 +2256,7 @@ jobs:
       run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_deployment-summary.sh
 
   deploy_infra_platform:
-    name: "[2] Infra | ${{ matrix.host }}"
+    name: "[3/5] Deploy | Infra ${{ matrix.host }}"
     # UAT Akamai open-platform is installed by deploy_base via
     # setup-open-platform-domain.yml. The generic pull-only CD workflow has no
     # managed image contract for this domain and would only perform a
@@ -2262,7 +2288,7 @@ jobs:
       deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
 
   deploy_agent_proxy:
-    name: "[3] Agent Proxy IaC | ${{ matrix.host }}"
+    name: "[3/5] Deploy | Agent Proxy IaC ${{ matrix.host }}"
     # UAT selfhost Agent Proxy registration targets the Web SaaS Accounts
     # service. Wait for the Web SaaS deployment before registering agents;
     # otherwise a fresh all-domain run races the controller and fails with a
@@ -2410,11 +2436,11 @@ jobs:
         -e agent_billing_enabled="${AGENT_BILLING_ENABLED}"
 
   deploy_agent_proxy_non_iac:
-    name: "[3] Agent Proxy non-IaC | ${{ matrix.host }}"
+    name: "[3/5] Deploy | Agent Proxy existing host ${{ matrix.host }}"
     # TW and PH are deliberately outside Terraform state. Their public
     # addresses and credentials come from the GitOps declaration plus Vault,
     # while JP/US/SG continue through the CMDB Agent Proxy matrix above.
-    needs: [provision]
+    needs: [provision, deploy_web_saas, accept_web_saas_upgrade]
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
@@ -2689,7 +2715,7 @@ jobs:
         -e vector_observability_endpoint="${OBSERVABILITY_ENDPOINT}"
 
   deploy_ai_workspace:
-    name: "[2] AI Workspace | ${{ matrix.host }}"
+    name: "[3/5] Deploy | AI Workspace ${{ matrix.host }}"
     needs: [provision, deploy_base]
     if: >-
       ${{ !cancelled() &&
@@ -2713,7 +2739,7 @@ jobs:
       deploy_tag: ${{ needs.provision.outputs.deploy_tag }}
 
   deploy_monitor_agent:
-    name: "[2] Monitor Agent"
+    name: "[3/5] Deploy | monitor agent"
     # Agent Proxy owns the native Xray and xray-exporter services. Vector's
     # billing input and exporter scrape sources must be rendered after that
     # deployment has completed; otherwise a parallel monitor job can render a
@@ -2836,18 +2862,22 @@ jobs:
       run: ${{ github.workspace }}/playbooks/scripts/pipeline/verify-xray-billing-chain.sh
 
   trigger_data_migration:
-    name: "[3] Data Migration"
+    name: "[4/5] Migrate | dispatch external data pipeline"
     # The toolkit operation selects whether this execution includes migration.
     # GitOps supplies the declarative runtime topology only; its migration
     # capability flag is not a control-plane authorization for this run.
     # Import is explicit and gated by confirm_legacy_import in the unified
     # control plane. Older migrate/deploy+migrate callers fail closed.
-    needs: [provision]
+    needs: [provision, deploy_web_saas, accept_web_saas_upgrade]
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
-      (needs.provision.outputs.toolkit_action == 'migrate' ||
-      needs.provision.outputs.toolkit_action == 'deploy+migrate') }}
+      ((needs.provision.outputs.toolkit_action == 'migrate' &&
+      needs.deploy_web_saas.result == 'skipped' &&
+      needs.accept_web_saas_upgrade.result == 'skipped') ||
+      (needs.provision.outputs.toolkit_action == 'deploy+migrate' &&
+      needs.deploy_web_saas.result == 'success' &&
+      needs.accept_web_saas_upgrade.result == 'success')) }}
     runs-on: ubuntu-latest
     steps:
     - name: Check out the toolkit dispatcher

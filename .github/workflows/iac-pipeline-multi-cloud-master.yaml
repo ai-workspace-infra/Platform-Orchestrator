@@ -1,4 +1,5 @@
 name: Multi-cloud IaC Pipeline
+run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action }} / ${{ inputs.environment }}'
 'on':
   workflow_dispatch:
     inputs:
