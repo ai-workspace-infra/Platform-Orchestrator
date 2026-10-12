@@ -33,7 +33,7 @@ name: Multi-cloud IaC Pipeline
       iac_ref:
         description: Owner actions and modules from one resolved SHA
         type: string
-        default: c499705c23e4cb77683f8b4754dae0fd015a99c2
+        default: fbb3100f40ee40d2ac276bffc7b3b6c1a7440b20
         required: false
       stage_scope:
         description: all/bootstrap/account/resources
@@ -86,7 +86,7 @@ name: Multi-cloud IaC Pipeline
       iac_ref:
         description: Owner actions and modules from one resolved SHA
         type: string
-        default: c499705c23e4cb77683f8b4754dae0fd015a99c2
+        default: fbb3100f40ee40d2ac276bffc7b3b6c1a7440b20
         required: false
       stage_scope:
         description: all/bootstrap/account/resources
