@@ -18,7 +18,7 @@ TAG = re.compile(r'^(?:(?:uat-)?daily-build-\d{4}\.\d{2}\.\d{2}(?:-r[1-9]\d*)?|v
 WORKFLOWS = ('daily-main-snapshot.yaml', 'serverless-orchestrator.yml')
 
 def api(path, payload=None, binary=False):
-    cmd = ['gh', 'api', path, '--allow-escape-sequences']
+    cmd = ['gh', 'api', path]
     if payload is not None:
         cmd += ['--method', 'PUT' if '/contents/' in path else 'POST', '--input', '-']
     data = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120, input=json.dumps(payload).encode() if payload is not None else None).stdout
