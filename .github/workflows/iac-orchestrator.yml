@@ -22,6 +22,12 @@ run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action
           - uat
           - prod
           - shared
+      cloud_provider:
+        description: "云服务商（auto=按 GitOps 目标声明）"
+        type: choice
+        required: true
+        default: auto
+        options: [auto, aws-cloud, azure-cloud, gcp-cloud, vultr-vps, akamai-cloud, ucloud]
       target_manifest:
         description: Reviewed IaCPipelineTargets path; required unless resource_manifest resolves a unique target
         type: string
@@ -29,11 +35,6 @@ run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action
         default: ''
       resource_manifest:
         description: Optional GitOps resource path; must resolve a unique reviewed target
-        type: string
-        required: false
-        default: ''
-      cloud_provider:
-        description: Optional provider constraint; must agree with the target declaration
         type: string
         required: false
         default: ''
@@ -175,6 +176,25 @@ jobs:
       contract_sha256: ${{ steps.targets.outputs.contract_sha256 }}
       correlation_id: ${{ steps.targets.outputs.correlation_id }}
     steps:
+      - name: Resolve provider selection without overriding GitOps
+        id: provider
+        env:
+          REQUEST_INPUTS: ${{ toJSON(inputs) }}
+        run: |
+          python3 - <<'PYCODE'
+          import json, os
+          request = json.loads(os.environ['REQUEST_INPUTS'])
+          provider = request.get('cloud_provider', '')
+          if provider == 'auto':
+              provider = ''
+          allowed = {'', 'aws-cloud', 'azure-cloud', 'gcp-cloud', 'vultr-vps', 'akamai-cloud', 'ucloud'}
+          if provider not in allowed:
+              raise SystemExit('Unsupported cloud provider; use a declared Terraform provider or auto.')
+          request['cloud_provider'] = provider
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
+              stream.write('cloud_provider=' + provider + '\n')
+              stream.write('inputs_json=' + json.dumps(request, separators=(',', ':')) + '\n')
+          PYCODE
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -191,12 +211,12 @@ jobs:
           path: gitops
           persist-credentials: false
       - id: normalize
-        if: inputs.target_manifest == '' || inputs.resource_manifest != '' || inputs.cloud_provider != '' || inputs.account != ''
+        if: inputs.target_manifest == '' || inputs.resource_manifest != '' || steps.provider.outputs.cloud_provider != '' || inputs.account != ''
         uses: ./iac_modules/.github/actions/iac-legacy-inputs
         with:
-          inputs-json: ${{ toJSON(inputs) }}
+          inputs-json: ${{ steps.provider.outputs.inputs_json }}
           stage: ${{ inputs.stage_scope == 'all' && 'resources' || inputs.stage_scope }}
-          provider: ${{ inputs.cloud_provider }}
+          provider: ${{ steps.provider.outputs.cloud_provider }}
           iac-root: ${{ github.workspace }}/iac_modules
           gitops-root: ${{ github.workspace }}/gitops
       - id: targets

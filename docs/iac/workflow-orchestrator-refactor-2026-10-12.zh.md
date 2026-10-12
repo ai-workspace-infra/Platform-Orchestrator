@@ -60,6 +60,8 @@ flowchart TD
 
 优先提供明确的 `target_manifest`。共享服务调用方可提供 `resource_manifest`、`cloud_provider` 和 `account`；统一入口使用固定 IaC owner 的输入归一化 action，从 GitOps 中解析唯一 target。缺失、歧义、身份冲突或阶段不支持都会失败。已有显式 `selectors` 仍进入 owner 校验，不被新参数覆盖。
 
+手动表单的 `cloud_provider` 位于 environment 之后，提供 `auto / aws-cloud / azure-cloud / gcp-cloud / vultr-vps / akamai-cloud / ucloud` 下拉选项。`auto` 表示按已选择的 GitOps target 声明执行，也支持跨云 target；明确选云时必须与声明一致。选云不替代 target/resource manifest，也不会自动创建目标。ULightHost 属于 existing inventory，不进入 Terraform 六云选项。`workflow_call` 继续允许省略 provider，由目标声明决定。
+
 迁移后的调用方包括：
 
 - Selfhost 的 dispatch 脚本：改为 dispatch `iac-orchestrator.yml`，保留关联 ID、子 run/attempt、回执 artifact ID 和 checksum 校验。
