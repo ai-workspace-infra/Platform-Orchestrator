@@ -340,13 +340,16 @@ assert target["with"]["state-key"] == "${{ steps.route.outputs.state_key }}"
 
 iac = selfhost["jobs"]["iac"]
 assert iac["needs"] == "resolve-targets"
-assert iac["uses"] == "./.github/workflows/iac-pipeline-multi-cloud-master.yaml"
-assert iac["with"]["target_manifest"] == "${{ needs.resolve-targets.outputs.target_manifest }}"
-assert iac["with"]["gitops_ref"] == "${{ needs.resolve-targets.outputs.gitops_sha }}"
-assert iac["with"]["iac_ref"] == "${{ needs.resolve-targets.outputs.iac_sha }}"
-assert iac["with"]["stage_scope"] == "resources"
-assert iac["with"]["bootstrap_mode"] == "verify"
-assert iac["with"]["correlation_id"] == "${{ github.run_id }}:${{ github.run_attempt }}:selfhost"
+assert "dispatch external pipeline" in iac["name"]
+assert iac["outputs"]["child_run_id"] == "${{ steps.dispatch.outputs.child_run_id }}"
+dispatch_step = next(step for step in iac["steps"] if step.get("id") == "dispatch")
+assert dispatch_step["run"] == "python3 .github/scripts/platform-ops/provision/dispatch-iac-pipeline.py"
+assert dispatch_step["env"]["IAC_TARGET_MANIFEST"] == "${{ needs.resolve-targets.outputs.target_manifest }}"
+assert dispatch_step["env"]["IAC_GITOPS_REF"] == "${{ needs.resolve-targets.outputs.gitops_sha }}"
+assert dispatch_step["env"]["IAC_REF"] == "${{ needs.resolve-targets.outputs.iac_sha }}"
+assert dispatch_step["env"]["IAC_STAGE_SCOPE"] == "resources"
+assert dispatch_step["env"]["IAC_BOOTSTRAP_MODE"] == "verify"
+assert dispatch_step["env"]["IAC_CORRELATION_ID"] == "${{ github.run_id }}:${{ github.run_attempt }}:selfhost"
 
 provision = selfhost["jobs"]["provision"]
 assert provision["needs"] == ["resolve-targets", "iac"]
@@ -354,6 +357,8 @@ steps = provision["steps"]
 receipt_checkout = next(step for step in steps if step.get("with", {}).get("repository") == "ai-workspace-infra/iac_modules")
 assert receipt_checkout["with"]["ref"] == "${{ needs.iac.outputs.iac_sha }}"
 receipt_download = next(step for step in steps if step.get("with", {}).get("artifact-ids") == "${{ needs.iac.outputs.receipt_artifact_id }}")
+assert receipt_download["with"]["run-id"] == "${{ needs.iac.outputs.child_run_id }}"
+assert receipt_download["with"]["repository"] == "${{ github.repository }}"
 receipt_verify = next(step for step in steps if step.get("uses") == "./iac_modules/.github/actions/iac-receipt-verify")
 inventory = next(step for step in steps if step.get("uses") == "./iac_modules/.github/actions/iac-caller-inventory")
 assert steps.index(receipt_checkout) < steps.index(receipt_download) < steps.index(receipt_verify) < steps.index(inventory)
@@ -363,6 +368,17 @@ assert receipt_verify["with"]["iac-sha"] == "${{ needs.resolve-targets.outputs.i
 assert receipt_verify["with"]["target-manifest"] == "${{ needs.resolve-targets.outputs.target_manifest }}"
 assert receipt_verify["with"]["correlation-id"] == "${{ github.run_id }}:${{ github.run_attempt }}:selfhost"
 assert "terraform_action == 'apply'" in inventory["if"]
+migration = selfhost["jobs"]["trigger_data_migration"]
+assert "dispatch external data pipeline" in migration["name"]
+assert "deploy_web_saas" in migration["needs"]
+assert "accept_web_saas_upgrade" in migration["needs"]
+migration_dispatch = next(step for step in migration["steps"] if step.get("name") == "Dispatch explicitly gated legacy import and wait for its verdict")
+assert migration_dispatch["run"] == "python3 .github/scripts/environment-upgrade/dispatch.py"
+assert "trigger_data_migration" in selfhost["jobs"]["switch_dns"]["needs"]
+iac_dispatcher = open(".github/scripts/platform-ops/provision/dispatch-iac-pipeline.py", encoding="utf-8").read()
+assert '"actions/workflows/{WORKFLOW}/dispatches"' in iac_dispatcher
+assert "never issue a second POST" in iac_dispatcher
+assert "receipt_sha256" in iac_dispatcher
 selfhost_text = open(".github/workflows/selfhost-orchestrator.yml", encoding="utf-8").read()
 assert "adopt_uat_open_platform_vm.py" not in selfhost_text
 assert "terraform-apply-destroy.sh" not in selfhost_text
