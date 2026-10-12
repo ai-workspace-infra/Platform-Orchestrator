@@ -88,8 +88,12 @@ class UnifiedWorkflowContract(unittest.TestCase):
             trigger = workflow.get('on',workflow.get(True))
             self.assertLessEqual(len(trigger['workflow_dispatch']['inputs']),25)
             jobs = workflow['jobs']
-            self.assertEqual(jobs['iac']['uses'],'./.github/workflows/iac-pipeline-multi-cloud-master.yaml')
-            self.assertEqual(jobs['iac']['with']['stage_scope'],'resources')
+            if name == 'selfhost-orchestrator.yml':
+                self.assertIn('dispatch external pipeline', jobs['iac']['name'])
+                self.assertEqual(jobs['iac']['steps'][-1]['run'], 'python3 .github/scripts/platform-ops/provision/dispatch-iac-pipeline.py')
+            else:
+                self.assertEqual(jobs['iac']['uses'],'./.github/workflows/iac-pipeline-multi-cloud-master.yaml')
+                self.assertEqual(jobs['iac']['with']['stage_scope'],'resources')
             self.assertTrue(any(s.get('uses')=='./iac_modules/.github/actions/iac-receipt-verify' for s in jobs[gate]['steps']))
         options = load('serverless-orchestrator.yml').get('on',load('serverless-orchestrator.yml').get(True))['workflow_dispatch']['inputs']['cloud_provider']['options']
         self.assertIn('ucloud',options)
