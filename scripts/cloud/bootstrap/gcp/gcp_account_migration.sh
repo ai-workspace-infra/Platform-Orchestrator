@@ -38,7 +38,8 @@ Optional:
   --provider NAME         WIF provider resource name for finalize
   --service-account EMAIL deploy Service Account email for finalize
   --repository OWNER/REPO GITHUB_REPOSITORY
-  --workflow FILE         GITHUB_WORKFLOW (default: gcp-oidc-bootstrap.yml)
+  --workflow FILE         GITHUB_WORKFLOW (default: iac-orchestrator.yml)
+  --target-manifest FILE  GITHUB_TARGET_MANIFEST (required for dispatch)
   --workflow-ref REF      GITHUB_WORKFLOW_REF (default: main)
   -h, --help
 
@@ -66,7 +67,8 @@ bootstrap_action="${GITHUB_BOOTSTRAP_ACTION:-plan}"
 provider_resource_name="${GCP_WORKLOAD_IDENTITY_PROVIDER:-}"
 service_account_email="${GCP_SERVICE_ACCOUNT_EMAIL:-}"
 github_repository="${GITHUB_REPOSITORY:-ai-workspace-infra/platform-ops-toolkit}"
-workflow="${GITHUB_WORKFLOW:-gcp-oidc-bootstrap.yml}"
+workflow="${GITHUB_WORKFLOW:-iac-orchestrator.yml}"
+target_manifest="${GITHUB_TARGET_MANIFEST:-}"
 workflow_ref="${GITHUB_WORKFLOW_REF:-main}"
 required_apis="${GCP_REQUIRED_APIS:-run.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com sts.googleapis.com iamcredentials.googleapis.com}"
 token_source="${GCP_TOKEN_SOURCE:-auto}"
@@ -94,6 +96,7 @@ while [[ $# -gt 0 ]]; do
     --service-account) service_account_email="${2:?missing --service-account value}"; shift 2 ;;
     --repository) github_repository="${2:?missing --repository value}"; shift 2 ;;
     --workflow) workflow="${2:?missing --workflow value}"; shift 2 ;;
+    --target-manifest) target_manifest="${2:?missing --target-manifest value}"; shift 2 ;;
     --workflow-ref) workflow_ref="${2:?missing --workflow-ref value}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) usage; die "unknown option: $1" ;;
@@ -247,8 +250,10 @@ case "${subcommand}" in
     ;;
   dispatch)
     command -v gh >/dev/null 2>&1 || die "gh is required for dispatch"
+    [[ -n "${target_manifest}" ]] || die "dispatch requires an explicit reviewed --target-manifest"
     gh workflow run "${workflow}" --repo "${github_repository}" --ref "${workflow_ref}" \
-      -f "environment=${environment}" -f "action=${bootstrap_action}"
+      -f "environment=${environment}" -f "action=${bootstrap_action}" \
+      -f "target_manifest=${target_manifest}" -f stage_scope=bootstrap -f bootstrap_mode=reconcile
     echo "bootstrap workflow dispatched: ${environment}/${bootstrap_action}"
     ;;
   finalize)

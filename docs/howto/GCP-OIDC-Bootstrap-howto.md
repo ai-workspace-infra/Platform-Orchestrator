@@ -1,5 +1,7 @@
 # GCP OIDC Bootstrap 操作指南
 
+> 旧 workflow 命令已退役；当前统一入口见 [流水线重构记录](../iac/workflow-orchestrator-refactor-2026-10-12.zh.md)。本文保留凭据准备和历史恢复说明。
+
 本文说明如何准备 `gcp-oidc-bootstrap` 所需的最小 GCP Auth 信息，并通过 Vault
 KV v2 保存后执行 Terraform bootstrap 验证。路径按环境和 GCP 账号标识隔离，避免
 同一环境下多个 GCP 账号互相覆盖。

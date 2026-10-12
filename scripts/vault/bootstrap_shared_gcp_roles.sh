@@ -90,7 +90,12 @@ for name in "${names[@]}"; do
      else true end) and
     (.bound_claims.environment == "prod") and
     (.bound_claims.ref == "refs/heads/main") and
-    (.bound_claims[$workflow_claim] == $workflow_value) and
+    (.bound_claims[$workflow_claim] ==
+      (if ($name | contains("-bootstrap-")) then
+         [$workflow_value, "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-orchestrator.yml@refs/heads/main"]
+       elif ($name | contains("-gcp-oidc-")) then
+         [$workflow_value, "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/heads/main"]
+       else $workflow_value end)) and
     (.token_policies | length == 1 and .[0] == $name)
   ' "${role_file}" >/dev/null || {
     echo "Invalid or unexpectedly broad shared role declaration: ${role_file}" >&2

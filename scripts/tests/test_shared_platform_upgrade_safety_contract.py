@@ -18,33 +18,8 @@ def load(name):
     return yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))
 
 
-class GcpApplyGuardTests(unittest.TestCase):
-    def setUp(self):
-        steps = load("gcp-iac-pipeline.yml")["jobs"]["gcp-platform"]["steps"]
-        self.steps = {step.get("name"): step for step in steps}
-
-    def test_apply_runs_only_the_inspected_plan(self):
-        plan = self.steps["Terraform plan"]["run"]
-        apply = self.steps["Terraform apply"]["run"]
-        self.assertIn('-out="${PLAN_FILE}"', plan)
-        self.assertIn('apply -input=false -auto-approve "${PLAN_FILE}"', apply)
-        # Re-planning at apply time would skip the inspection below.
-        self.assertNotIn("-var-file", apply)
-
-    def test_persistent_environments_refuse_delete_or_replace(self):
-        plan = self.steps["Terraform plan"]["run"]
-        self.assertIn('"${DEPLOY_ENV}" == shared || "${DEPLOY_ENV}" == prod', plan)
-        self.assertIn('show -json "${PLAN_FILE}"', plan)
-        self.assertIn('select(.change.actions | index("delete"))', plan)
-        self.assertIn("exit 1", plan)
-
-    def test_guard_reads_json_from_the_unwrapped_terraform_binary(self):
-        plan = self.steps["Terraform plan"]["run"]
-        self.assertIn('"${TERRAFORM_CLI_PATH}/terraform-bin"', plan)
-
-    def test_shared_destroy_stays_disabled(self):
-        config = self.steps["Resolve and validate GCP resource manifest"]["run"]
-        self.assertIn('"${GCP_ENVIRONMENT}" == shared && "${DEPLOY_ACTION}" == destroy', config)
+# Terraform plan inspection and persistent-resource deletion protection are
+# tested by the fixed IaC owner. Toolkit tests control-plane routing and gates.
 
 
 class SharedObservabilityVerificationTests(unittest.TestCase):

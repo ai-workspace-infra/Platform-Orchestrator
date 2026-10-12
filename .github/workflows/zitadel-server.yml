@@ -65,6 +65,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  actions: read
 
 concurrency:
   group: zitadel-server-${{ inputs.provider_manifest }}
@@ -153,15 +154,18 @@ jobs:
     name: Terraform | independent Shared IAM state
     needs: declaration
     if: ${{ inputs.deploy_action != 'none' }}
-    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    uses: ./.github/workflows/iac-orchestrator.yml
     with:
-      deploy_action: ${{ inputs.deploy_action }}
-      vault_env_path: shared
-      github_environment: prod
-      gcp_account_id: ${{ needs.declaration.outputs.account }}
-      gcp_resource_manifest: ${{ inputs.provider_manifest }}
-      gitops_repo_ref: ${{ needs.declaration.outputs.gitops_sha }}
+      action: ${{ inputs.deploy_action }}
+      environment: shared
+      cloud_provider: gcp-cloud
+      account: ${{ needs.declaration.outputs.account }}
+      resource_manifest: ${{ inputs.provider_manifest }}
+      gitops_ref: ${{ needs.declaration.outputs.gitops_sha }}
       iac_ref: ${{ inputs.iac_ref }}
+      stage_scope: resources
+      bootstrap_mode: verify
+      correlation_id: ${{ github.run_id }}:${{ github.run_attempt }}:iam
     secrets: inherit
 
   dns:

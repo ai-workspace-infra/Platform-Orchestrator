@@ -56,7 +56,7 @@ on:
         required: true
         default: resources/svc.plus/shared/gcp/open-platform-shared-vault.yaml
       iac_ref:
-        description: Reviewed iac_modules commit containing the GCP Vault renderer and VM modules.
+        description: Reviewed node-access IaC owner; resource orchestration uses the fixed unified owner.
         type: string
         required: true
         default: d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
@@ -74,6 +74,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  actions: read
 
 concurrency:
   group: vault-server-${{ inputs.service_manifest }}
@@ -201,16 +202,18 @@ jobs:
   gcp-shared:
     needs: declaration
     if: ${{ inputs.dns_action == 'none' && inputs.cloud_provider == 'gcp-cloud' && inputs.deploy_action != 'none' }}
-    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    uses: ./.github/workflows/iac-orchestrator.yml
     with:
-      deploy_action: ${{ inputs.deploy_action }}
-      vault_env_path: ${{ needs.declaration.outputs.environment }}
-      github_environment: ${{ needs.declaration.outputs.github_environment }}
-      gcp_account_id: ${{ needs.declaration.outputs.account_id }}
-      gcp_resource_manifest: ${{ inputs.provider_manifest }}
-      gitops_repo_name: https://github.com/ai-workspace-infra/gitops.git
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
-      iac_ref: ${{ inputs.iac_ref }}
+      action: ${{ inputs.deploy_action }}
+      environment: ${{ needs.declaration.outputs.environment }}
+      cloud_provider: gcp-cloud
+      account: ${{ needs.declaration.outputs.account_id }}
+      resource_manifest: ${{ inputs.provider_manifest }}
+      gitops_ref: ${{ inputs.gitops_repo_ref }}
+      iac_ref: fbb3100f40ee40d2ac276bffc7b3b6c1a7440b20
+      stage_scope: resources
+      bootstrap_mode: verify
+      correlation_id: ${{ github.run_id }}:${{ github.run_attempt }}:vault
     secrets: inherit
 
   node-stage:

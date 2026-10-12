@@ -73,7 +73,7 @@ class ZitadelContractTest(unittest.TestCase):
     def test_workflow_pins_doco_and_terraform_to_one_gitops_revision(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/zitadel-server.yml").read_text())
         jobs = workflow["jobs"]
-        self.assertEqual(jobs["infrastructure"]["with"]["gitops_repo_ref"],
+        self.assertEqual(jobs["infrastructure"]["with"]["gitops_ref"],
                          "${{ needs.declaration.outputs.gitops_sha }}")
         self.assertEqual(jobs["service"]["env"]["ZITADEL_GITOPS_SHA"],
                          "${{ needs.declaration.outputs.gitops_sha }}")

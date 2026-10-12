@@ -90,6 +90,8 @@ validate_review() {
 validate_parent() {
   local kind="$1" run="$2" workflow="$3" artifact="$4" key accepted name limit workflow_path
   case "$kind" in
+    # Historical, immutable resource receipt origin. This allowlist verifies
+    # accepted old runs; it is not a callable compatibility workflow route.
     resource) key=resource; accepted=resource_accepted; name=gcp-prod-web-saas-inventory; limit=2097152; workflow_path=.github/workflows/gcp-iac-pipeline.yml ;;
     standby) key=standby; accepted=standby_accepted; name=prod-native-standby-receipt; limit=65536; workflow_path=.github/workflows/selfhost-orchestrator.yml ;;
     initialized) key=initialized; accepted=initialization_accepted; name=prod-native-init-receipt; limit=65536; workflow_path=.github/workflows/selfhost-orchestrator.yml ;;

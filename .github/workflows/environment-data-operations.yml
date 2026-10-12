@@ -1,4 +1,4 @@
-name: Environment Data Operations
+name: Environment Data Orchestrator
 run-name: 'data:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.mode }} / ${{ inputs.environment }}'
 
 on:

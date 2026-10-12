@@ -4,11 +4,13 @@
 
 ## 入口
 
-`iac-pipeline-multi-cloud-master.yaml` 同时支持 dispatch/call，固定八个 job：prepare、bootstrap、account、resources、destroy-resources、destroy-account、destroy-bootstrap、summary。正向 bootstrap → account → resources；销毁 resources → account → bootstrap。所选阶段失败或取消必须阻断，未选路径记录 not_selected。
+`iac-orchestrator.yml` 同时支持 dispatch/call，固定八个 job：prepare、bootstrap、account、resources、destroy-resources、destroy-account、destroy-bootstrap、summary。正向 bootstrap → account → resources；销毁 resources → account → bootstrap。所选阶段失败或取消必须阻断，未选路径记录 not_selected。
 
 `iac-pipeline-multi-cloud-stages.yaml` 只有 bootstrap/account/resources 三个可复用 job，没有内部固定 needs。master 为六个执行位置选 stage/action，传递固定 GitOps/IaC SHA、契约摘要和前置证据。各阶段 runner 和保护环境归 Toolkit；IaC-specific actions 均从同一固定版本 IaC checkout 本地调用。namespace 身份摘要和 Terraform backend lock 同时防止并发 state 写入。
 
-`iac-self-check-matrix.yml` 四个 job：prepare/self-check/execute-iac/summary。它是 IaC PR/push 静态事件的唯一入口，覆盖 `main`、`release/**`、`terraform-hcl-standard/**` 和所有 `iac-*` workflow 变更；check 仅静态报告六云覆盖，不登录 Vault。显式 plan/apply/destroy 调用 master，master 不调用矩阵入口。终端 summary 核验当前运行报告/receipt，不以 skipped 掩盖失败。
+`iac-self-check-matrix.yml` 是 IaC PR/push 的静态 CI 入口，只检查六云合同，不登录 Vault，也不调用部署 workflow。保留 prepare/self-check/execute-iac/summary 四个 job，以满足固定 owner 的回执合同；execute-iac 仅作为不允许部署的拒绝门禁。plan/apply/destroy 统一使用 `iac-orchestrator.yml`。终端 summary 核验当前运行的静态报告。
+
+2026-10-12 的兼容入口退役、调用方迁移和验证记录见 [流水线重构记录](workflow-orchestrator-refactor-2026-10-12.zh.md)。
 
 运行需要 `environment` 与 GitOps `target_manifest`。`stage_scope` 默认为 resources；完整三层须显式 all；bootstrap_mode 默认 verify，reconcile 必须显式 bootstrap/all。可传 GitOps/IaC revision，但入口只解析一次并固定完整 SHA，随后所有认证、模块与证据使用这两个 SHA。
 

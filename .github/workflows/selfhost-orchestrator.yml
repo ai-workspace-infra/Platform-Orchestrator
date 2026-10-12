@@ -96,11 +96,11 @@ on:
         - agent-proxy-sg
         - web-saas + agent-proxy
       open_platform_service:
-        description: "open-platform 独立服务单元；all=Vault+IAM+Observability，单项可独立重跑"
+        description: "旧 open-platform 服务部署：none=跳过；共享服务使用 Open Platform Orchestrator"
         required: true
-        default: "all"
+        default: "none"
         type: choice
-        options: [all, vault, iam, observability]
+        options: [none, all, vault, iam, observability]
       cloud_provider:
         description: "云服务商（按 UAT Hybrid/GitOps provider registry 选择；不要用单一 provider 覆盖 target_domains=all；ULightHost existing 由 external adapter 处理）"
         required: true
@@ -990,6 +990,7 @@ jobs:
       existing_target_host: ${{ needs.resolve-targets.outputs.existing_target_host || '' }}
       existing_target_user: ${{ needs.resolve-targets.outputs.existing_target_user || '' }}
       hosts: ${{ steps.matrix.outputs.hosts || needs.resolve-targets.outputs.hosts || '[]' }}
+      bootstrap_hosts: ${{ steps.bootstrap_selection.outputs.hosts || '[]' }}
       hosts_web_saas: ${{ steps.matrix.outputs.hosts_web_saas || needs.resolve-targets.outputs.hosts_web_saas || '[]' }}
       hosts_ai_workspace: ${{ steps.matrix.outputs.hosts_ai_workspace || needs.resolve-targets.outputs.hosts_ai_workspace || '[]' }}
       count: ${{ steps.matrix.outputs.count || needs.resolve-targets.outputs.count || '0' }}
@@ -1060,6 +1061,21 @@ jobs:
           == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
         AGENT_PROXY_NAMESPACE: ${{ needs.resolve-targets.outputs.terraform_namespace }}
       run: python3 ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_build-agent-proxy-matrices.py
+    - name: Exclude shared service hosts when legacy deployment is disabled
+      id: bootstrap_selection
+      if: needs.resolve-targets.outputs.run_application_deploy == 'true'
+      env:
+        CMDB_FILE: ${{ runner.temp }}/cmdb-artifact/cmdb.json
+        OPEN_PLATFORM_SERVICE: ${{ github.event.inputs.open_platform_service || 'none' }}
+      run: |
+        set -euo pipefail
+        test -s "${CMDB_FILE}"
+        hosts="$(jq -c --arg selected "${OPEN_PLATFORM_SERVICE}" '[to_entries[]
+          | select((.value | type) == "object")
+          | select((.value.ip | type) == "string" and (.value.ip | length) > 0)
+          | select($selected != "none" or ((.value.groups // []) | any(. == "infra_platform" or . == "open_platform") | not))
+          | .key]' "${CMDB_FILE}")"
+        echo "hosts=${hosts}" >> "${GITHUB_OUTPUT}"
     - name: Authenticate Vault for the existing application credential preparation
       if: needs.resolve-targets.outputs.run_application_deploy == 'true' && needs.resolve-targets.outputs.terraform_action == 'apply'
       uses: hashicorp/vault-action@v4
@@ -1145,13 +1161,13 @@ jobs:
       (needs.provision.outputs.terraform_action == 'apply' ||
       needs.provision.outputs.reuse_existing_host == 'true') &&
       needs.provision.outputs.count != '0' &&
-      needs.provision.outputs.hosts != '[]' &&
-      needs.provision.outputs.hosts != '' }}
+      needs.provision.outputs.bootstrap_hosts != '[]' &&
+      needs.provision.outputs.bootstrap_hosts != '' }}
     runs-on: ${{ github.event.inputs.runner_type || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        host: ${{ fromJSON(needs.provision.outputs.hosts) }}
+        host: ${{ fromJSON(needs.provision.outputs.bootstrap_hosts) }}
     env:
       MATRIX_HOST:              ${{ matrix.host }}
       ANSIBLE_HOST_KEY_CHECKING: "False"
@@ -1377,7 +1393,7 @@ jobs:
           needs.provision.outputs.deployment_env == 'uat' &&
           needs.provision.outputs.cloud_provider == 'akamai-cloud' &&
           'http://127.0.0.1:8200' || '' }}
-        OPEN_PLATFORM_SERVICE: ${{ github.event.inputs.open_platform_service || 'all' }}
+        OPEN_PLATFORM_SERVICE: ${{ github.event.inputs.open_platform_service || 'none' }}
         OPEN_PLATFORM_MCP_SERVICES: ${{ 'none' }}
         # The explicit deployment-only mode permits a fresh IAM unit to start
         # before environment-scoped business secrets are migrated. Normal
@@ -2270,6 +2286,7 @@ jobs:
       needs.deploy_base.result == 'success' &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
+      (github.event.inputs.open_platform_service || 'none') != 'none' &&
       needs.provision.outputs.count != '0' &&
       contains(fromJSON('["all","infra-platform","open-platform"]'), needs.provision.outputs.target_domains) &&
       !(needs.provision.outputs.deployment_env == 'uat' &&
@@ -2444,6 +2461,11 @@ jobs:
     if: >-
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
+      (needs.deploy_web_saas.result == 'success' ||
+      (needs.deploy_web_saas.result == 'skipped' && needs.provision.outputs.target_domains == 'agent-proxy')) &&
+      (needs.accept_web_saas_upgrade.result == 'success' ||
+      (needs.accept_web_saas_upgrade.result == 'skipped' &&
+      (needs.provision.outputs.deployment_env != 'uat' || needs.provision.outputs.target_domains == 'agent-proxy'))) &&
       contains(fromJSON('["uat","prod"]'), needs.provision.outputs.deployment_env) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&

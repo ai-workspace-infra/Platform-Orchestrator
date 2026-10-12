@@ -1,5 +1,7 @@
 # GCP Terraform bootstrap 的 Vault KV 规划
 
+> bootstrap 入口已统一为 `iac-orchestrator.yml`，阶段为 `stage_scope=bootstrap`；原 KV 字段和 state 身份保留。旧 workflow 名称用于历史说明，当前参数见 [重构记录](../iac/workflow-orchestrator-refactor-2026-10-12.zh.md)。
+
 本文记录 `gcp-oidc-bootstrap.yml` 所需的最小 GCP Auth 合约。Vault 使用 KV v2
 mount `kv`；因此 CLI 使用逻辑路径时省略 `data/`，HTTP API 和 policy 使用完整的
 `kv/data/` 路径。

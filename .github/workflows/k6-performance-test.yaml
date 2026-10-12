@@ -1,4 +1,4 @@
-name: k6 Performance Test
+name: Performance Test Orchestrator
 
 on:
   workflow_dispatch:

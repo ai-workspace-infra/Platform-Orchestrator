@@ -2,8 +2,11 @@
 """Offline contracts for the delivery DAG and caller handoff (no cloud calls)."""
 import ast
 import copy
+import json
+import os
 import re
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 import yaml
@@ -21,7 +24,7 @@ def triggers(workflow):
 
 class UnifiedWorkflowContract(unittest.TestCase):
     def test_independent_forward_reverse_dags_and_exact_terminal_gate(self):
-        jobs = load('iac-pipeline-multi-cloud-master.yaml')['jobs']
+        jobs = load('iac-orchestrator.yml')['jobs']
         self.assertEqual(set(jobs), {'prepare','bootstrap','account','resources','destroy-resources','destroy-account','destroy-bootstrap','summary'})
         self.assertIn('bootstrap', jobs['account']['needs'])
         self.assertIn('account', jobs['resources']['needs'])
@@ -44,13 +47,16 @@ class UnifiedWorkflowContract(unittest.TestCase):
             self.assertTrue(any(s.get('uses') == './iac_modules/.github/actions/iac-'+name for s in job['steps']))
         jobs = load('iac-self-check-matrix.yml')['jobs']
         self.assertEqual(set(jobs),{'prepare','self-check','execute-iac','summary'})
-        self.assertEqual(jobs['execute-iac']['uses'],'./.github/workflows/iac-pipeline-multi-cloud-master.yaml')
-        self.assertFalse(any('iac-self-check-matrix' in j.get('uses','') for j in load('iac-pipeline-multi-cloud-master.yaml')['jobs'].values()))
+        self.assertNotIn('uses', jobs['execute-iac'])
+        self.assertNotIn('id-token', load('iac-self-check-matrix.yml')['permissions'])
+        self.assertFalse(any('hashicorp/vault-action' in str(job) for job in jobs.values()))
+        self.assertFalse(any('iac-self-check-matrix' in j.get('uses','') for j in load('iac-orchestrator.yml')['jobs'].values()))
         self.assertTrue(gates.terminal_iac_evidence_gate(jobs['summary'],jobs['summary']['needs']))
 
-    def test_static_events_are_centralized_and_compatibility_entries_remain_callable(self):
+    def test_static_events_are_centralized_and_legacy_entries_are_retired(self):
         matrix_events = triggers(load('iac-self-check-matrix.yml'))
-        self.assertEqual(set(matrix_events), {'workflow_dispatch','workflow_call','pull_request','push'})
+        self.assertEqual(set(matrix_events), {'workflow_dispatch','pull_request','push'})
+        self.assertNotIn('action', matrix_events['workflow_dispatch']['inputs'])
         self.assertEqual(set(matrix_events['push']['branches']), {'main','release/**'})
         for event in ('push','pull_request'):
             paths = set(matrix_events[event]['paths'])
@@ -61,11 +67,60 @@ class UnifiedWorkflowContract(unittest.TestCase):
             'iac-pipeline-multi-cloud-landingzone-baseline.yaml',
             'iac-pipeline-multi-cloud-account-matrix.yaml',
             'iac-pipeline-multi-cloud-resources-matrix.yaml',
+            'gcp-iac-pipeline.yml', 'gcp-oidc-bootstrap.yml',
+            'akamai-cloud-iac.yml', 'ucloud-iac.yml', 'gcp-uat-workload-sequence.yml',
+            'iac-pipeline-multi-cloud-master.yaml',
         )
         for name in wrappers:
-            workflow = load(name)
-            self.assertEqual(set(triggers(workflow)), {'workflow_dispatch','workflow_call'}, name)
-            self.assertEqual(set(workflow['jobs']), {'resolve','pipeline'}, name)
+            self.assertFalse((WF / name).exists(), name)
+        for path in WF.iterdir():
+            workflow = load(path.name)
+            for job in workflow.get('jobs', {}).values():
+                for retired in wrappers:
+                    self.assertNotEqual(job.get('uses'), './.github/workflows/' + retired, path.name)
+
+    def test_shared_callers_resolve_resources_in_the_single_iac_entry(self):
+        for name, jobs in {
+            'vault-server.yml': ['gcp-shared'],
+            'zitadel-server.yml': ['infrastructure'],
+            'open-platform-orchestrator.yml': ['vault-iac', 'observability-iac', 'iam-iac'],
+        }.items():
+            for key in jobs:
+                job = load(name)['jobs'][key]
+                self.assertEqual(job['uses'], './.github/workflows/iac-orchestrator.yml')
+                self.assertEqual(job['with']['cloud_provider'], 'gcp-cloud')
+                self.assertEqual(job['with']['stage_scope'], 'resources')
+                self.assertIn('resource_manifest', job['with'])
+        prepare = load('iac-orchestrator.yml')['jobs']['prepare']['steps']
+        normalize = next(step for step in prepare if step.get('id') == 'normalize')
+        self.assertEqual(normalize['uses'], './iac_modules/.github/actions/iac-legacy-inputs')
+        target = next(step for step in prepare if step.get('id') == 'targets')
+        self.assertLess(prepare.index(normalize), prepare.index(target))
+        self.assertEqual(target['with']['selectors'], '${{ inputs.selectors }}')
+
+    def test_none_excludes_legacy_shared_hosts_from_ssh_bootstrap(self):
+        workflow = load('selfhost-orchestrator.yml')
+        choices = triggers(workflow)['workflow_dispatch']['inputs']['open_platform_service']
+        self.assertEqual(choices['default'], 'none')
+        script = next(step['run'] for step in workflow['jobs']['provision']['steps'] if step.get('id') == 'bootstrap_selection')
+        fixture = {
+            'shared': {'ip': '192.0.2.1', 'groups': ['infra_platform']},
+            'vault': {'ip': '192.0.2.2', 'groups': ['open_platform']},
+            'app': {'ip': '192.0.2.3', 'groups': ['web_saas']},
+            'metadata': 'a platform fact, never an SSH target',
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'cmdb.json').write_text(json.dumps(fixture))
+            for selection, expected in [('none', ['app']), ('all', ['shared', 'vault', 'app'])]:
+                output = root / (selection + '.output')
+                environment = dict(os.environ, CMDB_FILE=str(root / 'cmdb.json'),
+                                   OPEN_PLATFORM_SERVICE=selection, GITHUB_OUTPUT=str(output))
+                result = subprocess.run(['bash', '-c', script], env=environment, text=True, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(output.read_text().strip().split('=', 1)[1]), expected)
+        base = workflow['jobs']['deploy_base']
+        self.assertIn('bootstrap_hosts', base['strategy']['matrix']['host'])
 
     def test_retired_toolkit_copies_are_absent_and_aws_recovery_waits_for_evidence(self):
         retired = (
@@ -92,7 +147,7 @@ class UnifiedWorkflowContract(unittest.TestCase):
                 self.assertIn('dispatch external pipeline', jobs['iac']['name'])
                 self.assertEqual(jobs['iac']['steps'][-1]['run'], 'python3 .github/scripts/platform-ops/provision/dispatch-iac-pipeline.py')
             else:
-                self.assertEqual(jobs['iac']['uses'],'./.github/workflows/iac-pipeline-multi-cloud-master.yaml')
+                self.assertEqual(jobs['iac']['uses'],'./.github/workflows/iac-orchestrator.yml')
                 self.assertEqual(jobs['iac']['with']['stage_scope'],'resources')
             self.assertTrue(any(s.get('uses')=='./iac_modules/.github/actions/iac-receipt-verify' for s in jobs[gate]['steps']))
         options = load('serverless-orchestrator.yml').get('on',load('serverless-orchestrator.yml').get(True))['workflow_dispatch']['inputs']['cloud_provider']['options']
@@ -113,7 +168,7 @@ class UnifiedWorkflowContract(unittest.TestCase):
                         self.assertNotIn(',',step['with']['artifact-ids'])
 
     def test_generated_shell_and_python_parse(self):
-        names = ['iac-pipeline-multi-cloud-master.yaml','iac-pipeline-multi-cloud-stages.yaml','iac-self-check-matrix.yml','gcp-iac-pipeline.yml','gcp-oidc-bootstrap.yml','ucloud-iac.yml','aws-oidc-bootstrap.yml','akamai-cloud-iac.yml']
+        names = ['iac-orchestrator.yml','iac-pipeline-multi-cloud-stages.yaml','iac-self-check-matrix.yml','aws-oidc-bootstrap.yml']
         for name in names:
             for job in load(name)['jobs'].values():
                 for step in job.get('steps',[]):

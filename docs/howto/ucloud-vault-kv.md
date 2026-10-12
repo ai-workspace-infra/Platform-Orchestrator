@@ -1,5 +1,7 @@
 # UCloud provider credentials in Vault
 
+The standalone `ucloud-iac.yml` entry has been retired. Use `iac-orchestrator.yml` with a reviewed target declaration; the Vault credential contract below is unchanged. See the [workflow refactor record](../iac/workflow-orchestrator-refactor-2026-10-12.zh.md).
+
 The canonical UCloud provider credential record is a Vault KV v2 secret scoped
 to one environment and one UCloud project:
 
