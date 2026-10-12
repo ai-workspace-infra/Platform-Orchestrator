@@ -13,6 +13,25 @@ WORKFLOW = ROOT / ".github/workflows/open-platform-orchestrator.yml"
 
 
 class OpenPlatformOrchestratorContractTests(unittest.TestCase):
+    def test_check_and_none_never_dispatch_infrastructure(self):
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        inputs = (document.get("on") or document[True])["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs['target_services']['default'], 'none')
+        self.assertIn('check', inputs['operation']['options'])
+        script = document['jobs']['contract']['steps'][1]['run']
+        for operation, service in [('deploy', 'none'), ('check', 'all'), ('check', 'vault')]:
+            with self.subTest(operation=operation, service=service), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / 'output'
+                env = dict(os.environ, OPERATION=operation, TARGET_SERVICES=service,
+                           ACCOUNT='open-platform-shared', DEPLOY_TAG='', VAULT_STAGE='none',
+                           OBS_MIGRATION='none', OBS_SOURCE_IP='', GITHUB_OUTPUT=str(output))
+                result = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(output.read_text().strip(), 'terraform_action=check')
+        for name in ('vault-iac', 'observability-iac', 'iam-iac'):
+            self.assertIn("inputs.operation != 'check'", document['jobs'][name]['if'])
+            self.assertNotIn("target_services == 'none'", document['jobs'][name]['if'])
+
     def test_all_reconciles_shared_states_in_order_before_services(self):
         document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         jobs = document["jobs"]

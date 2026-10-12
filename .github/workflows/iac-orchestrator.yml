@@ -1,4 +1,4 @@
-name: Multi-cloud IaC Pipeline
+name: IaC Orchestrator
 run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action }} / ${{ inputs.environment }}'
 'on':
   workflow_dispatch:
@@ -23,9 +23,25 @@ run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action
           - prod
           - shared
       target_manifest:
-        description: GitOps IaCPipelineTargets path; no implicit target fallback
+        description: Reviewed IaCPipelineTargets path; required unless resource_manifest resolves a unique target
         type: string
-        required: true
+        required: false
+        default: ''
+      resource_manifest:
+        description: Optional GitOps resource path; must resolve a unique reviewed target
+        type: string
+        required: false
+        default: ''
+      cloud_provider:
+        description: Optional provider constraint; must agree with the target declaration
+        type: string
+        required: false
+        default: ''
+      account:
+        description: Optional account constraint; must agree with the target declaration
+        type: string
+        required: false
+        default: ''
       gitops_ref:
         description: Resolved once to a full declaration SHA
         type: string
@@ -76,9 +92,22 @@ run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action
         type: string
         required: true
       target_manifest:
-        description: GitOps IaCPipelineTargets path; no implicit target fallback
+        description: Reviewed IaCPipelineTargets path or a unique resource_manifest selection
         type: string
-        required: true
+        required: false
+        default: ''
+      resource_manifest:
+        type: string
+        required: false
+        default: ''
+      cloud_provider:
+        type: string
+        required: false
+        default: ''
+      account:
+        type: string
+        required: false
+        default: ''
       gitops_ref:
         description: Resolved once to a full declaration SHA
         type: string
@@ -161,12 +190,21 @@ jobs:
           ref: ${{ inputs.gitops_ref }}
           path: gitops
           persist-credentials: false
+      - id: normalize
+        if: inputs.target_manifest == '' || inputs.resource_manifest != '' || inputs.cloud_provider != '' || inputs.account != ''
+        uses: ./iac_modules/.github/actions/iac-legacy-inputs
+        with:
+          inputs-json: ${{ toJSON(inputs) }}
+          stage: ${{ inputs.stage_scope == 'all' && 'resources' || inputs.stage_scope }}
+          provider: ${{ inputs.cloud_provider }}
+          iac-root: ${{ github.workspace }}/iac_modules
+          gitops-root: ${{ github.workspace }}/gitops
       - id: targets
         uses: ./iac_modules/.github/actions/iac-targets
         with:
           iac-root: ${{ github.workspace }}/iac_modules
           gitops-root: ${{ github.workspace }}/gitops
-          target-manifest: ${{ inputs.target_manifest }}
+          target-manifest: ${{ inputs.target_manifest || steps.normalize.outputs.target_manifest }}
           environment: ${{ inputs.environment }}
           action: ${{ inputs.action }}
           stage-scope: ${{ inputs.stage_scope }}

@@ -8,17 +8,17 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: "Shared platform action: validate, apply infrastructure, deploy/upgrade services, or migrate data"
+        description: "check=合同校验；plan/apply=基础设施；deploy/upgrade=服务；migrate=迁移"
         type: choice
         required: true
         default: plan
-        options: [plan, apply, deploy, upgrade, migrate]
+        options: [check, plan, apply, deploy, upgrade, migrate]
       target_services:
-        description: "Shared services to reconcile after infrastructure"
+        description: "共享服务：none=仅校验；all=全部"
         type: choice
         required: true
-        default: all
-        options: [all, vault, observability, iam]
+        default: none
+        options: [none, all, vault, observability, iam]
       deploy_tag:
         description: "Immutable UAT daily-build tag for service deployment"
         type: string
@@ -137,7 +137,15 @@ jobs:
         run: |
           set -euo pipefail
           [[ "${ACCOUNT}" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]] || { echo 'invalid shared GCP account/project id' >&2; exit 1; }
+          case "${OPERATION}" in check|plan|apply|deploy|upgrade|migrate) ;; *) echo 'unsupported shared platform operation' >&2; exit 1 ;; esac
+          case "${TARGET_SERVICES}" in none|all|vault|observability|iam) ;; *) echo 'unsupported shared target service' >&2; exit 1 ;; esac
           [[ "${OPERATION}" != destroy ]] || { echo 'shared open-platform never supports destroy' >&2; exit 1; }
+          if [[ "${TARGET_SERVICES}" == none || "${OPERATION}" == check ]]; then
+            [[ -z "${DEPLOY_TAG}" && "${VAULT_STAGE}" == none && "${OBS_MIGRATION}" == none ]] || { echo 'check/none cannot select deployment or migration controls' >&2; exit 1; }
+            echo 'terraform_action=check' >> "${GITHUB_OUTPUT}"
+            echo 'Only request validation selected; no infrastructure or services will be dispatched.'
+            exit 0
+          fi
           if [[ "${OPERATION}" == deploy || "${OPERATION}" == upgrade ]]; then
             [[ "${DEPLOY_TAG}" =~ ^(uat-)?daily-build-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-r[1-9][0-9]*)?$ ]] || { echo 'deploy/upgrade requires an immutable daily-build tag' >&2; exit 1; }
           elif [[ "${OPERATION}" == migrate && "${OBS_MIGRATION}" != none ]]; then
@@ -156,16 +164,18 @@ jobs:
   vault-iac:
     name: Terraform | shared Vault state
     needs: contract
-    if: ${{ inputs.target_services == 'all' || inputs.target_services == 'vault' }}
-    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    if: ${{ needs.contract.result == 'success' && inputs.operation != 'check' && (inputs.target_services == 'all' || inputs.target_services == 'vault') }}
+    uses: ./.github/workflows/iac-orchestrator.yml
     with:
-      deploy_action: ${{ needs.contract.outputs.terraform_action }}
-      vault_env_path: shared
-      github_environment: prod
-      gcp_account_id: ${{ inputs.gcp_account_id }}
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
+      action: ${{ needs.contract.outputs.terraform_action }}
+      environment: shared
+      cloud_provider: gcp-cloud
+      account: ${{ inputs.gcp_account_id }}
+      gitops_ref: ${{ inputs.gitops_repo_ref }}
       iac_ref: ${{ inputs.iac_ref }}
-      gcp_resource_manifest: resources/svc.plus/shared/gcp/open-platform-shared-vault.yaml
+      resource_manifest: resources/svc.plus/shared/gcp/open-platform-shared-vault.yaml
+      stage_scope: resources
+      correlation_id: ${{ github.run_id }}:${{ github.run_attempt }}:shared-vault
     secrets: inherit
 
   observability-iac:
@@ -175,31 +185,35 @@ jobs:
     # then Observability, then IAM. A single-service rerun may still skip the
     # preceding state.
     needs: [contract, vault-iac]
-    if: ${{ always() && needs.contract.result == 'success' && (inputs.target_services == 'all' || inputs.target_services == 'observability') && (inputs.target_services != 'all' || needs.vault-iac.result == 'success') }}
-    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    if: ${{ always() && needs.contract.result == 'success' && inputs.operation != 'check' && (inputs.target_services == 'all' || inputs.target_services == 'observability') && (inputs.target_services != 'all' || needs.vault-iac.result == 'success') }}
+    uses: ./.github/workflows/iac-orchestrator.yml
     with:
-      deploy_action: ${{ needs.contract.outputs.terraform_action }}
-      vault_env_path: shared
-      github_environment: prod
-      gcp_account_id: ${{ inputs.gcp_account_id }}
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
+      action: ${{ needs.contract.outputs.terraform_action }}
+      environment: shared
+      cloud_provider: gcp-cloud
+      account: ${{ inputs.gcp_account_id }}
+      gitops_ref: ${{ inputs.gitops_repo_ref }}
       iac_ref: ${{ inputs.iac_ref }}
-      gcp_resource_manifest: resources/svc.plus/shared/gcp/open-platform-shared-observability.yaml
+      resource_manifest: resources/svc.plus/shared/gcp/open-platform-shared-observability.yaml
+      stage_scope: resources
+      correlation_id: ${{ github.run_id }}:${{ github.run_attempt }}:shared-observability
     secrets: inherit
 
   iam-iac:
     name: Terraform | shared IAM state
     needs: [contract, observability-iac]
-    if: ${{ always() && needs.contract.result == 'success' && (inputs.target_services == 'all' || inputs.target_services == 'iam') && (inputs.target_services != 'all' || needs.observability-iac.result == 'success') }}
-    uses: ./.github/workflows/gcp-iac-pipeline.yml
+    if: ${{ always() && needs.contract.result == 'success' && inputs.operation != 'check' && (inputs.target_services == 'all' || inputs.target_services == 'iam') && (inputs.target_services != 'all' || needs.observability-iac.result == 'success') }}
+    uses: ./.github/workflows/iac-orchestrator.yml
     with:
-      deploy_action: ${{ needs.contract.outputs.terraform_action }}
-      vault_env_path: shared
-      github_environment: prod
-      gcp_account_id: ${{ inputs.gcp_account_id }}
-      gitops_repo_ref: ${{ inputs.gitops_repo_ref }}
+      action: ${{ needs.contract.outputs.terraform_action }}
+      environment: shared
+      cloud_provider: gcp-cloud
+      account: ${{ inputs.gcp_account_id }}
+      gitops_ref: ${{ inputs.gitops_repo_ref }}
       iac_ref: ${{ inputs.iac_ref }}
-      gcp_resource_manifest: resources/svc.plus/shared/gcp/open-platform-shared-iam.yaml
+      resource_manifest: resources/svc.plus/shared/gcp/open-platform-shared-iam.yaml
+      stage_scope: resources
+      correlation_id: ${{ github.run_id }}:${{ github.run_attempt }}:shared-iam
     secrets: inherit
 
   services:

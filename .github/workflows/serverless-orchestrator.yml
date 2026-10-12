@@ -265,7 +265,7 @@ jobs:
   iac:
     needs: preflight
     if: needs.preflight.result == 'success' && contains(fromJSON('["plan","deploy","upgrade","deploy+migrate","destroy"]'), inputs.operation)
-    uses: ./.github/workflows/iac-pipeline-multi-cloud-master.yaml
+    uses: ./.github/workflows/iac-orchestrator.yml
     with:
       action: ${{ inputs.operation == 'plan' && 'plan' || (inputs.operation == 'destroy' && 'destroy' || 'apply') }}
       environment: ${{ inputs.vault_env_path || 'uat' }}

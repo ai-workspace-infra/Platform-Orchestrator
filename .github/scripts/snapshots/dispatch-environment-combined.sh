@@ -69,7 +69,7 @@ case "${workflow}" in
       -f "source_ref=${snapshot_tag}"
       -f runner_type=ubuntu-latest
       -f target_domains=web-saas
-      -f open_platform_service=all
+      -f open_platform_service=none
       -f cloud_provider=gcp-cloud
       -f cloud_account=xworktech
       -f instance_plan=2C4G

@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 
-WORKFLOW = "iac-pipeline-multi-cloud-master.yaml"
+WORKFLOW = "iac-orchestrator.yml"
 EXPECTED_RESULTS = {
     "check": "static_checked",
     "plan": "planned",

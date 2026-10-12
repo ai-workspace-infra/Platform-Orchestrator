@@ -81,27 +81,19 @@ class IacStateContractTest(unittest.TestCase):
             self.assertEqual(record["resources"][0]["name"], "edge-a")
             self.assertNotIn("api_token", record["resources"][0])
 
-    def test_workflow_adapters_keep_provider_credentials_and_state_separate(self):
-        akamai = (ROOT / ".github" / "workflows" / "akamai-cloud-iac.yml").read_text(encoding="utf-8")
+    def test_unified_iac_delegates_execution_and_external_inventory_stays_separate(self):
+        orchestrator = (ROOT / ".github" / "workflows" / "iac-orchestrator.yml").read_text(encoding="utf-8")
+        stages = (ROOT / ".github" / "workflows" / "iac-pipeline-multi-cloud-stages.yaml").read_text(encoding="utf-8")
         external = (ROOT / ".github" / "workflows" / "external-inventory-state.yml").read_text(encoding="utf-8")
-        ucloud = (ROOT / ".github" / "workflows" / "ucloud-iac.yml").read_text(encoding="utf-8")
-        self.assertIn("TF_VAR_linode_token", akamai)
-        self.assertIn("CICD/${{ inputs.vault_env_path }}/akamai-cloud/${{ inputs.account }}", akamai)
-        self.assertNotIn("account_alias", akamai)
-        self.assertIn("CICD/${{ inputs.vault_env_path }}/iac_state", akamai)
-        self.assertIn("resolve_iac_contract.py", akamai)
-        self.assertIn("steps.contract.outputs.state_key", akamai)
-        self.assertIn("use_lockfile = true", akamai)
-        self.assertNotIn('"endpoint = \\"${TF_STATE_ENDPOINT}\\""', akamai)
-        self.assertIn("account must be a concrete account name or ID", akamai)
+        self.assertIn('./iac_modules/.github/actions/iac-targets', orchestrator)
+        self.assertIn('./iac_modules/.github/actions/iac-resources', stages)
+        self.assertNotIn('terraform -chdir', orchestrator)
+        self.assertNotIn('TF_VAR_linode_token', orchestrator)
         self.assertIn("LINODE_TOKEN", (ROOT / "scripts" / "cloud" / "bootstrap" / "Akamai-Cloud" / "bootstrap_akamai_cloud_kv.sh").read_text(encoding="utf-8"))
         self.assertIn("AKAMAI_ACCOUNT_UAT", (ROOT / "scripts" / "cloud" / "bootstrap" / "Akamai-Cloud" / "bootstrap_akamai_oidc_roles.sh").read_text(encoding="utf-8"))
         self.assertNotIn("hashicorp/setup-terraform", external)
         self.assertNotIn("terraform -chdir", external)
         self.assertIn("options: [ulighthost]", external)
-        self.assertIn("TF_VAR_ucloud_private_key", ucloud)
-        self.assertIn("kv/data/CICD/${{ inputs.vault_env_path }}/ucloud/${{ inputs.account }}", ucloud)
-        self.assertIn("terraform -chdir", ucloud)
 
 
 if __name__ == "__main__":

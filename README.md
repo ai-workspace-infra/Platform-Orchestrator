@@ -55,6 +55,8 @@ For the detailed JWT auth, Role/Policy, workflow claim, KV isolation, and troubl
 
 For the minimum GCP bootstrap auth fields and environment-scoped KV paths, see [GCP OIDC Bootstrap Vault KV](docs/howto/gcp-oidc-bootstrap-vault-kv.md).
 
+For unified workflow entrypoints, retired IaC wrappers, and validation boundaries, see the [2026-10-12 workflow refactor record](docs/iac/workflow-orchestrator-refactor-2026-10-12.zh.md).
+
 For the six-provider IAM offline test suite and UAT login/permission acceptance steps,
 see [IAM integration testing](docs/howto/iam-integration-testing.md).
 

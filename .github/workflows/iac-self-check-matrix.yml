@@ -1,157 +1,32 @@
-name: Multi-cloud IaC Matrix
+name: CI / Multi-cloud IaC Contracts
 'on':
   workflow_dispatch:
     inputs:
-      action:
-        description: check/plan/apply/destroy
-        type: choice
-        required: false
-        default: check
-        options:
-          - check
-          - plan
-          - apply
-          - destroy
-      environment:
-        description: sit/uat/prod/shared
-        type: choice
-        required: false
-        default: uat
-        options:
-          - sit
-          - uat
-          - prod
-          - shared
-      target_manifest:
-        description: GitOps IaCPipelineTargets path; no implicit target fallback
-        type: string
-        required: false
-        default: ''
       gitops_ref:
-        description: Resolved once to a full declaration SHA
+        description: Reviewed declarations for static checks
         type: string
         default: 4e052f34675a218df0179677088266c6e7f57f6c
-        required: false
       iac_ref:
-        description: Owner actions and modules from one resolved SHA
+        description: Fixed IaC owner version for static checks
         type: string
-        default: be8456282f7495e098170e0894e742605a94dae6
-        required: false
-      stage_scope:
-        description: all/bootstrap/account/resources
-        type: string
-        default: resources
-        required: false
-      bootstrap_mode:
-        description: verify/reconcile
-        type: string
-        default: verify
-        required: false
-      correlation_id:
-        description: Root caller correlation
-        type: string
-        default: ''
-        required: false
-      selectors:
-        description: Optional legacy identity selectors as JSON; cannot override GitOps
-        type: string
-        default: '{}'
-        required: false
+        default: fbb3100f40ee40d2ac276bffc7b3b6c1a7440b20
       cloud_providers:
-        description: Static provider selection; empty means all six
+        description: Providers to check; empty selects all six
         type: string
         default: aws-cloud,azure-cloud,vultr-vps,gcp-cloud,ucloud,akamai-cloud
-        required: false
-  workflow_call:
-    inputs:
-      action:
-        description: check/plan/apply/destroy
-        type: string
-        required: false
-        default: check
-      environment:
-        description: sit/uat/prod/shared
-        type: string
-        required: false
-        default: uat
-      target_manifest:
-        description: GitOps IaCPipelineTargets path; no implicit target fallback
-        type: string
-        required: false
-        default: ''
-      gitops_ref:
-        description: Resolved once to a full declaration SHA
-        type: string
-        default: 4e052f34675a218df0179677088266c6e7f57f6c
-        required: false
-      iac_ref:
-        description: Owner actions and modules from one resolved SHA
-        type: string
-        default: be8456282f7495e098170e0894e742605a94dae6
-        required: false
-      stage_scope:
-        description: all/bootstrap/account/resources
-        type: string
-        default: resources
-        required: false
-      bootstrap_mode:
-        description: verify/reconcile
-        type: string
-        default: verify
-        required: false
-      correlation_id:
-        description: Root caller correlation
-        type: string
-        default: ''
-        required: false
-      selectors:
-        description: Optional legacy identity selectors as JSON; cannot override GitOps
-        type: string
-        default: '{}'
-        required: false
-      cloud_providers:
-        description: Static provider selection; empty means all six
-        type: string
-        default: aws-cloud,azure-cloud,vultr-vps,gcp-cloud,ucloud,akamai-cloud
-        required: false
-    outputs:
-      result:
-        description: result
-        value: ${{ jobs.summary.outputs.result }}
-      gitops_sha:
-        description: gitops_sha
-        value: ${{ jobs.summary.outputs.gitops_sha }}
-      iac_sha:
-        description: iac_sha
-        value: ${{ jobs.summary.outputs.iac_sha }}
-      receipt_sha256:
-        description: receipt_sha256
-        value: ${{ jobs.summary.outputs.receipt_sha256 }}
-      receipt_artifact_id:
-        description: receipt_artifact_id
-        value: ${{ jobs.summary.outputs.receipt_artifact_id }}
-      inventory_artifact_id:
-        description: inventory_artifact_id
-        value: ${{ jobs.summary.outputs.inventory_artifact_id }}
-      deploy_matrix:
-        description: deploy_matrix
-        value: ${{ jobs.summary.outputs.deploy_matrix }}
   pull_request:
     paths:
       - .github/workflows/iac-*
       - terraform-hcl-standard/**
       - scripts/ci/unified_iac_contract_test.py
   push:
-    branches:
-      - main
-      - release/**
+    branches: [main, release/**]
     paths:
       - .github/workflows/iac-*
       - terraform-hcl-standard/**
       - scripts/ci/unified_iac_contract_test.py
 permissions:
   contents: read
-  id-token: write
   actions: read
 jobs:
   prepare:
@@ -163,30 +38,31 @@ jobs:
       - id: mode
         shell: bash
         env:
-          EVENT: ${{ github.event_name }}
-          ACTION: ${{ inputs.action }}
           PROVIDERS: ${{ inputs.cloud_providers }}
-          MANIFEST: ${{ inputs.target_manifest }}
-        run: |-
+        run: |
           python3 - <<'PYCODE'
           import os
-          mode='check' if os.environ['EVENT'] in ('push','pull_request') else (os.environ['ACTION'] or 'check')
-          assert mode in ('check','plan','apply','destroy')
-          assert mode == 'check' or os.environ['MANIFEST']
-          providers=os.environ['PROVIDERS'] or 'aws-cloud,azure-cloud,vultr-vps,gcp-cloud,ucloud,akamai-cloud'
-          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
-              f.write('action='+mode+'\nproviders='+providers+'\n')
+          supported = {'aws-cloud', 'azure-cloud', 'vultr-vps', 'gcp-cloud', 'ucloud', 'akamai-cloud'}
+          providers = os.environ['PROVIDERS'] or 'aws-cloud,azure-cloud,vultr-vps,gcp-cloud,ucloud,akamai-cloud'
+          assert set(providers.split(',')) <= supported
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
+              stream.write('action=check\nproviders=' + providers + '\n')
           PYCODE
   self-check:
     needs: prepare
     if: needs.prepare.outputs.action == 'check'
     runs-on: ubuntu-latest
+    outputs:
+      report_sha256: ${{ steps.check.outputs.report_sha256 }}
+      iac_sha: ${{ steps.check.outputs.iac_sha }}
+      gitops_sha: ${{ steps.check.outputs.gitops_sha }}
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: ${{ inputs.iac_ref || 'be8456282f7495e098170e0894e742605a94dae6' }}
+          ref: ${{ inputs.iac_ref || 'fbb3100f40ee40d2ac276bffc7b3b6c1a7440b20' }}
           path: iac_modules
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -195,71 +71,53 @@ jobs:
           ref: ${{ inputs.gitops_ref || '4e052f34675a218df0179677088266c6e7f57f6c' }}
           path: gitops
           persist-credentials: false
-      - uses: ./iac_modules/.github/actions/iac-self-check
+      - id: check
+        uses: ./iac_modules/.github/actions/iac-self-check
         with:
           iac-root: ${{ github.workspace }}/iac_modules
           gitops-root: ${{ github.workspace }}/gitops
           providers: ${{ needs.prepare.outputs.providers }}
           report-file: ${{ runner.temp }}/iac-static/report.json
-        id: check
-      - uses: actions/upload-artifact@v4
+      - id: artifact
+        uses: actions/upload-artifact@v4
         with:
           name: iac-static-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/iac-static
           if-no-files-found: error
-        id: artifact
-    outputs:
-      report_sha256: ${{ steps.check.outputs.report_sha256 }}
-      iac_sha: ${{ steps.check.outputs.iac_sha }}
-      gitops_sha: ${{ steps.check.outputs.gitops_sha }}
-      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
   execute-iac:
+    # The fixed owner's entry-summary contract requires an explicit skipped
+    # execution result. This preserves that shape without a deployment path.
+    name: Reject deployment actions in static CI
     needs: prepare
     if: needs.prepare.outputs.action != 'check'
-    uses: ./.github/workflows/iac-pipeline-multi-cloud-master.yaml
-    with:
-      action: ${{ inputs.action }}
-      environment: ${{ inputs.environment }}
-      target_manifest: ${{ inputs.target_manifest }}
-      gitops_ref: ${{ inputs.gitops_ref }}
-      iac_ref: ${{ inputs.iac_ref }}
-      stage_scope: ${{ inputs.stage_scope }}
-      bootstrap_mode: ${{ inputs.bootstrap_mode }}
-      correlation_id: ${{ inputs.correlation_id }}
-      selectors: ${{ inputs.selectors }}
-    secrets: inherit
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo '::error::Use iac-orchestrator.yml for plan/apply/destroy.'
+          exit 1
   summary:
     if: ${{ always() }}
-    needs:
-      - prepare
-      - self-check
-      - execute-iac
+    needs: [prepare, self-check, execute-iac]
     runs-on: ubuntu-latest
     steps:
       - name: Require successful preparation
         if: needs.prepare.result != 'success'
-        run: |-
-          echo "::error::Matrix preparation failed"
+        run: |
+          echo '::error::Static IaC preparation failed'
           exit 1
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: ${{ needs.self-check.outputs.iac_sha || needs.execute-iac.outputs.iac_sha }}
+          ref: ${{ needs.self-check.outputs.iac_sha }}
           path: iac_modules
           persist-credentials: false
-      - if: needs.prepare.outputs.action == 'check' && needs.self-check.result == 'success'
+      - if: needs.self-check.result == 'success'
         uses: actions/download-artifact@v4
         with:
           artifact-ids: ${{ needs.self-check.outputs.artifact_id }}
           merge-multiple: true
           path: ${{ runner.temp }}/iac-static
-      - if: needs.prepare.outputs.action != 'check' && needs.execute-iac.result == 'success'
-        uses: actions/download-artifact@v4
-        with:
-          artifact-ids: ${{ needs.execute-iac.outputs.receipt_artifact_id }}
-          merge-multiple: true
-          path: ${{ runner.temp }}/iac-summary
       - id: verify
         uses: ./iac_modules/.github/actions/iac-entry-summary
         with:
@@ -267,13 +125,5 @@ jobs:
           iac-root: ${{ github.workspace }}/iac_modules
           report-file: ${{ runner.temp }}/iac-static/report.json
           summary-file: ${{ runner.temp }}/iac-summary/summary.json
-          target-manifest: ${{ inputs.target_manifest }}
-          correlation-id: ${{ inputs.correlation_id }}
-    outputs:
-      result: ${{ steps.verify.outputs.result }}
-      gitops_sha: ${{ steps.verify.outputs.gitops_sha }}
-      iac_sha: ${{ steps.verify.outputs.iac_sha }}
-      receipt_sha256: ${{ steps.verify.outputs.receipt_sha256 }}
-      receipt_artifact_id: ${{ steps.verify.outputs.receipt_artifact_id }}
-      inventory_artifact_id: ${{ steps.verify.outputs.inventory_artifact_id }}
-      deploy_matrix: ${{ steps.verify.outputs.deploy_matrix }}
+          target-manifest: ''
+          correlation-id: ${{ github.run_id }}:${{ github.run_attempt }}:static

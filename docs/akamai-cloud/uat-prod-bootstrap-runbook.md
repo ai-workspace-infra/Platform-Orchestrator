@@ -1,5 +1,7 @@
 # Akamai Cloud/Linode UAT 与 PROD Bootstrap Runbook
 
+> 下文 `akamai-cloud-iac.yml` 命令是历史兼容入口，已从当前 main 退役。当前使用 `iac-orchestrator.yml`；参数和阶段映射见 [流水线重构记录](../iac/workflow-orchestrator-refactor-2026-10-12.zh.md)。凭据与 state 路径按原合同保留。
+
 本文档是 UAT/PROD 的操作入口。敏感值只从本地环境变量或 Vault 管理会话读取，
 不得写入 GitOps、GitHub Actions 参数、文档、Terraform 文件或日志。
 

@@ -1,4 +1,4 @@
-name: AI Aggregator v1
+name: AI Aggregator Orchestrator
 
 on:
   push:

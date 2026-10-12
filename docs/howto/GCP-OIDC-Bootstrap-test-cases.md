@@ -1,5 +1,7 @@
 # GCP OIDC Bootstrap 验证用例
 
+> 历史用例：下文旧 workflow 命令已退役，不再用于当前 main。当前入口、bootstrap 参数和替代关系见 [流水线重构记录](../iac/workflow-orchestrator-refactor-2026-10-12.zh.md)。原 Vault 字段和 Terraform state 身份仍需按实际合同核对。
+
 本手册验证完整链路：GitOps 声明 → Vault bootstrap JWT role → 短期 GCP OAuth
 token → Terraform 创建 WIF → GitHub Actions JWT + Google STS/WIF → GCP IAC。
 
