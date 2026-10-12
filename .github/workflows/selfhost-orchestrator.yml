@@ -74,7 +74,7 @@ on:
         default: ""
         type: string
       operation:
-        description: "执行范围：plan 仅校验；infra 仅基础设施；deploy 部署应用；deploy+init 显式 UAT 空库初始化并部署；native-standby 仅准备 PROD PostgreSQL、保持应用停止；native-init-plan/native-init 按受控合同策略执行原生空库预演/初始化；native-billing-plan/native-billing 执行 Billing 原生增量预演/升级；native-business-plan/copy/compare 执行全业务预演/复制/比对；native-core-users 显式复制；native-core-users-compare 只读比对数量/email/密码 hash/Proxy UUID；native-availability 检查容器/HTTPS/API/DB 可用性，均不授权切库；migrate 仅迁移；deploy+migrate 部署并迁移；destroy 销毁。GitOps 仅声明拓扑与能力。"
+        description: "plan=校验；infra=基础设施；deploy=应用；deploy+init=UAT空库初始化+应用；migrate=迁移；deploy+migrate=应用+迁移；destroy=销毁；native-*按名称执行受控PROD数据库预演/初始化/升级/复制/比对或可用性检查，均不切库；GitOps仅声明拓扑和能力。"
         required: true
         default: "plan"
         type: choice
