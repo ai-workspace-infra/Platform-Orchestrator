@@ -74,11 +74,11 @@ on:
         default: ""
         type: string
       operation:
-        description: "plan=校验；infra=基础设施；deploy=应用部署；migrate=数据迁移；destroy=销毁基础设施"
+        description: "plan=校验；infra=基础设施；deploy=应用部署；migrate=数据迁移；deploy+migrate=应用+数据迁移；destroy=销毁基础设施"
         required: true
         default: "plan"
         type: choice
-        options: [plan, infra, deploy, migrate, destroy]
+        options: [plan, infra, deploy, migrate, deploy+migrate, destroy]
       target_domains:
         description: "选择要执行的业务域 (Business Domain)"
         required: true
