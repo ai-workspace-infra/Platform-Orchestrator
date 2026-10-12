@@ -7,7 +7,7 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW = ROOT / ".github/workflows/selfhost-orchestrator.yml"
+WORKFLOW = ROOT / ".github/workflows/selfhost-stage-verify.yml"
 
 
 class PostDeployReadinessOwnerContractTests(unittest.TestCase):
@@ -19,7 +19,7 @@ class PostDeployReadinessOwnerContractTests(unittest.TestCase):
         steps = {step.get("name"): step for step in job["steps"]}
         checkout = steps["Checkout playbooks"]
         readiness = steps["Verify Web SaaS host with Playbooks role"]
-        self.assertEqual(checkout["with"]["ref"], "${{ needs.provision.outputs.playbooks_ref }}")
+        self.assertEqual(checkout["with"]["ref"], "${{ fromJSON(inputs.provision_context).outputs.playbooks_ref }}")
         self.assertEqual(readiness["working-directory"], "playbooks")
         self.assertIn("verify_web_saas_post_deploy.yml", readiness["run"])
         self.assertIn("--inventory ../cmdb/inventory.ini", readiness["run"])
@@ -32,7 +32,7 @@ class PostDeployReadinessOwnerContractTests(unittest.TestCase):
         steps = {step.get("name"): step for step in job["steps"]}
         checkout = steps["Checkout playbooks"]
         readiness = steps["Verify Agent Proxy host with Playbooks role"]
-        self.assertEqual(checkout["with"]["ref"], "${{ needs.provision.outputs.playbooks_ref }}")
+        self.assertEqual(checkout["with"]["ref"], "${{ fromJSON(inputs.provision_context).outputs.playbooks_ref }}")
         self.assertEqual(readiness["working-directory"], "playbooks")
         self.assertIn("verify_agent_proxy_post_dns.yml", readiness["run"])
         self.assertIn('--limit "${MATRIX_HOST}"', readiness["run"])

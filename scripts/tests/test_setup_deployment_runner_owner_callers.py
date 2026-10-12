@@ -12,7 +12,7 @@ class SetupDeploymentRunnerOwnerCallerTests(unittest.TestCase):
         paths = [
             ROOT / ".github/workflows/deploy-action-runner-iac.yaml",
             ROOT / ".github/workflows/observability-server.yml",
-            ROOT / ".github/workflows/selfhost-orchestrator.yml",
+            *(ROOT / f".github/workflows/selfhost-stage-{stage}.yml" for stage in ("resolve", "infra", "deploy", "migrate", "verify")),
         ]
         calls = sum(path.read_text(encoding="utf-8").count(SETUP) for path in paths)
         self.assertEqual(calls, 13)

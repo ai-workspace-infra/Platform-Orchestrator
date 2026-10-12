@@ -12,7 +12,7 @@ OWNER_SHA = "18fa333e5d76143f2a3a3ce94b1766a04003ebd8"
 class NonIaCOwnerHandoffContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.workflow = (ROOT / ".github/workflows/selfhost-orchestrator.yml").read_text()
+        cls.workflow = (ROOT / ".github/workflows/selfhost-stage-deploy.yml").read_text()
 
     def test_inventory_adapter_is_pinned_to_the_playbooks_owner(self) -> None:
         owner = (

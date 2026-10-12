@@ -1,0 +1,312 @@
+name: Selfhost | Verify & Report
+run-name: Selfhost Stage ${{ inputs.correlation_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      payload_json:
+        {required: true, type: string}
+      parent_run_id:
+        {required: true, type: string}
+      parent_run_attempt:
+        {required: true, type: string}
+      correlation_id:
+        {required: true, type: string}
+      provision_context:
+        {required: true, type: string}
+      deploy_context:
+        {required: true, type: string}
+      migration_context:
+        {required: true, type: string}
+      infra_run_id:
+        {required: true, type: string}
+      deploy_run_id:
+        {required: true, type: string}
+      migration_run_id:
+        {required: true, type: string}
+
+permissions:
+  contents: read
+  actions: write
+  id-token: write
+
+env:
+  VAULT_ADDR: ${{ fromJSON(inputs.payload_json || '{}').vault_addr || 'https://vault.svc.plus' }}
+  # Branches select a complete deployment profile:
+  # - pull_request -> sit
+  # - main / release/* -> uat, except release/v* -> prod
+  # - tags (v*) -> prod
+  DEPLOY_ENV: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  VAULT_ENV_PATH: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  VAULT_ROLE: github-actions-platform-ops-toolkit-${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  # 公共服务 secret: 三个环境共读、只读不可改 (GHCR 镜像拉取凭据等)。
+  # 拉的是同一批镜像, 不存在环境维度, 不拆分。
+  VAULT_KV: kv/data/CICD
+  # 基础凭据: 按环境拆分, 各 role 只读自己那份。
+  # VULTR_API_KEY / TF_STATE_* / SSH_PRIVATE_DEPLOY_KEY_B64 授予的是"控制基础
+  # 设施"和"登录主机"的能力, 是提权的实际载体, 必须隔离 —— sit 失陷不应拿到
+  # prod 的云账号与主机私钥。
+  VAULT_KV_BASE: kv/data/CICD/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  VAULT_KV_IAC_STATE: kv/data/CICD/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/iac_state
+  VAULT_KV_OPENCLAW: kv/data/openclaw
+  VAULT_KV_WEB_SAAS: kv/data/WEB_SAAS
+  # 计费域密钥按环境隔离, 与 databases / agent-proxy 同形。此前是共享的
+  # kv/data/billing-service, 靠 SANDBOX_/PROD_ 键前缀区分两套密钥 —— 但
+  # KV v2 的读权限是整份 secret 粒度, 那样 uat 角色必然连 PROD_STRIPE_SECRET_KEY
+  # 一起读到, 而那把密钥能对真实客户扣款退款。拆开之后, 既有的
+  # kv/data/<env>/* 规则天然完成隔离, 不需要任何额外 policy。
+  VAULT_KV_BILLING: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/billing-service
+  VAULT_KV_DATABASES: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/databases
+  VAULT_KV_SMTP: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/platform/smtp/google
+  VAULT_KV_AGENT_PROXY: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/agent-proxy
+  PLAYBOOKS_DIR: infra/playbooks
+  AKAMAI_ACCOUNT: ${{ fromJSON(inputs.payload_json || '{}').akamai_account || 'manbuzhe2026' }}
+
+jobs:
+  parent-gate:
+    name: Verify authorized parent run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Validate request and prior stage evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELFHOST_STAGE: verify
+          PARENT_RUN_ID: ${{ inputs.parent_run_id }}
+          PARENT_RUN_ATTEMPT: ${{ inputs.parent_run_attempt }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
+          SELFHOST_REQUEST_JSON: ${{ inputs.payload_json }}
+          SELFHOST_CONTEXTS_JSON: ${{ toJSON(inputs) }}
+        run: python3 .github/scripts/platform-ops/stage-dispatch.py verify-parent
+
+  stage-context:
+    name: "Load prior stage contracts"
+    needs: parent-gate
+    runs-on: ubuntu-latest
+    outputs:
+      provision_context: ${{ inputs.provision_context }}
+      deploy_context: ${{ inputs.deploy_context }}
+      migration_context: ${{ inputs.migration_context }}
+    steps:
+      - name: Validate prior stage contracts
+        env:
+          PROVISION_CONTEXT: ${{ inputs.provision_context }}
+          DEPLOY_CONTEXT: ${{ inputs.deploy_context }}
+          MIGRATION_CONTEXT: ${{ inputs.migration_context }}
+        run: python3 -c 'import json,os; [json.loads(os.environ[k] or "{}") for k in ("PROVISION_CONTEXT","DEPLOY_CONTEXT","MIGRATION_CONTEXT")]'
+  observe_web_saas_after_dns:
+    name: "[5/5] Verify | Web SaaS status ${{ matrix.host }}"
+    needs: [stage-context]
+    if: >-
+      ${{ always() && !cancelled() && needs.stage-context.result == 'success' &&
+      fromJSON(inputs.provision_context).result == 'success' &&
+      fromJSON(inputs.migration_context).switch_dns.result == 'success' &&
+      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), fromJSON(inputs.provision_context || '{}').outputs.target_domains) &&
+      fromJSON(inputs.provision_context).outputs.hosts_web_saas != '[]' &&
+      fromJSON(inputs.provision_context).outputs.hosts_web_saas != '' }}
+    runs-on: ${{ fromJSON(inputs.payload_json || '{}').runner_type || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(fromJSON(inputs.provision_context).outputs.hosts_web_saas) }}
+    env:
+      MATRIX_HOST: ${{ matrix.host }}
+      ANSIBLE_HOST_KEY_CHECKING: "False"
+      ANSIBLE_SSH_ARGS: "-o ControlMaster=auto -o ControlPersist=60s -o IdentityFile=~/.ssh/id_deploy -o StrictHostKeyChecking=no"
+      VAULT_ENV_PATH: ${{ fromJSON(inputs.provision_context).outputs.vault_env_path }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ fromJSON(inputs.provision_context).outputs.toolkit_ref }}
+
+    - name: Checkout playbooks
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/playbooks
+        ref: ${{ fromJSON(inputs.provision_context).outputs.playbooks_ref }}
+        path: playbooks
+
+    - name: Download CMDB
+      uses: actions/download-artifact@v8
+      with:
+        name: platform-ops-toolkit-cmdb
+        run-id: ${{ inputs.infra_run_id }}
+        github-token: ${{ github.token }}
+        repository: ${{ github.repository }}
+        path: cmdb
+
+    - name: Load deployment SSH key from Vault
+      id: vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: ${{ env.VAULT_ROLE }}
+        jwtGithubAudience: vault
+        secrets: |
+          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
+
+    - name: Setup deployment runner
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
+      with:
+        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        matrix_host: ${{ matrix.host }}
+        wait_for_ssh: 'true'
+        install_ansible: 'true'
+        assert_ansible_target: 'true'
+        ansible_inventory: cmdb/inventory.ini
+
+    - name: Verify Web SaaS host with Playbooks role
+      working-directory: playbooks
+      env:
+        WEB_SAAS_CANONICAL_PROBE_HOST: ${{ format('console-{0}.{1}', fromJSON(inputs.provision_context || '{}').outputs.deployment_env, fromJSON(inputs.provision_context).outputs.target_domain_base) }}
+      run: >-
+        ansible-playbook verify_web_saas_post_deploy.yml
+        --inventory ../cmdb/inventory.ini
+        --limit "${MATRIX_HOST}"
+        --extra-vars "readiness_target_host=${MATRIX_HOST} web_saas_canonical_probe_host=${WEB_SAAS_CANONICAL_PROBE_HOST}"
+
+    - name: Verify Web SaaS public endpoints after DNS
+      env:
+        DOMAIN: web-saas
+        DEPLOY_ENV: ${{ fromJSON(inputs.provision_context || '{}').outputs.deployment_env }}
+        OBSERVE_URLS: >-
+          https://console-${{ fromJSON(inputs.provision_context || '{}').outputs.deployment_env }}.${{ fromJSON(inputs.provision_context).outputs.target_domain_base }}/
+          https://console-selfhost-${{ fromJSON(inputs.provision_context || '{}').outputs.deployment_env }}.${{ fromJSON(inputs.provision_context).outputs.target_domain_base }}/
+          https://accounts-${{ fromJSON(inputs.provision_context || '{}').outputs.deployment_env }}.${{ fromJSON(inputs.provision_context).outputs.target_domain_base }}/
+          https://bridge-${{ fromJSON(inputs.provision_context || '{}').outputs.deployment_env }}.${{ fromJSON(inputs.provision_context).outputs.target_domain_base }}/api/ping
+        # Both the canonical Hybrid console route and its mode-qualified
+        # selfhost origin must serve. Accounts and Bridge intentionally require
+        # authentication; their 404/401 responses prove those services are
+        # routed and alive. The observer rejects every other code.
+        # OBSERVE_URLS order: canonical console, selfhost console, accounts, bridge.
+        OBSERVE_EXPECTED_CODES: "200,200,404,401"
+      run: bash playbooks/.github/scripts/domain-cd-observe-endpoints.sh
+  observe_agent_proxy_after_dns:
+    name: "[5/5] Verify | Agent Proxy status ${{ matrix.host }}"
+    needs: [stage-context]
+    if: >-
+      ${{ always() && !cancelled() && needs.stage-context.result == 'success' &&
+      fromJSON(inputs.provision_context).result == 'success' &&
+      fromJSON(inputs.migration_context).switch_dns.result == 'success' &&
+      contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), fromJSON(inputs.provision_context || '{}').outputs.target_domains) &&
+      fromJSON(inputs.provision_context).outputs.hosts_agent_proxy_iac != '[]' &&
+      fromJSON(inputs.provision_context).outputs.hosts_agent_proxy_iac != '' }}
+    runs-on: ${{ fromJSON(inputs.payload_json || '{}').runner_type || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(fromJSON(inputs.provision_context).outputs.hosts_agent_proxy_iac) }}
+    env:
+      MATRIX_HOST: ${{ matrix.host }}
+      ANSIBLE_HOST_KEY_CHECKING: "False"
+      ANSIBLE_PIPELINING: "True"
+      ANSIBLE_SSH_ARGS: "-o ControlMaster=auto -o ControlPersist=60s -o IdentityFile=~/.ssh/id_deploy -o StrictHostKeyChecking=no"
+      VAULT_ENV_PATH: ${{ fromJSON(inputs.provision_context).outputs.vault_env_path }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ fromJSON(inputs.provision_context).outputs.toolkit_ref }}
+
+    - name: Checkout playbooks
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/playbooks
+        ref: ${{ fromJSON(inputs.provision_context).outputs.playbooks_ref }}
+        path: playbooks
+
+    - name: Download CMDB
+      uses: actions/download-artifact@v8
+      with:
+        name: platform-ops-toolkit-cmdb
+        run-id: ${{ inputs.infra_run_id }}
+        github-token: ${{ github.token }}
+        repository: ${{ github.repository }}
+        path: cmdb
+
+    - name: Load deployment SSH key from Vault
+      id: vault
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: ${{ env.VAULT_ROLE }}
+        jwtGithubAudience: vault
+        secrets: |
+          ${{ env.VAULT_KV_BASE }} SSH_PRIVATE_DEPLOY_KEY_B64 | ANSIBLE_SSH_KEY_B64
+
+    - name: Setup deployment runner
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
+      with:
+        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        matrix_host: ${{ matrix.host }}
+        wait_for_ssh: 'true'
+        install_ansible: 'true'
+        assert_ansible_target: 'true'
+        ansible_inventory: cmdb/inventory.ini
+
+    - name: Verify Agent Proxy host with Playbooks role
+      working-directory: playbooks
+      run: >-
+        ansible-playbook verify_agent_proxy_post_dns.yml
+        --inventory ../cmdb/inventory.ini
+        --limit "${MATRIX_HOST}"
+        --extra-vars "readiness_target_host=${MATRIX_HOST}"
+  deployment_summary:
+    name: "[5/5] Verify & Report | deployment summary"
+    needs: [stage-context, observe_web_saas_after_dns, observe_agent_proxy_after_dns]
+    # Keep the summary alive after failed upstream jobs, but explicitly assert
+    # that every declared need has produced a result. This satisfies the
+    # workflow gating contract without turning a failure into a skipped summary.
+    if: >-
+      ${{ always() && !cancelled() && needs.stage-context.result == 'success' &&
+      fromJSON(inputs.payload_json || '{}').operation != 'native-standby' &&
+      fromJSON(inputs.payload_json || '{}').operation != 'native-init-plan' &&
+      fromJSON(inputs.payload_json || '{}').operation != 'native-init' &&
+      fromJSON(inputs.payload_json || '{}').operation != 'native-billing-plan' &&
+      fromJSON(inputs.payload_json || '{}').operation != 'native-billing' &&
+      fromJSON(inputs.payload_json || '{}').operation != 'native-business-plan' &&
+      fromJSON(inputs.payload_json || '{}').operation != 'native-business-copy' &&
+      fromJSON(inputs.payload_json || '{}').operation != 'native-business-compare' &&
+      fromJSON(inputs.payload_json || '{}').operation != 'native-core-users' &&
+      fromJSON(inputs.payload_json || '{}').operation != 'native-core-users-compare' &&
+      fromJSON(inputs.payload_json || '{}').operation != 'native-availability' &&
+      needs.observe_web_saas_after_dns.result != '' &&
+      needs.observe_agent_proxy_after_dns.result != '' }}
+    runs-on: ${{ fromJSON(inputs.payload_json || '{}').runner_type || 'ubuntu-latest' }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ github.sha }}
+
+    - name: Write deployment summary
+      env:
+        PROVISION_RESULT: ${{ fromJSON(inputs.provision_context || '{}').result || 'skipped' }}
+        WEB_SAAS_DEPLOY_RESULT: ${{ fromJSON(inputs.deploy_context || '{}').deploy_web_saas.result || 'skipped' }}
+        DB_INIT_RESULT: ${{ fromJSON(inputs.deploy_context || '{}').initialize_empty_web_saas.result || 'skipped' }}
+        WEB_SAAS_BASELINE_RESULT: ${{ fromJSON(inputs.deploy_context || '{}').capture_web_saas_baseline.result || 'skipped' }}
+        WEB_SAAS_ACCEPTANCE_RESULT: ${{ fromJSON(inputs.deploy_context || '{}').accept_web_saas_upgrade.result || 'skipped' }}
+        RUN_APPLICATION_DEPLOY: ${{ fromJSON(inputs.provision_context || '{}').outputs.run_application_deploy || 'false' }}
+        AGENT_PROXY_DEPLOY_RESULT: ${{ fromJSON(inputs.deploy_context || '{}').deploy_agent_proxy.result || 'skipped' }}
+        AGENT_PROXY_NON_IAC_DEPLOY_RESULT: ${{ fromJSON(inputs.deploy_context || '{}').deploy_agent_proxy_non_iac.result || 'skipped' }}
+        DNS_UPDATE_RESULT: ${{ fromJSON(inputs.migration_context || '{}').switch_dns.result || 'skipped' }}
+        WEB_SAAS_STATUS_RESULT: ${{ needs.observe_web_saas_after_dns.result }}
+        AGENT_PROXY_STATUS_RESULT: ${{ needs.observe_agent_proxy_after_dns.result }}
+        INFRA_PLATFORM_DEPLOY_RESULT: ${{ fromJSON(inputs.deploy_context || '{}').deploy_infra_platform.result || 'skipped' }}
+        STRIPE_CATALOG_RESULT: ${{ fromJSON(inputs.migration_context || '{}').bootstrap_stripe_catalog.result || 'skipped' }}
+        DATA_MIGRATION_RESULT: ${{ fromJSON(inputs.migration_context || '{}').trigger_data_migration.result || 'skipped' }}
+        XCONNECT_ZERO_UAT_RESULT: ${{ fromJSON(inputs.deploy_context || '{}').deploy_xconnect_zero_uat.result || 'skipped' }}
+        AI_WORKSPACE_RESULT: ${{ fromJSON(inputs.deploy_context || '{}').deploy_ai_workspace.result || 'skipped' }}
+        MONITOR_AGENT_RESULT: ${{ fromJSON(inputs.deploy_context || '{}').deploy_monitor_agent.result || 'skipped' }}
+        DEPLOYMENT_ENV: ${{ fromJSON(inputs.provision_context || '{}').outputs.deployment_env }}
+        TARGET_DOMAINS: ${{ fromJSON(inputs.provision_context || '{}').outputs.target_domains }}
+        TERRAFORM_NAMESPACE: ${{ fromJSON(inputs.provision_context || '{}').outputs.terraform_namespace }}
+        TERRAFORM_STATE_KEY: ${{ fromJSON(inputs.provision_context || '{}').outputs.state_key }}
+        DEPLOY_TAG: ${{ fromJSON(inputs.provision_context || '{}').outputs.deploy_tag }}
+        AGENT_CONTROLLER_URL: ${{ fromJSON(inputs.provision_context || '{}').outputs.agent_accounts_base_url }}
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/observe/platform-ops_deployment-summary.sh

@@ -115,7 +115,9 @@ Selfhost 的通用 operation 选单从 18 项收敛为 `plan / infra / deploy / 
 
 历史 native 执行源码与回执合同保留，已有数据 caller 仍只派发不可变 release 中的 Selfhost workflow。精简 main 的选单不改写旧 release 或扩大 PROD 数据权限。
 
-Selfhost 的五个逻辑阶段为 Resolve/Validate → IaC → Deploy → Migrate/Configure → Verify/Report。GitHub Actions 仍显示各业务域矩阵 job；本次没有把它压缩成恰好五个可见 job。
+Selfhost 总控运行图压为五个实际 job：Resolve、IaC、Deploy、Migrate/Configure、Verify。每个 job dispatch 对应的阶段 workflow，等待精确关联的子运行，并把 JSON 回执交给下一阶段；阶段矩阵留在各自运行记录中，总控图不展开内部 jobs。
+
+阶段入口会核验父运行、原始请求和前序阶段回执；跨阶段 CMDB 与上下文按子运行 ID 下载。Vault OIDC 源 allowlist 加入五个精确的 `selfhost-stage-*.yml` workflow 路径；本次只改仓库策略文件，没有同步或修改运行中的 Vault role。合并后仍需在 SIT/UAT 核验策略和阶段 dispatch 链路。PR 事件跳过阶段 dispatch，由离线合同 CI 校验代码；push/main 与手动运行使用五段总控。
 
 Migrate 继续 dispatch `environment-data-operations.yml`。部署并迁移要求部署/验收完成，DNS 需等待迁移成功。编排门禁还补齐了 existing Agent Proxy 对 Web SaaS 部署/验收结果的检查，阻止上游失败后继续注册。
 
@@ -128,6 +130,6 @@ Migrate 继续 dispatch `environment-data-operations.yml`。部署并迁移要�
 - workflow gating、脚本引用、owner checkout 和 Toolkit execution ownership scanner。
 - 固定 IaC owner 的 32 项 action/合同测试，包括保存 plan 后再 apply、持久资源删除保护、逆向 destroy、state 身份和静态回执负面用例。
 
-合并代码和离线 CI 通过，仅证明入口/合同重构。后续仍需对指定不可变版本执行 SIT/UAT：先确认目标声明与授权，再做 plan，审批后 apply/deploy，最后验证目标主机、回执和应用状态。本次没有执行该现场验收链路。
+本次离线检查仅证明 workflow 结构和调用合同。后续仍需对指定不可变版本执行 SIT/UAT：先确认目标声明与授权，再做 plan，审批后 apply/deploy，最后验证目标主机、回执和应用状态。本次没有 dispatch 阶段运行，也没有触碰生产主机。
 
 前序五阶段标注及外部 IaC dispatch 见 [PR #1389](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1389)；合约修复和简化说明见 [PR #1391](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1391)。本次入口退役、调用方迁移和 Orchestrator 分类见 [PR #1392](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1392)。合并状态与 CI 结果以对应 PR 记录为准。

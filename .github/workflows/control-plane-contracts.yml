@@ -69,6 +69,7 @@ jobs:
         run: |
           bash scripts/tests/control_plane/daily_snapshot_tag_routing_test.sh
           bash scripts/tests/control_plane/workflow_dispatch_input_limit_test.sh
+          python3 scripts/ci/test_selfhost_stage_dispatch_contract.py
 
       - name: Verify XConnect caller contracts
         env:

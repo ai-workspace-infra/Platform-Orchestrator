@@ -1,0 +1,378 @@
+name: Selfhost | Infrastructure
+run-name: Selfhost Stage ${{ inputs.correlation_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      payload_json:
+        {required: true, type: string}
+      parent_run_id:
+        {required: true, type: string}
+      parent_run_attempt:
+        {required: true, type: string}
+      correlation_id:
+        {required: true, type: string}
+      resolve_context:
+        {required: true, type: string}
+      resolve_run_id:
+        {required: true, type: string}
+      resolve_run_attempt:
+        {required: true, type: string}
+
+permissions:
+  contents: read
+  actions: write
+  id-token: write
+
+env:
+  VAULT_ADDR: ${{ fromJSON(inputs.payload_json || '{}').vault_addr || 'https://vault.svc.plus' }}
+  # Branches select a complete deployment profile:
+  # - pull_request -> sit
+  # - main / release/* -> uat, except release/v* -> prod
+  # - tags (v*) -> prod
+  DEPLOY_ENV: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  VAULT_ENV_PATH: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  VAULT_ROLE: github-actions-platform-ops-toolkit-${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  # 公共服务 secret: 三个环境共读、只读不可改 (GHCR 镜像拉取凭据等)。
+  # 拉的是同一批镜像, 不存在环境维度, 不拆分。
+  VAULT_KV: kv/data/CICD
+  # 基础凭据: 按环境拆分, 各 role 只读自己那份。
+  # VULTR_API_KEY / TF_STATE_* / SSH_PRIVATE_DEPLOY_KEY_B64 授予的是"控制基础
+  # 设施"和"登录主机"的能力, 是提权的实际载体, 必须隔离 —— sit 失陷不应拿到
+  # prod 的云账号与主机私钥。
+  VAULT_KV_BASE: kv/data/CICD/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  VAULT_KV_IAC_STATE: kv/data/CICD/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/iac_state
+  VAULT_KV_OPENCLAW: kv/data/openclaw
+  VAULT_KV_WEB_SAAS: kv/data/WEB_SAAS
+  # 计费域密钥按环境隔离, 与 databases / agent-proxy 同形。此前是共享的
+  # kv/data/billing-service, 靠 SANDBOX_/PROD_ 键前缀区分两套密钥 —— 但
+  # KV v2 的读权限是整份 secret 粒度, 那样 uat 角色必然连 PROD_STRIPE_SECRET_KEY
+  # 一起读到, 而那把密钥能对真实客户扣款退款。拆开之后, 既有的
+  # kv/data/<env>/* 规则天然完成隔离, 不需要任何额外 policy。
+  VAULT_KV_BILLING: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/billing-service
+  VAULT_KV_DATABASES: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/databases
+  VAULT_KV_SMTP: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/platform/smtp/google
+  VAULT_KV_AGENT_PROXY: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/agent-proxy
+  PLAYBOOKS_DIR: infra/playbooks
+  AKAMAI_ACCOUNT: ${{ fromJSON(inputs.payload_json || '{}').akamai_account || 'manbuzhe2026' }}
+
+jobs:
+  parent-gate:
+    name: Verify authorized parent run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Validate request and prior stage evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELFHOST_STAGE: infra
+          PARENT_RUN_ID: ${{ inputs.parent_run_id }}
+          PARENT_RUN_ATTEMPT: ${{ inputs.parent_run_attempt }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
+          SELFHOST_REQUEST_JSON: ${{ inputs.payload_json }}
+          SELFHOST_CONTEXTS_JSON: ${{ toJSON(inputs) }}
+        run: python3 .github/scripts/platform-ops/stage-dispatch.py verify-parent
+
+  resolve-targets:
+    needs: parent-gate
+    name: "[1/5] Resolve context from caller"
+    if: ${{ fromJSON(inputs.payload_json || '{}').operation != 'native-standby' && fromJSON(inputs.payload_json || '{}').operation != 'native-init-plan' && fromJSON(inputs.payload_json || '{}').operation != 'native-init' && fromJSON(inputs.payload_json || '{}').operation != 'native-billing-plan' && fromJSON(inputs.payload_json || '{}').operation != 'native-billing' && fromJSON(inputs.payload_json || '{}').operation != 'native-business-plan' && fromJSON(inputs.payload_json || '{}').operation != 'native-business-copy' && fromJSON(inputs.payload_json || '{}').operation != 'native-business-compare' && fromJSON(inputs.payload_json || '{}').operation != 'native-core-users' && fromJSON(inputs.payload_json || '{}').operation != 'native-core-users-compare' && fromJSON(inputs.payload_json || '{}').operation != 'native-availability' }}
+    runs-on: ubuntu-latest
+    outputs:
+      deployment_env: ${{ fromJSON(inputs.resolve_context || '{}').outputs.deployment_env || '' }}
+      resource_file: ${{ fromJSON(inputs.resolve_context || '{}').outputs.resource_file || '' }}
+      terraform_workspace: ${{ fromJSON(inputs.resolve_context || '{}').outputs.terraform_workspace || '' }}
+      state_key: ${{ fromJSON(inputs.resolve_context || '{}').outputs.state_key || '' }}
+      terraform_namespace: ${{ fromJSON(inputs.resolve_context || '{}').outputs.terraform_namespace || '' }}
+      terraform_workdir: ${{ fromJSON(inputs.resolve_context || '{}').outputs.terraform_workdir || '' }}
+      run_infrastructure: ${{ fromJSON(inputs.resolve_context || '{}').outputs.run_infrastructure || '' }}
+      run_application_deploy: ${{ fromJSON(inputs.resolve_context || '{}').outputs.run_application_deploy || '' }}
+      target_domains: ${{ fromJSON(inputs.resolve_context || '{}').outputs.target_domains || '' }}
+      deploy_tag: ${{ fromJSON(inputs.resolve_context || '{}').outputs.deploy_tag || '' }}
+      terraform_action: ${{ fromJSON(inputs.resolve_context || '{}').outputs.terraform_action || '' }}
+      toolkit_action: ${{ fromJSON(inputs.resolve_context || '{}').outputs.toolkit_action || '' }}
+      toolkit_ref: ${{ fromJSON(inputs.resolve_context || '{}').outputs.toolkit_ref || '' }}
+      infra_ref: ${{ fromJSON(inputs.resolve_context || '{}').outputs.infra_ref || '' }}
+      playbooks_ref: ${{ fromJSON(inputs.resolve_context || '{}').outputs.playbooks_ref || '' }}
+      gitops_ref: ${{ fromJSON(inputs.resolve_context || '{}').outputs.gitops_ref || '' }}
+      console_ref: ${{ fromJSON(inputs.resolve_context || '{}').outputs.console_ref || '' }}
+      offline_mode: ${{ fromJSON(inputs.resolve_context || '{}').outputs.offline_mode || '' }}
+      source_host: ${{ fromJSON(inputs.resolve_context || '{}').outputs.source_host || '' }}
+      source_domain_base: ${{ fromJSON(inputs.resolve_context || '{}').outputs.source_domain_base || '' }}
+      target_domain_base: ${{ fromJSON(inputs.resolve_context || '{}').outputs.target_domain_base || '' }}
+      env_suffix: ${{ fromJSON(inputs.resolve_context || '{}').outputs.env_suffix || '' }}
+      dns_mode: ${{ fromJSON(inputs.resolve_context || '{}').outputs.dns_mode || '' }}
+      vault_env_path: ${{ fromJSON(inputs.resolve_context || '{}').outputs.vault_env_path || '' }}
+      agent_controller_url: ${{ fromJSON(inputs.resolve_context || '{}').outputs.agent_controller_url || '' }}
+      agent_accounts_base_url: ${{ fromJSON(inputs.resolve_context || '{}').outputs.agent_accounts_base_url || '' }}
+      billing_service_base_url: ${{ fromJSON(inputs.resolve_context || '{}').outputs.billing_service_base_url || '' }}
+      cloud_provider: ${{ fromJSON(inputs.resolve_context || '{}').outputs.cloud_provider || '' }}
+      provider_gitops_dir: ${{ fromJSON(inputs.resolve_context || '{}').outputs.provider_gitops_dir || '' }}
+      account: ${{ fromJSON(inputs.resolve_context || '{}').outputs.account || '' }}
+      migration_target_host: ${{ fromJSON(inputs.resolve_context || '{}').outputs.migration_target_host || '' }}
+      include_external_agent_proxy: ${{ fromJSON(inputs.resolve_context || '{}').outputs.include_external_agent_proxy || '' }}
+      reuse_existing_host: ${{ fromJSON(inputs.resolve_context || '{}').outputs.reuse_existing_host || '' }}
+      existing_target_host: ${{ fromJSON(inputs.resolve_context || '{}').outputs.existing_target_host || '' }}
+      existing_target_user: ${{ fromJSON(inputs.resolve_context || '{}').outputs.existing_target_user || '' }}
+      hosts: ${{ fromJSON(inputs.resolve_context || '{}').outputs.hosts || '' }}
+      hosts_web_saas: ${{ fromJSON(inputs.resolve_context || '{}').outputs.hosts_web_saas || '' }}
+      hosts_ai_workspace: ${{ fromJSON(inputs.resolve_context || '{}').outputs.hosts_ai_workspace || '' }}
+      count: ${{ fromJSON(inputs.resolve_context || '{}').outputs.count || '' }}
+      target_manifest: ${{ fromJSON(inputs.resolve_context || '{}').outputs.target_manifest || '' }}
+      gitops_sha: ${{ fromJSON(inputs.resolve_context || '{}').outputs.gitops_sha || '' }}
+      iac_sha: ${{ fromJSON(inputs.resolve_context || '{}').outputs.iac_sha || '' }}
+      selectors: ${{ fromJSON(inputs.resolve_context || '{}').outputs.selectors || '' }}
+      terraform_project: ${{ fromJSON(inputs.resolve_context || '{}').outputs.terraform_project || '' }}
+    steps:
+      - name: Validate prior stage output
+        env:
+          RESOLVE_CONTEXT: ${{ inputs.resolve_context }}
+        run: python3 -c 'import json,os; value=json.loads(os.environ["RESOLVE_CONTEXT"] or "{}"); assert isinstance(value,dict)'
+  iac:
+    name: '[2/5] IaC | dispatch external pipeline'
+    needs: resolve-targets
+    if: needs.resolve-targets.result == 'success' && needs.resolve-targets.outputs.run_infrastructure == 'true' && needs.resolve-targets.outputs.reuse_existing_host
+      != 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      child_run_id: ${{ steps.dispatch.outputs.child_run_id }}
+      child_run_attempt: ${{ steps.dispatch.outputs.child_run_attempt }}
+      receipt_artifact_id: ${{ steps.dispatch.outputs.receipt_artifact_id }}
+      receipt_sha256: ${{ steps.dispatch.outputs.receipt_sha256 }}
+      gitops_sha: ${{ steps.dispatch.outputs.gitops_sha }}
+      iac_sha: ${{ steps.dispatch.outputs.iac_sha }}
+    steps:
+      - name: Check out the exact dispatcher source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Dispatch external IaC workflow and verify its exact receipt
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IAC_ACTION: ${{ needs.resolve-targets.outputs.terraform_action }}
+          IAC_ENVIRONMENT: ${{ needs.resolve-targets.outputs.deployment_env }}
+          IAC_TARGET_MANIFEST: ${{ needs.resolve-targets.outputs.target_manifest }}
+          IAC_GITOPS_REF: ${{ needs.resolve-targets.outputs.gitops_sha }}
+          IAC_REF: ${{ needs.resolve-targets.outputs.iac_sha }}
+          IAC_STAGE_SCOPE: resources
+          IAC_BOOTSTRAP_MODE: verify
+          IAC_SELECTORS: ${{ needs.resolve-targets.outputs.selectors }}
+          IAC_DISPATCH_REF: ${{ needs.resolve-targets.outputs.toolkit_ref }}
+          IAC_CORRELATION_ID: ${{ github.run_id }}:${{ github.run_attempt }}:selfhost
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: python3 .github/scripts/platform-ops/provision/dispatch-iac-pipeline.py
+  provision:
+    if: ${{ !cancelled() && needs.resolve-targets.result == 'success' && (needs.iac.result == 'success' || (needs.iac.result == 'skipped' && (needs.resolve-targets.outputs.run_infrastructure
+      != 'true' || needs.resolve-targets.outputs.reuse_existing_host == 'true'))) }}
+    name: '[2/5] Provision | verify receipt + deployment inventory'
+    environment: ${{ (fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' && fromJSON(inputs.payload_json || '{}').vault_env_path == 'prod') && 'prod' || (fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch'
+      && fromJSON(inputs.payload_json || '{}').vault_env_path == 'uat' && 'uat' || (fromJSON(inputs.payload_json || '{}').__parent_event_name == 'push' && github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref,
+      'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || ''))) }}
+    runs-on: ${{ fromJSON(inputs.payload_json || '{}').runner_type || 'ubuntu-latest' }}
+    outputs:
+      deployment_env: ${{ needs.resolve-targets.outputs.deployment_env }}
+      resource_file: ${{ needs.resolve-targets.outputs.resource_file }}
+      terraform_workspace: ${{ needs.resolve-targets.outputs.terraform_workspace }}
+      state_key: ${{ needs.resolve-targets.outputs.state_key }}
+      terraform_namespace: ${{ needs.resolve-targets.outputs.terraform_namespace }}
+      terraform_workdir: ${{ needs.resolve-targets.outputs.terraform_workdir }}
+      run_infrastructure: ${{ needs.resolve-targets.outputs.run_infrastructure }}
+      run_application_deploy: ${{ needs.resolve-targets.outputs.run_application_deploy }}
+      target_domains: ${{ needs.resolve-targets.outputs.target_domains }}
+      deploy_tag: ${{ needs.resolve-targets.outputs.deploy_tag }}
+      terraform_action: ${{ needs.resolve-targets.outputs.terraform_action }}
+      toolkit_action: ${{ needs.resolve-targets.outputs.toolkit_action }}
+      toolkit_ref: ${{ needs.resolve-targets.outputs.toolkit_ref }}
+      infra_ref: ${{ needs.resolve-targets.outputs.infra_ref }}
+      playbooks_ref: ${{ needs.resolve-targets.outputs.playbooks_ref }}
+      gitops_ref: ${{ needs.resolve-targets.outputs.gitops_ref }}
+      console_ref: ${{ needs.resolve-targets.outputs.console_ref }}
+      offline_mode: ${{ needs.resolve-targets.outputs.offline_mode }}
+      source_host: ${{ needs.resolve-targets.outputs.source_host }}
+      source_domain_base: ${{ needs.resolve-targets.outputs.source_domain_base }}
+      target_domain_base: ${{ needs.resolve-targets.outputs.target_domain_base }}
+      env_suffix: ${{ needs.resolve-targets.outputs.env_suffix }}
+      dns_mode: ${{ needs.resolve-targets.outputs.dns_mode }}
+      vault_env_path: ${{ needs.resolve-targets.outputs.vault_env_path }}
+      agent_controller_url: ${{ needs.resolve-targets.outputs.agent_controller_url }}
+      agent_accounts_base_url: ${{ needs.resolve-targets.outputs.agent_accounts_base_url || needs.resolve-targets.outputs.agent_controller_url }}
+      billing_service_base_url: ${{ needs.resolve-targets.outputs.billing_service_base_url }}
+      cloud_provider: ${{ needs.resolve-targets.outputs.cloud_provider }}
+      provider_gitops_dir: ${{ needs.resolve-targets.outputs.provider_gitops_dir }}
+      account: ${{ needs.resolve-targets.outputs.account }}
+      migration_target_host: ${{ needs.resolve-targets.outputs.migration_target_host }}
+      hosts_infra_platform: ${{ steps.matrix.outputs.hosts_infra_platform || '[]' }}
+      hosts_agent_proxy: ${{ steps.matrix.outputs.hosts_agent_proxy  || '[]' }}
+      hosts_agent_proxy_iac: ${{ steps.agent_proxy_matrix.outputs.hosts_agent_proxy_iac || steps.matrix.outputs.hosts_agent_proxy || '[]' }}
+      hosts_agent_proxy_non_iac: ${{ steps.agent_proxy_matrix.outputs.hosts_agent_proxy_non_iac || '[]' }}
+      agent_proxy_region_count: ${{ steps.agent_proxy_matrix.outputs.agent_proxy_region_count || '0' }}
+      include_external_agent_proxy: ${{ needs.resolve-targets.outputs.include_external_agent_proxy || 'true' }}
+      reuse_existing_host: ${{ needs.resolve-targets.outputs.reuse_existing_host || 'false' }}
+      existing_target_host: ${{ needs.resolve-targets.outputs.existing_target_host || '' }}
+      existing_target_user: ${{ needs.resolve-targets.outputs.existing_target_user || '' }}
+      hosts: ${{ steps.matrix.outputs.hosts || needs.resolve-targets.outputs.hosts || '[]' }}
+      bootstrap_hosts: ${{ steps.bootstrap_selection.outputs.hosts || '[]' }}
+      hosts_web_saas: ${{ steps.matrix.outputs.hosts_web_saas || needs.resolve-targets.outputs.hosts_web_saas || '[]' }}
+      hosts_ai_workspace: ${{ steps.matrix.outputs.hosts_ai_workspace || needs.resolve-targets.outputs.hosts_ai_workspace || '[]' }}
+      count: ${{ steps.matrix.outputs.count || needs.resolve-targets.outputs.count || '0' }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - if: needs.iac.result == 'success'
+      uses: actions/checkout@v4
+      with:
+        repository: ai-workspace-infra/iac_modules
+        ref: ${{ needs.iac.outputs.iac_sha }}
+        path: iac_modules
+        persist-credentials: false
+    - if: needs.iac.result == 'success'
+      uses: actions/download-artifact@v4
+      with:
+        artifact-ids: ${{ needs.iac.outputs.receipt_artifact_id }}
+        run-id: ${{ needs.iac.outputs.child_run_id }}
+        github-token: ${{ github.token }}
+        repository: ${{ github.repository }}
+        merge-multiple: true
+        path: ${{ runner.temp }}/iac-summary
+    - id: verified_iac
+      if: needs.iac.result == 'success'
+      uses: ./iac_modules/.github/actions/iac-receipt-verify
+      with:
+        summary-file: ${{ runner.temp }}/iac-summary/summary.json
+        receipt-sha256: ${{ needs.iac.outputs.receipt_sha256 }}
+        run-id: ${{ needs.iac.outputs.child_run_id }}
+        run-attempt: ${{ needs.iac.outputs.child_run_attempt }}
+        gitops-sha: ${{ needs.resolve-targets.outputs.gitops_sha }}
+        iac-sha: ${{ needs.resolve-targets.outputs.iac_sha }}
+        target-manifest: ${{ needs.resolve-targets.outputs.target_manifest }}
+        action: ${{ needs.resolve-targets.outputs.terraform_action }}
+        correlation-id: ${{ github.run_id }}:${{ github.run_attempt }}:selfhost
+    - if: needs.iac.result == 'success' && needs.resolve-targets.outputs.terraform_action == 'apply'
+      uses: ./iac_modules/.github/actions/iac-caller-inventory
+      with:
+        summary-file: ${{ runner.temp }}/iac-summary/summary.json
+        output-dir: ${{ runner.temp }}/cmdb-artifact
+    - if: needs.resolve-targets.outputs.reuse_existing_host == 'true' && needs.resolve-targets.outputs.run_application_deploy == 'true'
+      uses: actions/download-artifact@v4
+      with:
+        name: iac-existing-host-${{ inputs.resolve_run_id }}-${{ inputs.resolve_run_attempt }}
+        run-id: ${{ inputs.resolve_run_id }}
+        github-token: ${{ github.token }}
+        repository: ${{ github.repository }}
+        path: ${{ runner.temp }}/cmdb-artifact
+    - if: needs.resolve-targets.outputs.run_application_deploy == 'true'
+      uses: actions/checkout@v4
+      with:
+        repository: ai-workspace-infra/gitops
+        ref: ${{ needs.resolve-targets.outputs.gitops_sha || needs.resolve-targets.outputs.gitops_ref }}
+        path: gitops
+        persist-credentials: false
+    - name: Build deploy matrix
+      id: matrix
+      if: needs.resolve-targets.outputs.run_infrastructure == 'true' && needs.resolve-targets.outputs.terraform_action == 'apply'
+      working-directory: ${{ runner.temp }}/cmdb-artifact
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_build-deploy-matrix.sh
+    - name: Build Agent Proxy IaC and non-IaC matrices
+      id: agent_proxy_matrix
+      if: ${{ needs.resolve-targets.outputs.run_infrastructure == 'true' && needs.resolve-targets.outputs.terraform_action == 'apply' && needs.resolve-targets.outputs.cloud_provider
+        == 'akamai-cloud' && contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.resolve-targets.outputs.target_domains) }}
+      env:
+        CMDB_FILE: ${{ runner.temp }}/cmdb-artifact/cmdb.json
+        HOSTS_MANIFEST_FILE: ${{ runner.temp }}/cmdb-artifact/hosts_manifest.json
+        DEPLOYMENT_ENV: ${{ needs.resolve-targets.outputs.deployment_env }}
+        GITOPS_XCONNECT_CONFIG: ${{ github.workspace }}/gitops/topology/${{ needs.resolve-targets.outputs.deployment_env }}/selfhost/${{ needs.resolve-targets.outputs.deployment_env
+          == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
+        AGENT_PROXY_NAMESPACE: ${{ needs.resolve-targets.outputs.terraform_namespace }}
+      run: python3 ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_build-agent-proxy-matrices.py
+    - name: Exclude shared service hosts when legacy deployment is disabled
+      id: bootstrap_selection
+      if: needs.resolve-targets.outputs.run_application_deploy == 'true'
+      env:
+        CMDB_FILE: ${{ runner.temp }}/cmdb-artifact/cmdb.json
+        OPEN_PLATFORM_SERVICE: ${{ fromJSON(inputs.payload_json || '{}').open_platform_service || 'none' }}
+      run: |
+        set -euo pipefail
+        test -s "${CMDB_FILE}"
+        hosts="$(jq -c --arg selected "${OPEN_PLATFORM_SERVICE}" '[to_entries[]
+          | select((.value | type) == "object")
+          | select((.value.ip | type) == "string" and (.value.ip | length) > 0)
+          | select($selected != "none" or ((.value.groups // []) | any(. == "infra_platform" or . == "open_platform") | not))
+          | .key]' "${CMDB_FILE}")"
+        echo "hosts=${hosts}" >> "${GITHUB_OUTPUT}"
+    - name: Authenticate Vault for the existing application credential preparation
+      if: needs.resolve-targets.outputs.run_application_deploy == 'true' && needs.resolve-targets.outputs.terraform_action == 'apply'
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: ${{ env.VAULT_ROLE }}
+        jwtGithubAudience: vault
+        exportToken: true
+        outputToken: true
+    - name: Initialize Databases Credentials
+      if: ${{ needs.resolve-targets.outputs.run_application_deploy == 'true' && needs.resolve-targets.outputs.terraform_action == 'apply' }}
+      env:
+        VAULT_ENV_PATH: ${{ needs.resolve-targets.outputs.vault_env_path }}
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_initialize-databases-credentials.sh
+    - name: Initialize Agent Proxy Credentials
+      if: ${{ needs.resolve-targets.outputs.run_application_deploy == 'true' && needs.resolve-targets.outputs.terraform_action == 'apply' && contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas
+        + agent-proxy"]'), needs.resolve-targets.outputs.target_domains) }}
+      env:
+        VAULT_ENV_PATH: ${{ needs.resolve-targets.outputs.vault_env_path }}
+      run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_initialize-agent-proxy-credentials.sh
+    - name: Remove application preparation token from later step environments
+      if: always()
+      shell: bash
+      run: printf 'VAULT_TOKEN=\n' >> "$GITHUB_ENV"
+    - name: Upload CMDB artifact
+      if: ${{ (needs.resolve-targets.outputs.run_infrastructure == 'true' && needs.resolve-targets.outputs.terraform_action == 'apply') || (needs.resolve-targets.outputs.reuse_existing_host
+        == 'true' && needs.resolve-targets.outputs.run_application_deploy == 'true') }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: platform-ops-toolkit-cmdb
+        path: ${{ runner.temp }}/cmdb-artifact
+        if-no-files-found: error
+    needs:
+    - resolve-targets
+    - iac
+
+  # target_domains=all is not complete until the UAT XConnect Zero control/data
+  # plane is reconciled. Keep this as a separate workflow so its existing-One
+  # state and Vault role remain independent from provider-specific resources.
+  # The external Gateway and One records are configurable inputs; the defaults
+  # are the current UAT topology, not provider-specific logic.
+  stage-output:
+    name: "Export provision context"
+    if: ${{ always() && !cancelled() && needs.provision.result != '' }}
+    needs: [provision]
+    runs-on: ubuntu-latest
+    outputs:
+      context: ${{ toJSON(needs.provision) }}
+    steps:
+      - name: Write correlated stage context
+        env:
+          STAGE_NAME: infra
+          STAGE_CONTEXT: ${{ toJSON(needs.provision) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          context = json.loads(os.environ["STAGE_CONTEXT"])
+          result = {"schema": 1, "stage": os.environ["STAGE_NAME"],
+                    "run_id": os.environ["GITHUB_RUN_ID"],
+                    "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                    "context": context}
+          target = Path(os.environ["RUNNER_TEMP"]) / "stage-context.json"
+          target.write_text(json.dumps(result, separators=(",", ":")) + "\n", encoding="utf-8")
+          PY
+      - name: Publish stage context for the parent run
+        uses: actions/upload-artifact@v7
+        with:
+          name: selfhost-stage-context-infra
+          path: ${{ runner.temp }}/stage-context.json
+          if-no-files-found: error

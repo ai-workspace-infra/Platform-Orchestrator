@@ -305,27 +305,33 @@ assert '.workflow_run_id' in dispatcher_text
 assert 'gh run list' not in dispatcher_text
 assert 'gh run watch' not in dispatcher_text
 selfhost = yaml.safe_load(open(".github/workflows/selfhost-orchestrator.yml", encoding="utf-8"))
-baseline_job = selfhost["jobs"]["capture_web_saas_baseline"]
+resolve_stage = yaml.safe_load(open(".github/workflows/selfhost-stage-resolve.yml", encoding="utf-8"))
+infra_stage = yaml.safe_load(open(".github/workflows/selfhost-stage-infra.yml", encoding="utf-8"))
+deploy_stage = yaml.safe_load(open(".github/workflows/selfhost-stage-deploy.yml", encoding="utf-8"))
+migrate_stage = yaml.safe_load(open(".github/workflows/selfhost-stage-migrate.yml", encoding="utf-8"))
+verify_stage = yaml.safe_load(open(".github/workflows/selfhost-stage-verify.yml", encoding="utf-8"))
+baseline_job = deploy_stage["jobs"]["capture_web_saas_baseline"]
 assert baseline_job["outputs"]["baseline_state"] == "${{ steps.receipt.outputs.captured_state }}"
 assert baseline_job["outputs"]["acceptance_mode"] == "${{ steps.receipt.outputs.acceptance_mode }}"
-acceptance = selfhost["jobs"]["accept_web_saas_upgrade"]
+acceptance = deploy_stage["jobs"]["accept_web_saas_upgrade"]
 acceptance_dispatch = next(step for step in acceptance["steps"] if step.get("name") == "Dispatch read-only selfhost verification or first-deploy probe")
 assert "acceptance_mode == 'probe'" in acceptance_dispatch["env"]["DATA_OPERATION"]
 assert '"action"' in acceptance_dispatch["env"]["DATA_CONFIG_JSON"]
-dns = selfhost["jobs"]["switch_dns"]
-assert "accept_web_saas_upgrade" in dns["needs"]
-assert "needs.accept_web_saas_upgrade.result == 'success'" in dns["if"]
+dns = migrate_stage["jobs"]["switch_dns"]
+assert "stage-context" in dns["needs"]
+assert "accept_web_saas_upgrade.result == 'success'" in dns["if"]
+assert "fromJSON(needs.stage-context.outputs.deploy_context)" in dns["if"]
 owner = next(step for step in dns["steps"] if step.get("name") == "Check out reviewed UAT DNS provider owner")
 assert owner["with"]["repository"] == "ai-workspace-infra/iac_modules"
 assert owner["with"]["ref"] == "ed299ac0cbf0d7f3c355b36f2ecbed794ceebd7f"
 reconcile = next(step for step in dns["steps"] if step.get("name") == "Reconcile UAT DNS records")
 assert "iac-dns-owner/scripts/pipeline/cloudflare-uat-dns-reconcile.sh" in reconcile["run"]
 assert not __import__("pathlib").Path(".github/scripts/platform-ops/dns/platform-ops_uat_dns_reconcile.sh").exists()
-observe = selfhost["jobs"]["observe_web_saas_after_dns"]
+observe = verify_stage["jobs"]["observe_web_saas_after_dns"]
 observe_step = next(step for step in observe["steps"] if step.get("name") == "Verify Web SaaS public endpoints after DNS")
-assert "https://console-selfhost-${{ needs.provision.outputs.deployment_env }}.${{ needs.provision.outputs.target_domain_base }}/" in observe_step["env"]["OBSERVE_URLS"]
+assert "https://console-selfhost-${{ fromJSON(inputs.provision_context || '{}').outputs.deployment_env }}.${{ fromJSON(inputs.provision_context).outputs.target_domain_base }}/" in observe_step["env"]["OBSERVE_URLS"]
 assert observe_step["env"]["OBSERVE_EXPECTED_CODES"] == "200,200,404,401"
-resolve = selfhost["jobs"]["resolve-targets"]
+resolve = resolve_stage["jobs"]["resolve-targets"]
 resolve_steps = resolve["steps"]
 owner_checkout = next(step for step in resolve_steps if step.get("with", {}).get("repository") == "ai-workspace-infra/iac_modules")
 assert re.fullmatch(r"[0-9a-f]{40}", owner_checkout["with"]["ref"])
@@ -338,7 +344,7 @@ assert target["with"]["iac-root"] == "${{ github.workspace }}/iac_modules"
 assert target["with"]["gitops-root"] == "${{ github.workspace }}/gitops"
 assert target["with"]["state-key"] == "${{ steps.route.outputs.state_key }}"
 
-iac = selfhost["jobs"]["iac"]
+iac = infra_stage["jobs"]["iac"]
 assert iac["needs"] == "resolve-targets"
 assert "dispatch external pipeline" in iac["name"]
 assert iac["outputs"]["child_run_id"] == "${{ steps.dispatch.outputs.child_run_id }}"
@@ -351,7 +357,7 @@ assert dispatch_step["env"]["IAC_STAGE_SCOPE"] == "resources"
 assert dispatch_step["env"]["IAC_BOOTSTRAP_MODE"] == "verify"
 assert dispatch_step["env"]["IAC_CORRELATION_ID"] == "${{ github.run_id }}:${{ github.run_attempt }}:selfhost"
 
-provision = selfhost["jobs"]["provision"]
+provision = infra_stage["jobs"]["provision"]
 assert provision["needs"] == ["resolve-targets", "iac"]
 steps = provision["steps"]
 receipt_checkout = next(step for step in steps if step.get("with", {}).get("repository") == "ai-workspace-infra/iac_modules")
@@ -368,18 +374,19 @@ assert receipt_verify["with"]["iac-sha"] == "${{ needs.resolve-targets.outputs.i
 assert receipt_verify["with"]["target-manifest"] == "${{ needs.resolve-targets.outputs.target_manifest }}"
 assert receipt_verify["with"]["correlation-id"] == "${{ github.run_id }}:${{ github.run_attempt }}:selfhost"
 assert "terraform_action == 'apply'" in inventory["if"]
-migration = selfhost["jobs"]["trigger_data_migration"]
+migration = migrate_stage["jobs"]["trigger_data_migration"]
 assert "dispatch external data pipeline" in migration["name"]
-assert "deploy_web_saas" in migration["needs"]
-assert "accept_web_saas_upgrade" in migration["needs"]
+assert migration["needs"] == ["stage-context"]
+assert "deploy_web_saas.result == 'skipped'" in migration["if"]
+assert "accept_web_saas_upgrade.result == 'success'" in migration["if"]
 migration_dispatch = next(step for step in migration["steps"] if step.get("name") == "Dispatch explicitly gated legacy import and wait for its verdict")
 assert migration_dispatch["run"] == "python3 .github/scripts/environment-upgrade/dispatch.py"
-assert "trigger_data_migration" in selfhost["jobs"]["switch_dns"]["needs"]
+assert "trigger_data_migration" in migrate_stage["jobs"]["switch_dns"]["needs"]
 iac_dispatcher = open(".github/scripts/platform-ops/provision/dispatch-iac-pipeline.py", encoding="utf-8").read()
 assert "actions/workflows/{WORKFLOW}/dispatches" in iac_dispatcher
 assert "never issue a second POST" in iac_dispatcher
 assert "receipt_sha256" in iac_dispatcher
-selfhost_text = open(".github/workflows/selfhost-orchestrator.yml", encoding="utf-8").read()
+selfhost_text = "\n".join(open(f".github/workflows/selfhost-stage-{stage}.yml", encoding="utf-8").read() for stage in ("resolve", "infra", "deploy", "migrate", "verify"))
 assert "adopt_uat_open_platform_vm.py" not in selfhost_text
 assert "terraform-apply-destroy.sh" not in selfhost_text
 assert "terraform import" not in selfhost_text

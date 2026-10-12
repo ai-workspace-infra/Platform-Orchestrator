@@ -11,6 +11,11 @@
     "repository": "ai-workspace-infra/platform-ops-toolkit",
     "job_workflow_ref": [
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-orchestrator.yml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-stage-resolve.yml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-stage-infra.yml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-stage-deploy.yml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-stage-migrate.yml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-stage-verify.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/daily-main-snapshot.yaml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/resize-instance.yaml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/deploy-action-runner-iac.yaml@*",

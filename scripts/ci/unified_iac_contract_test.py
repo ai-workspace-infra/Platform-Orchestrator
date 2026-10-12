@@ -102,7 +102,8 @@ class UnifiedWorkflowContract(unittest.TestCase):
         workflow = load('selfhost-orchestrator.yml')
         choices = triggers(workflow)['workflow_dispatch']['inputs']['open_platform_service']
         self.assertEqual(choices['default'], 'none')
-        script = next(step['run'] for step in workflow['jobs']['provision']['steps'] if step.get('id') == 'bootstrap_selection')
+        infra = load('selfhost-stage-infra.yml')
+        script = next(step['run'] for step in infra['jobs']['provision']['steps'] if step.get('id') == 'bootstrap_selection')
         fixture = {
             'shared': {'ip': '192.0.2.1', 'groups': ['infra_platform']},
             'vault': {'ip': '192.0.2.2', 'groups': ['open_platform']},
@@ -119,7 +120,7 @@ class UnifiedWorkflowContract(unittest.TestCase):
                 result = subprocess.run(['bash', '-c', script], env=environment, text=True, capture_output=True, timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(output.read_text().strip().split('=', 1)[1]), expected)
-        base = workflow['jobs']['deploy_base']
+        base = load('selfhost-stage-deploy.yml')['jobs']['deploy_base']
         self.assertIn('bootstrap_hosts', base['strategy']['matrix']['host'])
 
     def test_provider_choice_preserves_declarations_and_rejects_unknown_clouds(self):
@@ -174,17 +175,20 @@ class UnifiedWorkflowContract(unittest.TestCase):
             workflow = load(name)
             trigger = workflow.get('on',workflow.get(True))
             self.assertLessEqual(len(trigger['workflow_dispatch']['inputs']),25)
-            jobs = workflow['jobs']
             if name == 'selfhost-orchestrator.yml':
+                self.assertEqual(len(workflow['jobs']), 5)
+                self.assertEqual([workflow['jobs'][job]['name'] for job in workflow['jobs']], [f'[{i}/5] {label}' for i,label in enumerate(('Resolve & Validate','IaC & Provision','Deploy','Migrate & Configure','Verify & Report'),1)])
+                jobs = load('selfhost-stage-infra.yml')['jobs']
                 self.assertIn('dispatch external pipeline', jobs['iac']['name'])
                 self.assertEqual(jobs['iac']['steps'][-1]['run'], 'python3 .github/scripts/platform-ops/provision/dispatch-iac-pipeline.py')
             else:
+                jobs = workflow['jobs']
                 self.assertEqual(jobs['iac']['uses'],'./.github/workflows/iac-orchestrator.yml')
                 self.assertEqual(jobs['iac']['with']['stage_scope'],'resources')
             self.assertTrue(any(s.get('uses')=='./iac_modules/.github/actions/iac-receipt-verify' for s in jobs[gate]['steps']))
         options = load('serverless-orchestrator.yml').get('on',load('serverless-orchestrator.yml').get(True))['workflow_dispatch']['inputs']['cloud_provider']['options']
         self.assertIn('ucloud',options)
-        steps = load('selfhost-orchestrator.yml')['jobs']['provision']['steps']
+        steps = load('selfhost-stage-infra.yml')['jobs']['provision']['steps']
         vault = next(i for i,s in enumerate(steps) if s.get('uses')=='hashicorp/vault-action@v4')
         init = next(i for i,s in enumerate(steps) if s.get('name')=='Initialize Databases Credentials')
         self.assertLess(vault,init)
@@ -192,7 +196,7 @@ class UnifiedWorkflowContract(unittest.TestCase):
     def test_exact_artifact_id_download_uses_expected_flat_directory(self):
         # download-artifact ID mode creates a name subdirectory unless merging
         # is explicit, even for one ID. Consumers read report/summary at root.
-        for name in ('iac-self-check-matrix.yml','selfhost-orchestrator.yml','serverless-orchestrator.yml'):
+        for name in ('iac-self-check-matrix.yml','selfhost-stage-resolve.yml','selfhost-stage-infra.yml','selfhost-stage-deploy.yml','selfhost-stage-migrate.yml','selfhost-stage-verify.yml','serverless-orchestrator.yml'):
             for job in load(name)['jobs'].values():
                 for step in job.get('steps',[]):
                     if 'artifact-ids' in step.get('with',{}):

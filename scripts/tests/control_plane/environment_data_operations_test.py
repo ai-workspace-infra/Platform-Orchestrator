@@ -133,15 +133,20 @@ class DataControlPlaneTests(unittest.TestCase):
         self.assertIn('immutable release tag', result.stderr)
 
     def test_parent_orchestrators_dispatch_and_wait(self):
-        for name in ('hybrid-orchestrator.yml', 'selfhost-orchestrator.yml', 'serverless-orchestrator.yml'):
+        names = ('hybrid-orchestrator.yml', 'selfhost-orchestrator.yml', 'serverless-orchestrator.yml')
+        for name in names:
             value = workflow(name)
             text = (ROOT / '.github/workflows' / name).read_text()
-            self.assertIn('environment-upgrade/dispatch.py', text)
             self.assertEqual(value['permissions']['actions'], 'write')
             for forbidden in ('data-migration.yaml', 'apply_accounts_incremental_schema.sh',
                               'create_release_checkpoint.sh', 'restore_release_checkpoint.sh',
                               'initialize-web-saas-databases.sh'):
                 self.assertNotIn(forbidden, text)
+        self.assertIn('stage-dispatch.py', (ROOT / '.github/workflows/selfhost-orchestrator.yml').read_text())
+        self.assertIn('environment-upgrade/dispatch.py', (ROOT / '.github/workflows/selfhost-stage-migrate.yml').read_text())
+        for name in ('hybrid-orchestrator.yml', 'serverless-orchestrator.yml'):
+            text = (ROOT / '.github/workflows' / name).read_text()
+            self.assertIn('environment-upgrade/dispatch.py', text)
         serverless = workflow('serverless-orchestrator.yml')['jobs']
         for job in ('supabase', 'uat_accounts_schema_probe', 'uat_accounts_baseline', 'uat_accounts_schema_migration'):
             self.assertIn('environment-upgrade/dispatch.py', json.dumps(serverless[job]))
