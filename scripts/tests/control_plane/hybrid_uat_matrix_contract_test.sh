@@ -376,7 +376,7 @@ migration_dispatch = next(step for step in migration["steps"] if step.get("name"
 assert migration_dispatch["run"] == "python3 .github/scripts/environment-upgrade/dispatch.py"
 assert "trigger_data_migration" in selfhost["jobs"]["switch_dns"]["needs"]
 iac_dispatcher = open(".github/scripts/platform-ops/provision/dispatch-iac-pipeline.py", encoding="utf-8").read()
-assert '"actions/workflows/{WORKFLOW}/dispatches"' in iac_dispatcher
+assert "actions/workflows/{WORKFLOW}/dispatches" in iac_dispatcher
 assert "never issue a second POST" in iac_dispatcher
 assert "receipt_sha256" in iac_dispatcher
 selfhost_text = open(".github/workflows/selfhost-orchestrator.yml", encoding="utf-8").read()
