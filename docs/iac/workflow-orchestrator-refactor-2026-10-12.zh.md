@@ -109,6 +109,10 @@ GitOps 缺少某共享服务的唯一 `IaCPipelineTargets` 声明时，新入口
 
 ## 五阶段与验证记录
 
+Selfhost 的通用 operation 选单从 18 项收敛为 `plan / infra / deploy / migrate / destroy` 五项，默认 `plan`。`deploy+init`、`deploy+migrate` 和 `native-*` 不再作为当前 main 的通用手动选项。初始化等数据操作使用 Environment Data 受控入口；部署与迁移分别选择，不能由普通 deploy 隐式授权初始化或迁移。
+
+历史 native 执行源码与回执合同保留，已有数据 caller 仍只派发不可变 release 中的 Selfhost workflow。精简 main 的选单不改写旧 release 或扩大 PROD 数据权限。
+
 Selfhost 的五个逻辑阶段为 Resolve/Validate → IaC → Deploy → Migrate/Configure → Verify/Report。GitHub Actions 仍显示各业务域矩阵 job；本次没有把它压缩成恰好五个可见 job。
 
 Migrate 继续 dispatch `environment-data-operations.yml`。部署并迁移要求部署/验收完成，DNS 需等待迁移成功。编排门禁还补齐了 existing Agent Proxy 对 Web SaaS 部署/验收结果的检查，阻止上游失败后继续注册。
