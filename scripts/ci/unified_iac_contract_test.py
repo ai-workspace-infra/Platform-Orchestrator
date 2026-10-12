@@ -122,6 +122,38 @@ class UnifiedWorkflowContract(unittest.TestCase):
         base = workflow['jobs']['deploy_base']
         self.assertIn('bootstrap_hosts', base['strategy']['matrix']['host'])
 
+    def test_provider_choice_preserves_declarations_and_rejects_unknown_clouds(self):
+        workflow = load('iac-orchestrator.yml')
+        request = triggers(workflow)['workflow_dispatch']['inputs']
+        registry = json.loads((ROOT / 'config/iac_provider_registry.json').read_text())
+        expected = {name for name, spec in registry.items() if spec['provisioner'] == 'terraform'}
+        self.assertEqual(set(request['cloud_provider']['options']), {'auto'} | expected)
+        self.assertEqual(request['cloud_provider']['type'], 'choice')
+        self.assertLess(list(request).index('cloud_provider'), list(request).index('target_manifest'))
+        steps = workflow['jobs']['prepare']['steps']
+        provider = next(step for step in steps if step.get('id') == 'provider')
+        normalize = next(step for step in steps if step.get('id') == 'normalize')
+        self.assertEqual(normalize['with']['inputs-json'], '${{ steps.provider.outputs.inputs_json }}')
+        self.assertIn('steps.provider.outputs.cloud_provider', normalize['if'])
+        with tempfile.TemporaryDirectory() as directory:
+            for value in ['auto', '', *sorted(expected), 'ulighthost', 'unknown-cloud']:
+                output = Path(directory) / (value or 'empty')
+                original = {'cloud_provider': value, 'environment': 'uat',
+                            'target_manifest': 'iac/targets/reviewed.yaml',
+                            'selectors': '{"account":"reviewed"}'}
+                env = dict(os.environ, REQUEST_INPUTS=json.dumps(original), GITHUB_OUTPUT=str(output))
+                result = subprocess.run(['bash', '-c', provider['run']], env=env, capture_output=True, text=True, timeout=10)
+                if value in {'ulighthost', 'unknown-cloud'}:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(output.exists())
+                    continue
+                self.assertEqual(result.returncode, 0, result.stderr)
+                values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+                normalized = json.loads(values['inputs_json'])
+                expected_provider = '' if value == 'auto' else value
+                self.assertEqual(values['cloud_provider'], expected_provider)
+                self.assertEqual(normalized, dict(original, cloud_provider=expected_provider))
+
     def test_retired_toolkit_copies_are_absent_and_aws_recovery_waits_for_evidence(self):
         retired = (
             '.github/actions/terraform-command/action.yml',
