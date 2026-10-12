@@ -153,6 +153,7 @@ git for-each-ref --format='%(refname:strip=3)|%(committerdate:unix)|%(committerd
     done >"$branch_inventory"
 
 branch_candidates="$TEMP_DIR/branch_candidates"
+touch "$tag_candidates" "$branch_candidates"
 branch_retained=0
 branch_candidate_count=0
 echo
