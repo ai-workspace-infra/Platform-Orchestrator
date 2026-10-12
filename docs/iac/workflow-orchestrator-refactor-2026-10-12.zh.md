@@ -109,7 +109,7 @@ GitOps 缺少某共享服务的唯一 `IaCPipelineTargets` 声明时，新入口
 
 ## 五阶段与验证记录
 
-Selfhost 的通用 operation 选单从 18 项收敛为 `plan / infra / deploy / migrate / deploy+migrate / destroy` 六项，默认 `plan`。`deploy+migrate` 明确表示应用部署加数据迁移。`deploy+init` 和 `native-*` 不再作为当前 main 的通用手动选项。初始化等数据操作使用 Environment Data 受控入口；普通 deploy 不隐式授权初始化或迁移，组合流程必须显式选择 deploy+migrate。
+Selfhost 的通用 operation 选单从 18 项收敛为 `plan / infra / deploy / deploy+init / deploy+migrate / migrate / destroy` 七项，默认 `plan`。`deploy+init` 显式执行 UAT 空库初始化并部署应用；`deploy+migrate` 表示应用部署加数据迁移。`native-*` 不再作为当前 main 的通用手动选项。数据执行继续派发 Environment Data 受控入口；普通 deploy 不隐式授权初始化或迁移。
 
 历史 native 执行源码与回执合同保留，已有数据 caller 仍只派发不可变 release 中的 Selfhost workflow。精简 main 的选单不改写旧 release 或扩大 PROD 数据权限。
 
