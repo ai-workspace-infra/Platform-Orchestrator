@@ -74,11 +74,11 @@ on:
         default: ""
         type: string
       operation:
-        description: "plan=校验；infra=基础设施；deploy=应用；deploy+init=UAT空库初始化+应用；migrate=迁移；deploy+migrate=应用+迁移；destroy=销毁；native-*按名称执行受控PROD数据库预演/初始化/升级/复制/比对或可用性检查，均不切库；GitOps仅声明拓扑和能力。"
+        description: "plan=校验；infra=基础设施；deploy=应用；deploy+init=UAT空库初始化+应用；deploy+migrate=应用+迁移；migrate=仅迁移；destroy=销毁"
         required: true
         default: "plan"
         type: choice
-        options: [plan, infra, deploy, deploy+init, native-standby, native-init-plan, native-init, native-billing-plan, native-billing, native-business-plan, native-business-copy, native-business-compare, native-core-users, native-core-users-compare, native-availability, migrate, deploy+migrate, destroy]
+        options: [plan, infra, deploy, deploy+init, deploy+migrate, migrate, destroy]
       target_domains:
         description: "选择要执行的业务域 (Business Domain)"
         required: true
