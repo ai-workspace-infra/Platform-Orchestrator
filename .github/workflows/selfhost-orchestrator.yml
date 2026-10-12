@@ -255,7 +255,7 @@ jobs:
           PARENT_EVENT_NAME: ${{ github.event_name }}
           PARENT_REF_NAME: ${{ github.ref_name }}
           PARENT_HEAD_SHA: ${{ github.sha }}
-          REQUEST_INPUTS_JSON: ${{ toJSON(inputs || github.event.inputs || {}) }}
+          REQUEST_INPUTS_JSON: ${{ toJSON(inputs || github.event.inputs || fromJSON('{}')) }}
         run: |
           python3 - <<'PY'
           import json, os, uuid
