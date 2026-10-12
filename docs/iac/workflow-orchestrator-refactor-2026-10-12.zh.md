@@ -65,6 +65,7 @@ flowchart TD
 - Selfhost 的 dispatch 脚本：改为 dispatch `iac-orchestrator.yml`，保留关联 ID、子 run/attempt、回执 artifact ID 和 checksum 校验。
 - Serverless：直接复用统一 IaC workflow。
 - Vault、ZITADEL 和 Open Platform 的三个共享状态：直接调用统一入口，去除 GCP wrapper → matrix → master 的间接链路。
+- Vault 的资源编排固定使用 `fbb3100f40ee40d2ac276bffc7b3b6c1a7440b20`；节点访问和访问清理的原 `iac_ref` 默认值保持 `d7e49189a5de9c105a940f1c79abfb3b2b33bbd4`。两条合同分别核验，不随入口改名升级节点执行版本。
 - GCP 维护工具的 dispatch 子命令：改为统一入口，要求显式 `--target-manifest`，使用 bootstrap 阶段。凭据准备和 state 身份没有改名。
 - Daily Snapshot 的 Selfhost 调用：显式传入 `open_platform_service=none`，避免旧的 `all` 参数覆盖新默认值。
 
@@ -123,4 +124,4 @@ Migrate 继续 dispatch `environment-data-operations.yml`。部署并迁移要�
 
 合并代码和离线 CI 通过，仅证明入口/合同重构。后续仍需对指定不可变版本执行 SIT/UAT：先确认目标声明与授权，再做 plan，审批后 apply/deploy，最后验证目标主机、回执和应用状态。本次没有执行该现场验收链路。
 
-前序五阶段标注及外部 IaC dispatch 见 [PR #1389](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1389)；合约修复和简化说明见 [PR #1391](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1391)。本次进一步完成入口退役、调用方迁移和 Orchestrator 分类。
+前序五阶段标注及外部 IaC dispatch 见 [PR #1389](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1389)；合约修复和简化说明见 [PR #1391](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1391)。本次入口退役、调用方迁移和 Orchestrator 分类见 [PR #1392](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1392)。合并状态与 CI 结果以对应 PR 记录为准。
