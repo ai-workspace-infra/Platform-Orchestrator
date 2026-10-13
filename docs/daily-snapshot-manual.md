@@ -157,3 +157,9 @@ role 只读构建所需的 Vault 路径，并只允许 `sit` / `uat` 的 GHCR �
 
 如果服务 workflow 仍使用 `workflow_dispatch` 而不是 tag push，还必须让它显式使用
 `daily-build-*` 作为 checkout ref、镜像 tag、binary/zip 名称和 chart version。
+
+## 运行图（五个 stage）
+
+`Prepare → Build（组织矩阵）→ Gate → Deploy（环境矩阵）→ Summary`。
+Gate 顺序核验完成 tag、Shared readiness 和环境选择；失败即阻断部署。
+指定 repositories 的部分构建跳过 Gate/Deploy。完整构建的失败、取消和意外跳过均使最终汇总失败。

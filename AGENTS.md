@@ -40,3 +40,13 @@
 ## 六云 IaC action 交接（v0.6）
 
 IaC 专属 targets/self-check/stage/auth/lifecycle/receipt/summary actions 统一保存于 iac_modules/.github/actions。Toolkit 固定 SHA checkout 后通过固定本地 uses 调用，动作与 Terraform 模块版本绑定；Toolkit 持有全部交付 workflows、runner、Environment 审批、DAG 和最终放行，不复制 provider 命令。GitOps 声明缺失或证据未核验时必须阻断。
+
+## Pipeline 可视化规则
+
+每个 workflow 的 `needs` DAG 最长串联链最多 5 个 job（stage），通常为 3–5 个。
+矩阵副本和同层并行 job 计作同一深度；改 job 名称不会缩短链路。
+同 runner 的顺序校验优先收进 steps；需要独立 runner/权限/审批的阶段保留 owner workflow，
+由总控 dispatch、精确关联等待并核验回执。不得为缩图删除门禁、失败传播或 Environment 审批。
+子 workflow 也适用此规则。`scripts/ci/workflow_stage_depth_verify.py` 在 CI 强制检查。
+`workflow-stage-depth-policy.json` 仅记录五项现存超长链路技术债，禁止新增例外或提高上限；
+改短后必须同步降低上限，达到 5 时删除例外。
