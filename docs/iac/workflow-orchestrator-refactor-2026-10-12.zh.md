@@ -133,3 +133,25 @@ Migrate 继续 dispatch `environment-data-operations.yml`。部署并迁移要�
 本次离线检查仅证明 workflow 结构和调用合同。后续仍需对指定不可变版本执行 SIT/UAT：先确认目标声明与授权，再做 plan，审批后 apply/deploy，最后验证目标主机、回执和应用状态。本次没有 dispatch 阶段运行，也没有触碰生产主机。
 
 前序五阶段标注及外部 IaC dispatch 见 [PR #1389](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1389)；合约修复和简化说明见 [PR #1391](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1391)。本次入口退役、调用方迁移和 Orchestrator 分类见 [PR #1392](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1392)。合并状态与 CI 结果以对应 PR 记录为准。
+
+## 2026-10-13：Daily Snapshot 压缩与长度规则
+
+基于 `39d63a90751255c69b08d6157450186b0db3dcc7`，Daily 最长 `needs` 链从 7 收敛为 5：
+
+```text
+Prepare → Build (organization matrix) → Gate → Deploy (environment matrix) → Summary
+```
+
+Gate 在同一个 runner 顺序完成构建状态 artifact 下载、完成 tag 核验、Shared 只读 readiness、环境矩阵选择。
+保留 Vault/App token、不可变 tag、固定 Playbooks probe SHA 和 GitOps 路由；Gate 失败不派发部署。
+部分仓库构建继续跳过 Gate/Deploy。Summary 使用 always，报告失败和取消；完整快照的 Gate/Deploy
+意外跳过也判失败。没有增加云资源、SSH 或数据库执行，没有手动触发部署。
+
+规则按实际 DAG 最长路径计算，不按名字里的 stage 标签计算；矩阵横向展开不增加路径深度。
+所有 workflow（包括 child）目标最多 5 个 stage，由 Repository Conventions CI 校验。
+现存技术债为 Observability 9、Vault 8、Serverless 13、Selfhost Deploy child 10、Selfhost Migrate child 6。
+这些明确记录为冻结上限，禁止延长；整改后上限只降不升。其余 workflow 和新增入口必须满足 5。
+此次只压缩 Daily，现存五项技术债仍待分别整改，不代表全仓库已达标。
+
+验证范围：离线 DAG/矩阵/门禁合同、workflow 语法与仓库控制面检查。实际构建、
+Shared readiness 和子部署的运行验收应在 SIT/UAT 执行，本次不触发 PROD。

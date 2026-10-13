@@ -70,6 +70,11 @@ jobs:
           python3 scripts/tests/test_setup_deployment_runner_owner_callers.py -v
           python3 scripts/tests/test_playbooks_owner_callers.py -v
 
+      - name: Enforce workflow graph depth (maximum five stages)
+        run: |
+          python3 scripts/ci/workflow_stage_depth_verify.py
+          python3 scripts/ci/tests/test_workflow_stage_depth.py -v
+
       - name: Verify repository conventions
         run: >-
           python3 scripts/ci/repository-conventions-verify.py

@@ -79,7 +79,7 @@ concurrency:
 
 jobs:
   resolve-snapshot-tag:
-    name: Resolve immutable snapshot tag
+    name: "[1/5] Prepare"
     runs-on: ubuntu-latest
     outputs:
       snapshot_tag: ${{ steps.resolve.outputs.snapshot_tag }}
@@ -159,7 +159,7 @@ jobs:
           SNAPSHOT_TOKEN_AI_WORKSPACE_XSTREAM: ${{ steps.app-token-xstream.outputs.token }}
 
   snapshot:
-    name: Tag and build main snapshot
+    name: "[2/5] Build"
     needs: resolve-snapshot-tag
     runs-on: ubuntu-latest
     strategy:
@@ -250,8 +250,8 @@ jobs:
           path: ${{ runner.temp }}/daily-snapshot-status/${{ matrix.organization }}.jsonl
           if-no-files-found: warn
 
-  resolve-built-snapshot-tag:
-    name: Resolve completed snapshot tag
+  snapshot-gate:
+    name: "[3/5] Gate"
     needs: [resolve-snapshot-tag, snapshot]
     if: >-
       ${{
@@ -263,6 +263,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       snapshot_tag: ${{ steps.resolve.outputs.snapshot_tag }}
+      matrix: ${{ steps.select.outputs.matrix }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -282,15 +283,6 @@ jobs:
           SNAPSHOT_CANONICAL_ORGANIZATION: ai-workspace-services
           DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
 
-  shared-readiness:
-    name: Check shared platform readiness
-    needs: resolve-built-snapshot-tag
-    if: ${{ always() && needs.resolve-built-snapshot-tag.result == 'success' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
       - name: Check Shared platform readiness (read-only)
         uses: ai-workspace-infra/playbooks/.github/actions/service-probes@8b29bd81f03c7726f28698ea7c78471827d3c961
         with:
@@ -303,20 +295,6 @@ jobs:
           SHARED_IAM_ISSUER: ${{ inputs.shared_iam_issuer || 'https://iam.svc.plus' }}
           SHARED_READINESS_TIMEOUT_SECONDS: ${{ inputs.shared_readiness_timeout_seconds || '20' }}
 
-  resolve-dispatch-environment:
-    name: Select requested environment dispatch
-    needs: [resolve-built-snapshot-tag, shared-readiness]
-    if: >-
-      ${{
-      always() &&
-      needs.resolve-built-snapshot-tag.result == 'success' &&
-      needs.shared-readiness.result == 'success' &&
-      (inputs.repositories || '') == ''
-      }}
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.select.outputs.matrix }}
-    steps:
       - name: Resolve environment dispatch mapping
         id: select
         env:
@@ -361,18 +339,16 @@ jobs:
           printf 'matrix=%s\n' "${matrix_json}" >> "$GITHUB_OUTPUT"
 
   dispatch-environment:
-    name: ${{ matrix.environment }} ${{ matrix.name }}
-    needs: [resolve-built-snapshot-tag, shared-readiness, resolve-dispatch-environment]
+    name: "[4/5] Deploy | ${{ matrix.environment }}"
+    needs: snapshot-gate
     if: >-
       ${{
       always() &&
-      needs.resolve-built-snapshot-tag.result == 'success' &&
-      needs.shared-readiness.result == 'success' &&
-      needs.resolve-dispatch-environment.result == 'success'
+      needs.snapshot-gate.result == 'success'
       }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.resolve-dispatch-environment.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.snapshot-gate.outputs.matrix) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -423,7 +399,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           RUN_STATUS_TOKEN: ${{ github.token }}
-          SNAPSHOT_TAG: ${{ needs.resolve-built-snapshot-tag.outputs.snapshot_tag }}
+          SNAPSHOT_TAG: ${{ needs.snapshot-gate.outputs.snapshot_tag }}
           DEPLOY_ENV: ${{ matrix.environment }}
           DISPATCH_WORKFLOW: ${{ matrix.workflow }}
           DISPATCH_OPERATION: ${{ matrix.operation }}
@@ -435,7 +411,7 @@ jobs:
       - name: Write dispatch receipt
         if: always()
         env:
-          SNAPSHOT_TAG: ${{ needs.resolve-built-snapshot-tag.outputs.snapshot_tag }}
+          SNAPSHOT_TAG: ${{ needs.snapshot-gate.outputs.snapshot_tag }}
           RUN_URL: ${{ steps.dispatch.outputs.run_url }}
         run: |
           mkdir -p "$RUNNER_TEMP/environment-dispatch"
@@ -458,17 +434,17 @@ jobs:
           if-no-files-found: error
 
   snapshot-summary:
-    name: Summarize daily snapshot status
-    needs: [resolve-snapshot-tag, snapshot, resolve-built-snapshot-tag, shared-readiness, resolve-dispatch-environment, dispatch-environment]
+    name: "[5/5] Summary"
+    needs: [resolve-snapshot-tag, snapshot, snapshot-gate, dispatch-environment]
+    # Report every completed upstream status, including failure/cancellation.
+    # The final step rejects unsuccessful stages; partial builds may skip Gate/Deploy.
     if: >-
       ${{
       always() &&
-      needs.resolve-snapshot-tag.result == 'success' &&
-      needs.snapshot.result != 'skipped' &&
-      needs.resolve-built-snapshot-tag.result != 'failure' &&
-      needs.shared-readiness.result != 'failure' &&
-      needs.resolve-dispatch-environment.result != 'failure' &&
-      needs.dispatch-environment.result != 'failure'
+      needs.resolve-snapshot-tag.result != '' &&
+      needs.snapshot.result != '' &&
+      needs.snapshot-gate.result != '' &&
+      needs.dispatch-environment.result != ''
       }}
     runs-on: ubuntu-latest
     steps:
@@ -515,12 +491,12 @@ jobs:
             ${{ runner.temp }}/environment-dispatch-summary.json
           if-no-files-found: warn
 
-      - name: Fail when the selected environment dispatch failed
+      - name: Reject failed, cancelled or unexpectedly skipped stages
         if: >-
           ${{
-            needs.snapshot.result == 'failure' ||
-            needs.shared-readiness.result == 'failure' ||
-            needs.resolve-dispatch-environment.result == 'failure' ||
-            needs.dispatch-environment.result == 'failure'
+            needs.resolve-snapshot-tag.result != 'success' ||
+            needs.snapshot.result != 'success' ||
+            ((inputs.repositories || '') == '' &&
+              (needs.snapshot-gate.result != 'success' || needs.dispatch-environment.result != 'success'))
           }}
         run: exit 1
