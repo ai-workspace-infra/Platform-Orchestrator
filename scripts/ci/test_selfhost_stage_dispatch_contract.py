@@ -131,6 +131,15 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
             self.assertIn("run_attempt=2", output.read_text(encoding="utf-8"))
             self.assertIn("open child run", summary.read_text(encoding="utf-8"))
 
+    def test_stage_context_fields_are_valid_context_inputs(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        match = re.search(r"if key not in \{([^}]+)\}:", source)
+        self.assertIsNotNone(match)
+        allowed = {token.strip().strip("'\"") for token in match.group(1).split(",") if token.strip()}
+        declared = set().union(*stage_dispatch.STAGE_CONTEXT_FIELDS.values())
+        self.assertTrue(declared.issubset(allowed), f"Missing allowed fields: {declared - allowed}")
+
 
 if __name__ == "__main__":
     unittest.main()
+

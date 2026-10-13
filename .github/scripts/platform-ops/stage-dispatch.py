@@ -224,7 +224,7 @@ def main():
     }
     for key, value in contexts.items():
         if key not in {"resolve_context", "provision_context", "deploy_context", "migration_context",
-                       "resolve_run_id", "infra_run_id", "deploy_run_id", "migration_run_id"}:
+                       "resolve_run_id", "resolve_run_attempt", "infra_run_id", "deploy_run_id", "migration_run_id"}:
             raise SystemExit(f"Unsupported context input for {stage}: {key}")
         inputs[key] = str(value)
     if len(json.dumps(inputs)) > 60000:
