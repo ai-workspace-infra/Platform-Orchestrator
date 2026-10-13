@@ -1,11 +1,11 @@
 ---
 name: multi-environment-delivery-and-release
-description: Guidelines and routing rules for multi-environment (SIT/UAT/Prod) delivery, branching strategies, Vault OIDC isolation, and emergency secret handling in platform-ops-toolkit.
+description: Use when changing platform-ops-toolkit delivery workflows, job matrices, stage dependencies, environment routing, Vault OIDC or release paths. Enforces compact pipeline graphs, owner handoffs and environment isolation.
 ---
 
 # Multi-Environment Delivery and Release Standard
 
-When operating within the `platform-ops-toolkit` and interacting with GitHub Actions or Vault, you MUST adhere to the following environment and branch guidelines.
+When changing delivery in `platform-ops-toolkit`, follow repository AGENTS.md and the checked-in workflow, referenced scripts/actions and GitOps contracts. Resolve conflicts with historical prose against current source before execution; documentation alone does not authorize a dispatch or environment mutation.
 
 ## 1. Environment Routing Rules
 
@@ -37,3 +37,36 @@ If a secret is exposed in the repository:
 - Update or delete contract tests that assert the retired path. Verify the repository has no remaining references to the retired job, matrix outputs, dispatcher, or legacy guard.
 - Preserve active provider and namespace routing. A retired aggregate matrix must not be confused with a still-used single-namespace route or the current Hybrid Orchestrator.
 - Before merging, run shell syntax checks, the affected routing/dispatch contract tests, YAML parsing, and a `needs`-graph check so no active job points to a deleted dependency.
+
+
+## 6. Pipeline Graph: At Most Five Sequential Stages
+
+- Every workflow, including reusable and dispatched child workflows, MUST have a longest static `needs` path of at most **5 jobs**. Prefer **3–5 stages** for delivery orchestrators; simple CI may use fewer. Matrix replicas and parallel jobs at the same dependency depth do not add stages. Renaming jobs to `[1/5]` does not shorten the DAG.
+- Before editing, count actual depth and identify each job's outputs, permissions, Environment approval, failure conditions and callers. After editing, report the before/after depth and verify no missing dependency or cycle remains.
+- Merge sequential control checks into steps when they share runner, permission and approval boundaries. Use job matrices for independent organizations/providers/targets. Do not serialize independent work or parallelize tasks that consume an upstream receipt.
+- Keep independent runner or approval boundaries in owner workflows. A parent may dispatch a bounded stage workflow, wait for its exact run, validate its receipt and publish outputs. Child graphs must also meet the five-stage rule; moving a long chain into a child only hides debt.
+- Preserve Toolkit control ownership: IaC operations dispatch the approved IaC entry; data operations dispatch `environment-data-operations.yml`; host/application execution stays in pinned Playbooks owners; GitOps declares topology and capabilities. Graph compression must not copy execution commands into Toolkit.
+
+Daily Snapshot example: `Prepare → Build (organization matrix) → Gate → Deploy (environment matrix) → Summary`. Gate runs completed-tag validation, pinned Shared read-only readiness and environment selection in order. A selected-repository build intentionally skips Gate/Deploy; a full snapshot does not.
+
+### Failure and Dispatch Contracts
+
+- A failed, cancelled or unexpectedly skipped prerequisite MUST block mutation. A successful dispatch is not a successful child execution. Keep bounded polling, exact parent/child run correlation, environment/ref identity and artifact/checksum evidence; never select an unrelated latest run.
+- Terminal reporting may run with `always()`, but MUST fail on unsuccessful required stages or missing/invalid evidence. Distinguish explicitly unselected work from unexpected skips. Removing checks, approval gates or error propagation to shorten the graph is prohibited.
+- Declare timeout and retry bounds for child dispatch/wait. Retry transient failures only within those bounds; an identical failure without new evidence must stop automatic retries and produce the failing run URL, cause and next prerequisite. Never loop by redispatching unchanged inputs or widening credentials/permissions.
+- A docs/code change, PR merge or offline check is not runtime acceptance and does not authorize PROD execution. Record SIT/UAT runtime evidence separately by immutable version and target.
+
+### CI Enforcement and Existing Debt
+
+Use the repository-owned policy rather than maintaining another workflow list here:
+
+- [Stage-depth policy](../../scripts/ci/workflow-stage-depth-policy.json): maximum 5; existing exceptions are frozen debt ceilings, not completed refactors. Do not add exceptions or raise ceilings to make CI pass. Lower ceilings after shortening a legacy chain and remove an exception at 5 or fewer.
+- [Graph checker](../../scripts/ci/workflow_stage_depth_verify.py) and [contract tests](../../scripts/ci/tests/test_workflow_stage_depth.py) run in Repository Conventions. Run them locally with affected routing/gating checks before submitting the PR:
+
+```bash
+python3 scripts/ci/workflow_stage_depth_verify.py
+python3 scripts/ci/tests/test_workflow_stage_depth.py -v
+python3 scripts/ci/workflow_gating_verify.py
+```
+
+Update the [refactor record](../../docs/iac/workflow-orchestrator-refactor-2026-10-12.zh.md) when changing graph shape, documenting retained execution/approval boundaries, deliberate skips, remaining debt and the exact validation scope.
