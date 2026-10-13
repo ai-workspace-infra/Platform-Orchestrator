@@ -87,3 +87,17 @@ jobs:
         run: >-
           ansible-playbook -i localhost, -c local
           playbooks/configure_email_dns.yml
+
+      - name: Verify Public DNS Resolution
+        run: |
+          echo "=== Verifying MX & SPF for ${{ matrix.zone }} via 1.1.1.1 ==="
+          sleep 5
+          dig @1.1.1.1 "${{ matrix.zone }}" MX +noall +answer
+          dig @1.1.1.1 "${{ matrix.zone }}" TXT +noall +answer
+
+          mx_count=$(dig @1.1.1.1 "${{ matrix.zone }}" MX +short | wc -l | tr -d ' ')
+          if [ "${mx_count}" -eq "0" ]; then
+            echo "::error::No MX records found for ${{ matrix.zone }} after reconciliation!"
+            exit 1
+          fi
+          echo "Verified: ${{ matrix.zone }} has ${mx_count} MX records active."
