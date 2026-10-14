@@ -2,9 +2,8 @@
 set -euo pipefail
 
 # -----------------------------------------------------------------------------
-# UAT Cloud Run 批量部署脚本
-# 默认副本数 min-instances=0, max-instances=2
-# 例外：UAT accounts 常驻 1 个实例，避免冷启动期间登录接口返回 503
+# Cloud Run 批量部署脚本（UAT / PROD）
+# 所有服务最小实例数固定为 0；空闲时缩容到零，两个环境保持一致。
 # -----------------------------------------------------------------------------
 
 GCP_PROJECT="${GCP_PROJECT_ID:?GCP_PROJECT_ID must be supplied from the validated Vault/GitOps target}"
@@ -157,18 +156,9 @@ for svc in "${SERVICES[@]}"; do
     fi
   fi
 
-  # accounts serves the console's /api/auth/* calls. Scaled to zero it is shut
-  # down once idle, and the next sign-in pays a ~35s cold start: every auth
-  # request landing in that window is answered 503, which the console surfaces
-  # as "登录失败 (503 / authentication_failed)". Keep one instance warm on that
-  # path. Every other service, and every other environment, still scales to
-  # zero unless CLOUD_RUN_MIN_INSTANCES overrides it -- this script also
-  # deploys prod, where the idle cost is not wanted by default.
-  if [[ "${svc}" == "accounts" && "${DEPLOY_ENV}" == "uat" ]]; then
-    min_instances="${CLOUD_RUN_MIN_INSTANCES:-1}"
-  else
-    min_instances="${CLOUD_RUN_MIN_INSTANCES:-0}"
-  fi
+  # Keep UAT and PROD on the same cost policy. Authentication may incur a cold
+  # start after idle periods; callers must handle startup latency/retries.
+  min_instances=0
 
   echo "==> [Cloud Run] Deploying ${SERVICE_NAME} (min=${min_instances}, max=2)..."
 

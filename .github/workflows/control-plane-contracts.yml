@@ -64,6 +64,7 @@ jobs:
           python3 scripts/tests/control_plane/environment_upgrade_test.py
           python3 scripts/tests/control_plane/environment_data_operations_test.py
           python3 scripts/tests/control_plane/import_receipt_test.py
+          python3 scripts/tests/control_plane/cloudrun_min_instances_policy_test.py
 
       - name: Verify release and workflow input contracts
         run: |
