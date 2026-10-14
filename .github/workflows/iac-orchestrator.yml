@@ -51,7 +51,7 @@ run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action
       iac_ref:
         description: Owner actions and modules from one resolved SHA
         type: string
-        default: f603fa7c256705fafdaf7bd2e29823bbe66d40dc
+        default: f889d68cb91434f7d18a72731e496d5e71a6f571
         required: false
       stage_scope:
         description: all/bootstrap/account/resources
@@ -117,7 +117,7 @@ run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action
       iac_ref:
         description: Owner actions and modules from one resolved SHA
         type: string
-        default: f603fa7c256705fafdaf7bd2e29823bbe66d40dc
+        default: f889d68cb91434f7d18a72731e496d5e71a6f571
         required: false
       stage_scope:
         description: all/bootstrap/account/resources
