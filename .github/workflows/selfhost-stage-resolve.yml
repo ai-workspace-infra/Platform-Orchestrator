@@ -651,7 +651,7 @@ jobs:
         caller: selfhost
         topology-path: ''
         state-key: ${{ steps.route.outputs.state_key }}
-        selectors: ${{ format('{{"environment":"{0}","project":"{1}","provider":"{2}","account":"{3}","workspace":"{4}"}}', steps.route.outputs.deployment_env, steps.route.outputs.terraform_project,
+        selectors: ${{ format('{{"environment":"{0}","project":"{1}","provider":"{2}","account":"{3}","workspace":"{4}"}}', steps.route.outputs.deployment_env == 'prod-v2' && 'prod' || steps.route.outputs.deployment_env, steps.route.outputs.terraform_project,
           steps.route.outputs.cloud_provider, steps.route.outputs.account, steps.route.outputs.terraform_namespace) }}
     - if: steps.route.outputs.reuse_existing_host == 'true' && steps.route.outputs.run_application_deploy == 'true'
       uses: actions/upload-artifact@v4

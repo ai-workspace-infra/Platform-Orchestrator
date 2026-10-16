@@ -78,6 +78,8 @@ def main() -> int:
     correlation = required("IAC_CORRELATION_ID")
     selectors_text = os.environ.get("IAC_SELECTORS", "{}")
 
+    if environment == "prod-v2":
+        environment = "prod"
     if action not in EXPECTED_RESULTS:
         fail("Unsupported IaC action.")
     if environment not in {"sit", "uat", "prod", "shared"}:
@@ -96,6 +98,8 @@ def main() -> int:
         fail("IaC selectors are malformed JSON.")
     if not isinstance(selectors, dict):
         fail("IaC selectors must be a JSON object.")
+    if selectors.get("environment") == "prod-v2":
+        selectors["environment"] = "prod"
 
     expected = {
         "action": action,
