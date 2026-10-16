@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "github-actions",
-  "updatedAt": "2026-10-16T03:17:27.723056+00:00",
+  "updatedAt": "2026-10-16T08:24:35.741958+00:00",
   "timezone": "Asia/Shanghai",
   "coverage": {
     "since": "2026-09-04T02:53:34Z",
@@ -671,7 +671,8 @@
     "38535500684": "1:2026-10-14T08:44:44Z",
     "38628261235": "1:2026-10-14T20:36:52Z",
     "38672074838": "1:2026-10-15T02:49:40Z",
-    "38796083345": "1:2026-10-15T20:19:00Z"
+    "38796083345": "1:2026-10-15T20:19:00Z",
+    "38865887725": "1:2026-10-16T07:50:14Z"
   },
   "gaps": [
     {
@@ -1311,12 +1312,6 @@
       "reason": "No immutable release evidence"
     },
     {
-      "runId": 35067980874,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
       "runId": 38246463393,
       "workflow": "serverless-orchestrator.yml",
       "status": "completed",
@@ -1510,6 +1505,84 @@
     }
   ],
   "releases": [
+    {
+      "id": "38865887725:1:uat:uat-daily-build-2026.10.16-r1",
+      "runId": 38865887725,
+      "attempt": 1,
+      "environment": "uat",
+      "tag": "uat-daily-build-2026.10.16-r1",
+      "scope": "full-uat",
+      "status": "failed",
+      "workflow": "daily-main-snapshot.yaml",
+      "url": "https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/38865887725",
+      "startedAt": "2026-10-16T07:13:49Z",
+      "completedAt": "2026-10-16T07:50:14Z",
+      "repositories": [
+        {
+          "repository": "ai-workspace-services/accounts",
+          "tag": "uat-daily-build-2026.10.16-r1",
+          "sha": "0dec88dd6d079af4f0a598ad47986142f8ea7bed",
+          "build": "failed",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/billing-service",
+          "tag": "uat-daily-build-2026.10.16-r1",
+          "sha": "f11e875f74cbe0154e49f6310b6697eff65f731e",
+          "build": "failed",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/content-service",
+          "tag": "uat-daily-build-2026.10.16-r1",
+          "sha": "dda2782ffe877e1226dc792d81316c61f492ad47",
+          "build": "failed",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/edge-gateway",
+          "tag": "uat-daily-build-2026.10.16-r1",
+          "sha": "f59980891aac64238e238404fef8f915d9349966",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/frontend-router",
+          "tag": "uat-daily-build-2026.10.16-r1",
+          "sha": "7dfeff426922f6e03bfe94eff840fe199253d67b",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/portal",
+          "tag": "uat-daily-build-2026.10.16-r1",
+          "sha": "92ae058f28d4890aac93319dc2a253ac0cdeeb89",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/postgresql",
+          "tag": "uat-daily-build-2026.10.16-r1",
+          "sha": "253d69a3ad19558a4bd272dee0509a498e091e24",
+          "build": "pending",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-xstream/xconnect-edge-agent",
+          "tag": "uat-daily-build-2026.10.16-r1",
+          "sha": "935f539a0caa93a094eb0562a5fa8d96d19ee54b",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-xstream/xray-exporter",
+          "tag": "uat-daily-build-2026.10.16-r1",
+          "sha": "1094bd8e11af30eda62fdbb2ecf9d8560d493829",
+          "build": "success",
+          "deployment": "unknown"
+        }
+      ]
+    },
     {
       "id": "38796083345:1:uat:daily-build-2026.10.15-r1",
       "runId": 38796083345,
