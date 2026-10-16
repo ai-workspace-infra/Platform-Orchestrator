@@ -256,11 +256,16 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     state_project="${AKAMAI_UAT_PROJECT}"
   fi
   if [[ "${requested_target_domains}" == "web-saas" && "${cloud_provider}" == "gcp-cloud" ]]; then
-    if [[ -n "${INPUT_STATE_PROJECT:-}" && "${INPUT_STATE_PROJECT}" != "svc.plus" ]]; then
-      echo "::error::GCP web-saas uses the existing svc.plus state namespace; refusing a second state key." >&2
-      exit 1
+    if [[ "${deployment_env}" == "prod-v2" || "${INPUT_VAULT_ENV_PATH:-}" == "prod-v2" || "${INPUT_DEPLOY_TAG:-}" == prod-v2-* ]]; then
+      state_project="prod-v2.svc.plus"
+      rf="web-saas-prod-v2"
+    else
+      if [[ -n "${INPUT_STATE_PROJECT:-}" && "${INPUT_STATE_PROJECT}" != "svc.plus" ]]; then
+        echo "::error::GCP web-saas uses the existing svc.plus state namespace; refusing a second state key." >&2
+        exit 1
+      fi
+      state_project="svc.plus"
     fi
-    state_project="svc.plus"
   fi
   uat_akamai_region_namespace=false
   if [[ "${reuse_existing_host}" == "true" ]]; then
@@ -319,7 +324,12 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   if [[ "${reuse_existing_host}" != "true" && ( "${deployment_env}" != "uat" || "${cloud_provider}" != "akamai-cloud" ) ]]; then
     resource_file="${deployment_env}/${rf}"
     terraform_workspace="${deployment_env}-${state_project}-${cloud_provider}-${account}-${rf}"
-    state_key="terraform/${deployment_env}/${state_project}/${cloud_provider}/${account}/${rf}/terraform.tfstate"
+    if [[ "${deployment_env}" == "prod-v2" || "${INPUT_VAULT_ENV_PATH:-}" == "prod-v2" || "${INPUT_DEPLOY_TAG:-}" == prod-v2-* ]]; then
+      state_key="terraform/prod/${state_project}/${cloud_provider}/${account}/${rf}/terraform.tfstate"
+      resource_file="prod/${rf}"
+    else
+      state_key="terraform/${deployment_env}/${state_project}/${cloud_provider}/${account}/${rf}/terraform.tfstate"
+    fi
   fi
   # UI 使用单一 operation。下游 job 只消费解析后的执行意图，避免在
   # workflow 中重复拼接相互矛盾的开关条件。
@@ -665,7 +675,7 @@ esac
 # origins are resolved separately from GitOps; never infer Billing from an
 # Accounts hostname prefix.
 agent_controller_url="${INPUT_AGENT_CONTROLLER_URL:-}"
-if [[ "${deployment_env}" == "uat" || "${deployment_env}" == "prod" ]]; then
+if [[ "${deployment_env}" == "uat" || "${deployment_env}" == "prod" || "${deployment_env}" == "prod-v2" ]]; then
   accounts_public_origin="$(environment_default "${deployment_env}" accounts_public_origin)"
   billing_service_base_url="$(environment_default "${deployment_env}" billing_public_origin)"
   agent_controller_url="${agent_controller_url:-${accounts_public_origin}}"

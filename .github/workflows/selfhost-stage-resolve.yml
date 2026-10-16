@@ -571,7 +571,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
-        ref: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && fromJSON(inputs.payload_json || '{}').__parent_head_sha || fromJSON(inputs.payload_json || '{}').source_ref || 'main' }}
+        ref: ${{ fromJSON(inputs.payload_json || '{}').__parent_head_sha || github.sha }}
     - name: Route ref to an explicit profile
       id: route
       # env block inherited from job level — no repetition needed here
@@ -638,7 +638,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         repository: ai-workspace-infra/iac_modules
-        ref: f889d68cb91434f7d18a72731e496d5e71a6f571
+        ref: ${{ steps.route.outputs.infra_ref }}
         path: iac_modules
         persist-credentials: false
     - id: iac_target
