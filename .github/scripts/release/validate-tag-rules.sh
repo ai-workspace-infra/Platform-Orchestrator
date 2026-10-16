@@ -21,11 +21,15 @@ snapshot_routing_test="${repo_root}/scripts/tests/control_plane/daily_snapshot_t
 # Keep the policy assertions close to the routing implementation so a release
 # PR cannot silently broaden production tag/ref acceptance.
 grep -Fq 'prod:v*)' "${route_policy}" || {
-  echo "production must accept only v* deployment tags" >&2
+  echo "production must retain v* deployment tags" >&2
   exit 1
 }
-grep -Fq 'uat:v*|sit:v*)' "${route_policy}" || {
+grep -Fq 'uat:v*|sit:v*|uat:prod-v*|sit:prod-v*)' "${route_policy}" || {
   echo "sit/uat tag policy is missing" >&2
+  exit 1
+}
+grep -Fq 'prod:prod-v[0-9]*-*|prod-v*:v*|prod-v*:prod-v[0-9]*-*)' "${route_policy}" || {
+  echo "versioned production tag policy is missing" >&2
   exit 1
 }
 grep -Fq 'refs/tags/v*|refs/heads/release/v*' "${route_policy}" || {
