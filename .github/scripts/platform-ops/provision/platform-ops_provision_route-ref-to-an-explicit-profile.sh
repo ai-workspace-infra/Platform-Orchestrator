@@ -178,7 +178,9 @@ validate_deploy_tag_policy() {
   [[ -z "${tag}" ]] && return 0
 
   case "${environment}:${tag}" in
-    prod:v*|prod:prod-v2-*|prod-v2:*)
+    prod:v*)
+      ;;
+    prod:prod-v2-*|prod-v2:*)
       ;;
     prod:*)
       echo "::error::PROD application deployments accept only v* or prod-v2-* deploy tags; daily and UAT snapshot tags are not production sources." >&2
@@ -430,7 +432,8 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
 
   if [ "${deployment_env}" = "prod" ] || [ "${deployment_env}" = "prod-v2" ]; then
     case "${GITHUB_REF:-}" in
-      refs/tags/v*|refs/heads/release/v*|refs/heads/release/*|refs/heads/main|refs/heads/codex/*|refs/heads/prod/*) ;;
+      refs/tags/v*|refs/heads/release/v*) ;;
+      refs/heads/release/*|refs/heads/main|refs/heads/codex/*|refs/heads/prod/*) ;;
       *)
         echo "::error::prod accepts only release tags/branches, main, or codex branches; select the workflow from an allowed release ref." >&2
         exit 1
