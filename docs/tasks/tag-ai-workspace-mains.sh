@@ -25,6 +25,8 @@ workflow_for_repo() {
       printf '%s\n' ci-pipeline.yml ;;
     ai-workspace-services/edge-gateway) printf '%s\n' deploy.yml ;;
     ai-workspace-lab/xworkmate-bridge) printf '%s\n' pipeline.yml ;;
+    ai-workspace-xstream/xray-exporter) printf '%s\n' build-release-deploy.yml ;;
+    ai-workspace-xstream/xconnect-edge-agent) printf '%s\n' build-release-artifacts.yml ;;
   esac
 }
 
@@ -169,6 +171,16 @@ dispatch_build_workflow() {
       fi
       ;;
     ai-workspace-services/edge-gateway)
+      gh workflow run "${workflow}" --repo "${repo}" --ref "${tag}" \
+        >/dev/null
+      ;;
+    ai-workspace-xstream/xray-exporter)
+      gh workflow run "${workflow}" --repo "${repo}" --ref "${tag}" \
+        -f "release_tag=${tag}" \
+        -f "source_ref=${tag}" \
+        >/dev/null
+      ;;
+    ai-workspace-xstream/xconnect-edge-agent)
       gh workflow run "${workflow}" --repo "${repo}" --ref "${tag}" \
         >/dev/null
       ;;
