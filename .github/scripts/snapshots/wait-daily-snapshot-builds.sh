@@ -50,9 +50,10 @@ ci_trigger_for_repo() {
       if [[ "${SNAPSHOT_TAG}" == v* ]]; then
         printf '%s\n' workflow_dispatch
       else
-        printf '%s\n' push
+        printf '%s\n' push,workflow_dispatch
       fi
       ;;
+    ai-workspace-services/postgresql) printf '%s\n' push,workflow_dispatch ;;
     ai-workspace-lab/xworkmate-bridge) printf '%s\n' workflow_dispatch ;;
     ai-workspace-xstream/xray-exporter|ai-workspace-xstream/xconnect-edge-agent) printf '%s\n' workflow_dispatch ;;
     *) printf '%s\n' push ;;
@@ -144,7 +145,7 @@ for repo in "${repos[@]}"; do
       --arg branch "$expected_branch" \
       --arg sha "$expected_sha" \
       --arg event "$expected_event" \
-      '[.[] | select(.event == $event and .headBranch == $branch and .headSha == $sha)] | first | .databaseId // empty' \
+      '[.[] | select(.event as $actual_event | ($event | split(",") | index($actual_event)) != null) | select(.headBranch == $branch and .headSha == $sha)] | first | .databaseId // empty' \
       <<< "$runs")"
     [[ -n "$run_id" ]] || sleep "$poll_seconds"
   done

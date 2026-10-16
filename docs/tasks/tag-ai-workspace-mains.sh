@@ -151,10 +151,13 @@ dispatch_build_workflow() {
         dispatch_and_wait_for_production "${workflow}" --repo "${repo}" --ref main \
           -f "deploy_env=${deploy_env}" \
           -f "source_ref=${tag}" \
+          -f "publish_artifact_registry=true" \
           -f "image_tag=${tag}"
       else
         gh workflow run "${workflow}" --repo "${repo}" --ref "${tag}" \
           -f "deploy_env=${deploy_env}" \
+          -f "push_image=true" \
+          -f "push_latest=false" \
           >/dev/null
       fi
       ;;
@@ -163,6 +166,7 @@ dispatch_build_workflow() {
         dispatch_and_wait_for_production "${workflow}" --repo "${repo}" --ref main \
           -f "deployment_environment=${deploy_env}" \
           -f "source_ref=${tag}" \
+          -f "publish_artifact_registry=true" \
           -f "image_tag=${tag}"
       else
         gh workflow run "${workflow}" --repo "${repo}" --ref "${tag}" \
@@ -198,8 +202,13 @@ dispatch_snapshot_build() {
   local workflow
   workflow="$(workflow_for_repo "${repo}")"
   if [[ -n "${workflow}" && "${APPLY}" == true && "${TRIGGER_BUILD}" == true ]]; then
-    dispatch_build_workflow "${repo}" "${TAG}" "${workflow}" "${DEPLOY_ENV}"
-    record_status "dispatched" "${repo}" "${sha}" "workflow ${workflow} dispatched"
+    if dispatch_build_workflow "${repo}" "${TAG}" "${workflow}" "${DEPLOY_ENV}"; then
+      record_status "dispatched" "${repo}" "${sha}" "workflow ${workflow} dispatched"
+    else
+      record_status "build_failed" "${repo}" "${sha}" "workflow ${workflow} dispatch rejected; verify repository Actions enablement and installation Actions permission"
+      echo "::error::${repo} workflow dispatch rejected; refusing to wait for a build that was not started." >&2
+      return 1
+    fi
   fi
 }
 
