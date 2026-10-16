@@ -16,5 +16,12 @@
     "gcp_account": "xworktech",
     "accounts_public_origin": "https://accounts.svc.plus",
     "billing_public_origin": "https://billing.svc.plus"
+  },
+  "prod-v*": {
+    "cloud_provider": "gcp-cloud",
+    "account": "xworktech",
+    "gcp_account": "xworktech",
+    "accounts_public_origin": "https://accounts-selfhost-{profile}.svc.plus",
+    "billing_public_origin": "https://billing-selfhost-{profile}.svc.plus"
   }
 }

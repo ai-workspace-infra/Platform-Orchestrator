@@ -20,13 +20,14 @@
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-stage-deploy.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-stage-migrate.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-stage-verify.yml@*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/heads/main",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/heads/release/v*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/tags/v*"
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-orchestrator.yml@*"
     ],
     "ref": [
       "refs/heads/release/v*",
-      "refs/tags/v*"
+      "refs/tags/v*",
+      "refs/heads/release/prod-v*",
+      "refs/tags/prod-v*"
     ]
   },
   "token_policies": [

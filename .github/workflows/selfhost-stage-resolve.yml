@@ -25,8 +25,8 @@ env:
   # - main / release/* -> uat, except release/v* -> prod
   # - tags (v*) -> prod
   DEPLOY_ENV: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
-  VAULT_ENV_PATH: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
-  VAULT_ROLE: github-actions-platform-ops-toolkit-${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  VAULT_ENV_PATH: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(fromJSON(inputs.payload_json || '{}').vault_env_path, 'prod-v') && 'prod') || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  VAULT_ROLE: github-actions-platform-ops-toolkit-${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(fromJSON(inputs.payload_json || '{}').vault_env_path, 'prod-v') && 'prod') || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
   # 公共服务 secret: 三个环境共读、只读不可改 (GHCR 镜像拉取凭据等)。
   # 拉的是同一批镜像, 不存在环境维度, 不拆分。
   VAULT_KV: kv/data/CICD
@@ -34,8 +34,8 @@ env:
   # VULTR_API_KEY / TF_STATE_* / SSH_PRIVATE_DEPLOY_KEY_B64 授予的是"控制基础
   # 设施"和"登录主机"的能力, 是提权的实际载体, 必须隔离 —— sit 失陷不应拿到
   # prod 的云账号与主机私钥。
-  VAULT_KV_BASE: kv/data/CICD/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
-  VAULT_KV_IAC_STATE: kv/data/CICD/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/iac_state
+  VAULT_KV_BASE: kv/data/CICD/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(fromJSON(inputs.payload_json || '{}').vault_env_path, 'prod-v') && 'prod') || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}
+  VAULT_KV_IAC_STATE: kv/data/CICD/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(fromJSON(inputs.payload_json || '{}').vault_env_path, 'prod-v') && 'prod') || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/iac_state
   VAULT_KV_OPENCLAW: kv/data/openclaw
   VAULT_KV_WEB_SAAS: kv/data/WEB_SAAS
   # 计费域密钥按环境隔离, 与 databases / agent-proxy 同形。此前是共享的
@@ -43,10 +43,10 @@ env:
   # KV v2 的读权限是整份 secret 粒度, 那样 uat 角色必然连 PROD_STRIPE_SECRET_KEY
   # 一起读到, 而那把密钥能对真实客户扣款退款。拆开之后, 既有的
   # kv/data/<env>/* 规则天然完成隔离, 不需要任何额外 policy。
-  VAULT_KV_BILLING: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/billing-service
-  VAULT_KV_DATABASES: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/databases
-  VAULT_KV_SMTP: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/platform/smtp/google
-  VAULT_KV_AGENT_PROXY: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/agent-proxy
+  VAULT_KV_BILLING: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(fromJSON(inputs.payload_json || '{}').vault_env_path, 'prod-v') && 'prod') || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/billing-service
+  VAULT_KV_DATABASES: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(fromJSON(inputs.payload_json || '{}').vault_env_path, 'prod-v') && 'prod') || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/databases
+  VAULT_KV_SMTP: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(fromJSON(inputs.payload_json || '{}').vault_env_path, 'prod-v') && 'prod') || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/platform/smtp/google
+  VAULT_KV_AGENT_PROXY: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(fromJSON(inputs.payload_json || '{}').vault_env_path, 'prod-v') && 'prod') || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/agent-proxy
   PLAYBOOKS_DIR: infra/playbooks
   AKAMAI_ACCOUNT: ${{ fromJSON(inputs.payload_json || '{}').akamai_account || 'manbuzhe2026' }}
 
@@ -499,7 +499,7 @@ jobs:
       && fromJSON(inputs.payload_json || '{}').operation != 'native-business-copy' && fromJSON(inputs.payload_json || '{}').operation != 'native-business-compare' && fromJSON(inputs.payload_json || '{}').operation != 'native-core-users'
       && fromJSON(inputs.payload_json || '{}').operation != 'native-core-users-compare' && fromJSON(inputs.payload_json || '{}').operation != 'native-availability' }}
     name: '[1/5] Resolve & Validate | fixed GitOps target'
-    environment: ${{ (fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' && fromJSON(inputs.payload_json || '{}').vault_env_path == 'prod') && 'prod' || (fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch'
+    environment: ${{ (fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' && (fromJSON(inputs.payload_json || '{}').vault_env_path == 'prod' || startsWith(fromJSON(inputs.payload_json || '{}').vault_env_path, 'prod-v'))) && 'prod' || (fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch'
       && fromJSON(inputs.payload_json || '{}').vault_env_path == 'uat' && 'uat' || (fromJSON(inputs.payload_json || '{}').__parent_event_name == 'push' && github.ref == 'refs/heads/main' && 'uat' || ((startsWith(github.ref,
       'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || ''))) }}
     runs-on: ${{ fromJSON(inputs.payload_json || '{}').runner_type || 'ubuntu-latest' }}
@@ -571,7 +571,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
-        ref: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && fromJSON(inputs.payload_json || '{}').__parent_head_sha || fromJSON(inputs.payload_json || '{}').source_ref || 'main' }}
+        ref: ${{ fromJSON(inputs.payload_json || '{}').__parent_head_sha || github.sha }}
     - name: Route ref to an explicit profile
       id: route
       # env block inherited from job level — no repetition needed here
@@ -651,7 +651,7 @@ jobs:
         caller: selfhost
         topology-path: ''
         state-key: ${{ steps.route.outputs.state_key }}
-        selectors: ${{ format('{{"environment":"{0}","project":"{1}","provider":"{2}","account":"{3}","workspace":"{4}"}}', steps.route.outputs.deployment_env, steps.route.outputs.terraform_project,
+        selectors: ${{ format('{{"environment":"{0}","project":"{1}","provider":"{2}","account":"{3}","workspace":"{4}"}}', startsWith(steps.route.outputs.deployment_env, 'prod-v') && 'prod' || steps.route.outputs.deployment_env, steps.route.outputs.terraform_project,
           steps.route.outputs.cloud_provider, steps.route.outputs.account, steps.route.outputs.terraform_namespace) }}
     - if: steps.route.outputs.reuse_existing_host == 'true' && steps.route.outputs.run_application_deploy == 'true'
       uses: actions/upload-artifact@v4

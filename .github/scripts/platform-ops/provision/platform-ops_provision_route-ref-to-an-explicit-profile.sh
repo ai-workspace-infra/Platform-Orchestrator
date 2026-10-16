@@ -48,12 +48,12 @@ import sys
 defaults_path, environment, field = sys.argv[1:]
 defaults = json.load(open(defaults_path, encoding="utf-8"))
 try:
-    value = defaults[environment][field]
+    value = defaults.get(environment, defaults.get("prod-v*", {}) if environment.startswith("prod-v") else {})[field]
 except KeyError:
     raise SystemExit(2)
 if value is None or value == "":
     raise SystemExit(2)
-print(value)
+print(value.replace("{profile}", environment) if isinstance(value, str) else value)
 PY
 }
 
@@ -137,6 +137,8 @@ resolve_gitops_resource_files() {
       web-saas)
         if [[ "${environment}" == "uat" ]]; then
           printf '%s/resources/onwalk.net/uat/gcp/web-saas.yaml' "${GITHUB_WORKSPACE:-${PWD}}/gitops"
+        elif [[ "${environment}" == prod-v* ]]; then
+          printf '%s/resources/%s.svc.plus/prod/gcp/web-saas-%s.yaml' "${GITHUB_WORKSPACE:-${PWD}}/gitops" "${environment}" "${environment}"
         else
           printf '%s/resources/svc.plus/prod/gcp/web-saas.yaml' "${GITHUB_WORKSPACE:-${PWD}}/gitops"
         fi
@@ -175,14 +177,20 @@ validate_deploy_tag_policy() {
   # Infrastructure-only operations may intentionally omit an application tag.
   [[ -z "${tag}" ]] && return 0
 
+  if [[ "${tag}" == prod-v* && ! "${tag}" =~ ^prod-v[0-9]+-.+$ ]]; then
+    echo "::error::Versioned production tags must match prod-v<integer>-<release>." >&2
+    exit 1
+  fi
   case "${environment}:${tag}" in
     prod:v*)
       ;;
-    prod:*)
-      echo "::error::PROD application deployments accept only v* deploy tags; daily and UAT snapshot tags are not production sources." >&2
+    prod:prod-v[0-9]*-*|prod-v*:v*|prod-v*:prod-v[0-9]*-*)
+      ;;
+    prod:*|prod-v*:*)
+      echo "::error::PROD application deployments accept only v* or prod-v<version>-* deploy tags; daily and UAT snapshot tags are not production sources." >&2
       exit 1
       ;;
-    uat:v*|sit:v*)
+    uat:v*|sit:v*|uat:prod-v*|sit:prod-v*)
       echo "::error::v* release tags are PROD-only; UAT and SIT require daily-build-* or uat-daily-build-* tags." >&2
       exit 1
       ;;
@@ -197,6 +205,27 @@ existing_target_host=""
 existing_target_user="root"
 if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   deployment_env="${INPUT_VAULT_ENV_PATH:-uat}"
+  # Versioned profiles share PROD credentials, but retain isolated declarations/state.
+  case "${deployment_env}" in
+    sit|uat|prod) ;;
+    prod-v*)
+      [[ "${deployment_env}" =~ ^prod-v[0-9]+$ ]] || {
+        echo "::error::Versioned production profiles must match prod-v<integer>." >&2
+        exit 1
+      }
+      ;;
+    *) echo "::error::Unsupported environment '${deployment_env}'." >&2; exit 1 ;;
+  esac
+  selected_tag="${INPUT_DEPLOY_TAG:-${INPUT_DEPLOY_REF:-}}"
+  if [[ "${selected_tag}" =~ ^(prod-v[0-9]+)-.+$ ]]; then
+    tag_profile="${BASH_REMATCH[1]}"
+    if [[ "${deployment_env}" == prod ]]; then
+      deployment_env="${tag_profile}"
+    elif [[ "${deployment_env}" != "${tag_profile}" ]]; then
+      echo "::error::Deployment tag profile must match the selected production profile." >&2
+      exit 1
+    fi
+  fi
   target_domains="${INPUT_TARGET_DOMAINS:-web-saas}"
   requested_target_domains="${target_domains}"
   
@@ -216,6 +245,10 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   
   cloud_provider="${INPUT_CLOUD_PROVIDER:-$(default_provider_for_environment "${deployment_env}")}"
   set_provider_metadata
+  if [[ "${deployment_env}" == prod-v* && ( "${target_domains}" != web-saas || "${cloud_provider}" != gcp-cloud ) ]]; then
+    echo "::error::Versioned production profiles currently require the declared GCP web-saas topology." >&2
+    exit 1
+  fi
   existing_target_host="${INPUT_EXISTING_TARGET_HOST:-}"
   existing_target_user="${INPUT_EXISTING_TARGET_USER:-root}"
   if [[ "${deployment_env}" == "uat" && "${target_domains}" == "all" ]]; then
@@ -254,11 +287,20 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     state_project="${AKAMAI_UAT_PROJECT}"
   fi
   if [[ "${requested_target_domains}" == "web-saas" && "${cloud_provider}" == "gcp-cloud" ]]; then
-    if [[ -n "${INPUT_STATE_PROJECT:-}" && "${INPUT_STATE_PROJECT}" != "svc.plus" ]]; then
-      echo "::error::GCP web-saas uses the existing svc.plus state namespace; refusing a second state key." >&2
-      exit 1
+    if [[ "${deployment_env}" == prod-v* ]]; then
+      state_project="${deployment_env}.svc.plus"
+      if [[ -n "${INPUT_STATE_PROJECT:-}" && "${INPUT_STATE_PROJECT}" != "${state_project}" ]]; then
+        echo "::error::Versioned production state_project must match ${state_project}." >&2
+        exit 1
+      fi
+      rf="web-saas-${deployment_env}"
+    else
+      if [[ -n "${INPUT_STATE_PROJECT:-}" && "${INPUT_STATE_PROJECT}" != "svc.plus" ]]; then
+        echo "::error::GCP web-saas uses the existing svc.plus state namespace; refusing a second state key." >&2
+        exit 1
+      fi
+      state_project="svc.plus"
     fi
-    state_project="svc.plus"
   fi
   uat_akamai_region_namespace=false
   if [[ "${reuse_existing_host}" == "true" ]]; then
@@ -317,7 +359,12 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   if [[ "${reuse_existing_host}" != "true" && ( "${deployment_env}" != "uat" || "${cloud_provider}" != "akamai-cloud" ) ]]; then
     resource_file="${deployment_env}/${rf}"
     terraform_workspace="${deployment_env}-${state_project}-${cloud_provider}-${account}-${rf}"
-    state_key="terraform/${deployment_env}/${state_project}/${cloud_provider}/${account}/${rf}/terraform.tfstate"
+    if [[ "${deployment_env}" == prod-v* ]]; then
+      state_key="terraform/prod/${state_project}/${cloud_provider}/${account}/${rf}/terraform.tfstate"
+      resource_file="prod/${rf}"
+    else
+      state_key="terraform/${deployment_env}/${state_project}/${cloud_provider}/${account}/${rf}/terraform.tfstate"
+    fi
   fi
   # UI 使用单一 operation。下游 job 只消费解析后的执行意图，避免在
   # workflow 中重复拼接相互矛盾的开关条件。
@@ -409,17 +456,18 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     sit) env_suffix=-sit ;;
     uat) env_suffix=-uat ;;
     prod) env_suffix="" ;;
+    prod-v*) env_suffix=-${deployment_env} ;;
     *)
       echo "Unsupported workflow_dispatch vault_env_path: ${deployment_env}" >&2
       exit 1
       ;;
   esac
 
-  if [ "${deployment_env}" = "prod" ]; then
+  if [ "${deployment_env}" = "prod" ] || [[ "${deployment_env}" == prod-v* ]]; then
     case "${GITHUB_REF:-}" in
-      refs/tags/v*|refs/heads/release/v*) ;;
+      refs/tags/v*|refs/heads/release/v*|refs/tags/prod-v*|refs/heads/release/prod-v*) ;;
       *)
-        echo "::error::prod accepts only refs/tags/v* or refs/heads/release/v*; select the workflow from an allowed release ref." >&2
+        echo "::error::prod accepts only v* or prod-v* release tags/branches; select the workflow from an allowed release ref." >&2
         exit 1
         ;;
     esac
@@ -435,6 +483,7 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   gitops_ref="${source_ref:-main}"
   console_ref="${source_ref:-${deploy_ref:-main}}"
   toolkit_ref="${source_ref:-main}"
+
   offline_mode="${INPUT_OFFLINE_MODE}"
   source_host="${INPUT_SOURCE_HOST}"
   source_domain_base="${INPUT_SOURCE_DOMAIN_BASE}"
@@ -654,7 +703,7 @@ esac
 # origins are resolved separately from GitOps; never infer Billing from an
 # Accounts hostname prefix.
 agent_controller_url="${INPUT_AGENT_CONTROLLER_URL:-}"
-if [[ "${deployment_env}" == "uat" || "${deployment_env}" == "prod" ]]; then
+if [[ "${deployment_env}" == "uat" || "${deployment_env}" == "prod" || "${deployment_env}" == prod-v* ]]; then
   accounts_public_origin="$(environment_default "${deployment_env}" accounts_public_origin)"
   billing_service_base_url="$(environment_default "${deployment_env}" billing_public_origin)"
   agent_controller_url="${agent_controller_url:-${accounts_public_origin}}"
@@ -714,4 +763,6 @@ fi
 echo "terraform_workdir=${terraform_workdir}" >> "$GITHUB_OUTPUT"
 echo "env_dir=infra/iac_modules/terraform-hcl-standard/${provider_tree}/${terraform_workdir}" >> "$GITHUB_OUTPUT"
 
-echo "vault_env_path=${deployment_env}" >> "$GITHUB_OUTPUT"
+vault_environment="${deployment_env}"
+[[ "${deployment_env}" != prod-v* ]] || vault_environment=prod
+echo "vault_env_path=${vault_environment}" >> "$GITHUB_OUTPUT"

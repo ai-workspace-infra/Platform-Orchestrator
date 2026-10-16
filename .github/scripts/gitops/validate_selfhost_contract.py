@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -47,7 +48,7 @@ def main() -> int:
         fail(f"metadata.environment must be {expected_environment}")
 
     expected_target_zone = os.environ.get("EXPECTED_TARGET_DOMAIN_BASE", "")
-    expected_environment_zone = "svc.plus" if expected_environment == "prod" else "onwalk.net"
+    expected_environment_zone = "svc.plus" if (expected_environment == "prod" or re.fullmatch(r"prod-v[0-9]+", expected_environment)) else "onwalk.net"
     if expected_target_zone and expected_target_zone != expected_environment_zone:
         fail(
             f"selfhost {expected_environment} routing requires "
