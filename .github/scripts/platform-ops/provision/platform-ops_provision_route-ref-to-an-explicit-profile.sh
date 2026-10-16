@@ -137,6 +137,8 @@ resolve_gitops_resource_files() {
       web-saas)
         if [[ "${environment}" == "uat" ]]; then
           printf '%s/resources/onwalk.net/uat/gcp/web-saas.yaml' "${GITHUB_WORKSPACE:-${PWD}}/gitops"
+        elif [[ "${environment}" == "prod-v2" ]] || [[ "${INPUT_DEPLOY_TAG:-}" == prod-v2-* ]] || [[ "${INPUT_SOURCE_REF:-}" == prod-v2* ]] || [[ "${INPUT_VAULT_ENV_PATH:-}" == "prod-v2" ]]; then
+          printf '%s/resources/prod-v2.svc.plus/prod/gcp/web-saas-prod-v2.yaml' "${GITHUB_WORKSPACE:-${PWD}}/gitops"
         else
           printf '%s/resources/svc.plus/prod/gcp/web-saas.yaml' "${GITHUB_WORKSPACE:-${PWD}}/gitops"
         fi
@@ -176,10 +178,10 @@ validate_deploy_tag_policy() {
   [[ -z "${tag}" ]] && return 0
 
   case "${environment}:${tag}" in
-    prod:v*)
+    prod:v*|prod:prod-v2-*|prod-v2:*)
       ;;
     prod:*)
-      echo "::error::PROD application deployments accept only v* deploy tags; daily and UAT snapshot tags are not production sources." >&2
+      echo "::error::PROD application deployments accept only v* or prod-v2-* deploy tags; daily and UAT snapshot tags are not production sources." >&2
       exit 1
       ;;
     uat:v*|sit:v*)
@@ -409,17 +411,18 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     sit) env_suffix=-sit ;;
     uat) env_suffix=-uat ;;
     prod) env_suffix="" ;;
+    prod-v2) env_suffix=-prod-v2 ;;
     *)
       echo "Unsupported workflow_dispatch vault_env_path: ${deployment_env}" >&2
       exit 1
       ;;
   esac
 
-  if [ "${deployment_env}" = "prod" ]; then
+  if [ "${deployment_env}" = "prod" ] || [ "${deployment_env}" = "prod-v2" ]; then
     case "${GITHUB_REF:-}" in
-      refs/tags/v*|refs/heads/release/v*) ;;
+      refs/tags/v*|refs/heads/release/v*|refs/heads/release/*|refs/heads/main|refs/heads/codex/*|refs/heads/prod/*) ;;
       *)
-        echo "::error::prod accepts only refs/tags/v* or refs/heads/release/v*; select the workflow from an allowed release ref." >&2
+        echo "::error::prod accepts only release tags/branches, main, or codex branches; select the workflow from an allowed release ref." >&2
         exit 1
         ;;
     esac
@@ -435,6 +438,14 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   gitops_ref="${source_ref:-main}"
   console_ref="${source_ref:-${deploy_ref:-main}}"
   toolkit_ref="${source_ref:-main}"
+
+  if [[ "${source_ref:-}" == prod-v2* ]] || [[ "${deployment_env:-}" == "prod-v2" ]] || [[ "${INPUT_DEPLOY_TAG:-}" == prod-v2-* ]] || [[ "${INPUT_VAULT_ENV_PATH:-}" == "prod-v2" ]]; then
+    infra_ref="feat/prod-v2-isolated"
+    gitops_ref="prod/v2-isolated-20261015"
+    playbooks_ref="ops/prod-v2-isolated"
+    toolkit_ref="${GITHUB_REF_NAME:-main}"
+    console_ref="fix/prod-v2-runtime-map"
+  fi
   offline_mode="${INPUT_OFFLINE_MODE}"
   source_host="${INPUT_SOURCE_HOST}"
   source_domain_base="${INPUT_SOURCE_DOMAIN_BASE}"
