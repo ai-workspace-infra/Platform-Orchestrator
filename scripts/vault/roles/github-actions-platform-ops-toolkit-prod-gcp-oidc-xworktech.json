@@ -26,8 +26,8 @@
     "ref": [
       "refs/heads/release/v*",
       "refs/tags/v*",
-      "refs/heads/codex/*",
-      "refs/heads/main"
+      "refs/heads/release/prod-v*",
+      "refs/tags/prod-v*"
     ]
   },
   "token_policies": [
