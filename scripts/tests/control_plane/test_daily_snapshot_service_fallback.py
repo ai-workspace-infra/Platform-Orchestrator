@@ -62,7 +62,7 @@ class ServiceFallbackTest(unittest.TestCase):
             return result, statuses, (root / 'dispatched').exists()
 
     def test_missing_push_dispatches_exact_tag_for_each_service(self):
-        for name in ('accounts', 'postgresql'):
+        for name in ('accounts', 'postgresql', 'portal'):
             with self.subTest(name=name):
                 result, statuses, dispatched = self.run_snapshot('ai-workspace-services/' + name, 'missing')
                 self.assertEqual(result.returncode, 0, result.stderr)

@@ -30,6 +30,7 @@
       "repository": "ai-workspace-services/portal",
       "workflow": "ci-pipeline.yml",
       "trigger": "push",
+      "dispatch_if_missing": true,
       "dispatch_inputs": {"deployment_environment": "${DEPLOY_ENV}"},
       "artifacts": ["image", "release-manifest"]
     },

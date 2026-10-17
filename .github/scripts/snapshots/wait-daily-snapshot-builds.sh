@@ -53,7 +53,7 @@ ci_trigger_for_repo() {
         printf '%s\n' push,workflow_dispatch
       fi
       ;;
-    ai-workspace-services/postgresql) printf '%s\n' push,workflow_dispatch ;;
+    ai-workspace-services/postgresql|ai-workspace-services/portal) printf '%s\n' push,workflow_dispatch ;;
     ai-workspace-lab/xworkmate-bridge) printf '%s\n' workflow_dispatch ;;
     ai-workspace-xstream/xray-exporter|ai-workspace-xstream/xconnect-edge-agent) printf '%s\n' workflow_dispatch ;;
     *) printf '%s\n' push ;;
