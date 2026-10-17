@@ -70,6 +70,21 @@ bash scripts/create_vault_service_repo_roles.sh --apply \
 The script provisions the Vault role and policy only. AWS IAM OIDC trust
 reconciliation remains a separate, explicitly approved AWS bootstrap action.
 
+## Console PROD image builds
+
+The Portal PROD build role (`github-actions-console-prod`) may read only the
+shared `kv/data/CICD` GHCR credentials. Its source refs are `v*`,
+`release/v*`, and the Portal-specific `prod-v2-*` release tags. The latter is
+an explicit exception for the Web SaaS PROD V2 release lane; it does not grant
+host SSH or deployment credentials.
+
+Apply or check only this declaration after review:
+
+```bash
+VAULT_ADDR=https://vault.svc.plus bash scripts/create_vault_service_repo_roles.sh \
+  --apply --role github-actions-console-prod
+```
+
 ## Console-only UAT deployment
 
 `github-actions-console-uat-deploy` is separate from the legacy Console CI
