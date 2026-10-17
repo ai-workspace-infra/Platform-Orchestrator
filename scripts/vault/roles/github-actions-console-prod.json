@@ -1,6 +1,6 @@
 {
   "role_name": "github-actions-console-prod",
-  "description": "console PROD business CI; shared CICD credential read access only.",
+  "description": "console PROD business CI; shared CICD credential read access only; Portal prod-v2 release tags are explicitly allowed.",
   "role_type": "jwt",
   "user_claim": "sub",
   "bound_audiences": [
@@ -12,6 +12,7 @@
     "job_workflow_ref": "ai-workspace-services/portal/.github/workflows/*pipeline.ym*@*",
     "ref": [
       "refs/tags/v*",
+      "refs/tags/prod-v2-*",
       "refs/heads/release/v*"
     ]
   },
