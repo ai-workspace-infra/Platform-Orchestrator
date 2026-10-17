@@ -5,6 +5,7 @@
       "repository": "ai-workspace-services/accounts",
       "workflow": "ci-pipeline.yml",
       "trigger": "push",
+      "dispatch_if_missing": true,
       "production_promotion": true,
       "dispatch_inputs": {"deploy_env": "${DEPLOY_ENV}"},
       "artifacts": ["image", "binary", "zip", "release-manifest"]
@@ -60,6 +61,7 @@
       "repository": "ai-workspace-services/postgresql",
       "workflow": "ci-pipeline.yml",
       "trigger": "push",
+      "dispatch_if_missing": true,
       "dispatch_inputs": {
         "image_tag": "${SNAPSHOT_TAG}",
         "deployment_environment": "${DEPLOY_ENV}",

@@ -223,6 +223,38 @@ dispatch_repos="$(jq -r \
     | select(.repository as $repo | ($selected | split(",") | index($repo)))
     | .repository] | .[]' \
   "${build_config}")"
+# Tag pushes can be suppressed by [skip ci] on the source commit. Some App
+# tag events also produce no run. Discover an existing exact-tag/SHA build
+# before dispatching a fallback, so ordinary tag-triggered builds are reused.
+fallback_repos="$(jq -r --arg selected "${tag_repos}" --arg env "${DEPLOY_ENV}" '
+  .repositories[]
+  | select(.dispatch_if_missing == true)
+  | select($env != "prod" or .production_promotion != true)
+  | select(.repository as $repo | ($selected | split(",") | index($repo)))
+  | [.repository, .workflow] | @tsv
+' "${build_config}")"
+while IFS=$'\t' read -r fallback_repo fallback_workflow; do
+  [[ -n "${fallback_repo}" ]] || continue
+  expected_sha="$(gh api "repos/${fallback_repo}/commits/${tag}" --jq .sha)"
+  # Leave a short discovery window for the push event to become visible.
+  discovery_deadline=$(( $(date +%s) + ${BUILD_DISCOVERY_GRACE_SECONDS:-30} ))
+  while :; do
+    runs="$(gh run list -R "${fallback_repo}" -w "${fallback_workflow}" -L 50 \
+      --json databaseId,event,headBranch,headSha)"
+    existing_run="$(jq -r --arg tag "${tag}" --arg sha "${expected_sha}" '
+      [.[] | select((.event == "push" or .event == "workflow_dispatch")
+        and .headBranch == $tag and .headSha == $sha)] | first | .databaseId // empty
+    ' <<< "${runs}")"
+    [[ -z "${existing_run}" && $(date +%s) -lt ${discovery_deadline} ]] || break
+    sleep "${BUILD_DISCOVERY_POLL_SECONDS:-5}"
+  done
+  if [[ -z "${existing_run}" ]]; then
+    dispatch_repos="$(printf '%s\n%s' "${dispatch_repos}" "${fallback_repo}" | sed '/^$/d')"
+  else
+    echo "REUSE CI ${fallback_repo} run ${existing_run} for ${tag} at ${expected_sha}"
+  fi
+done <<< "${fallback_repos}"
+
 if [[ -n "${dispatch_repos}" ]]; then
   dispatch_repos="$(paste -sd, - <<< "${dispatch_repos}")"
   bash docs/tasks/tag-ai-workspace-mains.sh \
