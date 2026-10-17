@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "github-actions",
-  "updatedAt": "2026-10-17T05:36:02.026295+00:00",
+  "updatedAt": "2026-10-17T09:41:28.797191+00:00",
   "timezone": "Asia/Shanghai",
   "coverage": {
     "since": "2026-09-04T02:53:34Z",
@@ -674,7 +674,10 @@
     "38796083345": "1:2026-10-15T20:19:00Z",
     "38865887725": "1:2026-10-16T07:50:14Z",
     "38896253530": "1:2026-10-16T12:50:43Z",
-    "38954131474": "1:2026-10-16T20:21:39Z"
+    "38954131474": "1:2026-10-16T20:21:39Z",
+    "39011611587": "1:2026-10-17T06:55:39Z",
+    "39014055772": "1:2026-10-17T07:34:14Z",
+    "39013351091": "1:2026-10-17T07:32:37Z"
   },
   "gaps": [
     {
@@ -1501,6 +1504,142 @@
     }
   ],
   "releases": [
+    {
+      "id": "39014055772:1:uat:daily-build-2026.10.17-r2",
+      "runId": 39014055772,
+      "attempt": 1,
+      "environment": "uat",
+      "tag": "daily-build-2026.10.17-r2",
+      "scope": "full-uat",
+      "status": "unknown",
+      "workflow": "daily-main-snapshot.yaml",
+      "url": "https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/39014055772",
+      "startedAt": "2026-10-17T07:33:09Z",
+      "completedAt": "2026-10-17T07:34:14Z",
+      "repositories": [
+        {
+          "repository": "ai-workspace-services/accounts",
+          "tag": "daily-build-2026.10.17-r2",
+          "sha": "1632637cd680b38fcaf7066f14d5eb821d35a77e",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/billing-service",
+          "tag": "daily-build-2026.10.17-r2",
+          "sha": "216323a4954b83bfe85e41dcb91e2da9484cd87c",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/content-service",
+          "tag": "daily-build-2026.10.17-r2",
+          "sha": "94e722c913a8c6e8adbb5b0bd363b20c9d3b4d08",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/portal",
+          "tag": "daily-build-2026.10.17-r2",
+          "sha": "c6a34e76c289c7c50f882d147f126d9d210e4538",
+          "build": "success",
+          "deployment": "unknown"
+        }
+      ]
+    },
+    {
+      "id": "39013351091:1:uat:daily-build-2026.10.17-r2",
+      "runId": 39013351091,
+      "attempt": 1,
+      "environment": "uat",
+      "tag": "daily-build-2026.10.17-r2",
+      "scope": "full-uat",
+      "status": "failed",
+      "workflow": "daily-main-snapshot.yaml",
+      "url": "https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/39013351091",
+      "startedAt": "2026-10-17T07:21:51Z",
+      "completedAt": "2026-10-17T07:32:37Z",
+      "repositories": [
+        {
+          "repository": "ai-workspace-services/accounts",
+          "tag": "daily-build-2026.10.17-r2",
+          "sha": "1632637cd680b38fcaf7066f14d5eb821d35a77e",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/billing-service",
+          "tag": "daily-build-2026.10.17-r2",
+          "sha": "216323a4954b83bfe85e41dcb91e2da9484cd87c",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/content-service",
+          "tag": "daily-build-2026.10.17-r2",
+          "sha": "94e722c913a8c6e8adbb5b0bd363b20c9d3b4d08",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/portal",
+          "tag": "daily-build-2026.10.17-r2",
+          "sha": "c6a34e76c289c7c50f882d147f126d9d210e4538",
+          "build": "unknown",
+          "deployment": "unknown"
+        }
+      ]
+    },
+    {
+      "id": "39011611587:1:uat:daily-build-2026.10.17",
+      "runId": 39011611587,
+      "attempt": 1,
+      "environment": "uat",
+      "tag": "daily-build-2026.10.17",
+      "scope": "full-uat",
+      "status": "failed",
+      "workflow": "daily-main-snapshot.yaml",
+      "url": "https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/39011611587",
+      "startedAt": "2026-10-17T06:54:00Z",
+      "completedAt": "2026-10-17T06:55:39Z",
+      "repositories": [
+        {
+          "repository": "ai-workspace-services/accounts",
+          "tag": "daily-build-2026.10.17",
+          "sha": "1632637cd680b38fcaf7066f14d5eb821d35a77e",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/billing-service",
+          "tag": "daily-build-2026.10.17",
+          "sha": "f13f04a9f4ef18f536a25f74ef54fde444f2a08c",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/content-service",
+          "tag": "daily-build-2026.10.17",
+          "sha": "ec297d533b4535548577cc3ad3923877ade781d4",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/portal",
+          "tag": "daily-build-2026.10.17",
+          "sha": "dd0a3d01562ebec5faa824af5bd239e9374420c6",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/postgresql",
+          "tag": "daily-build-2026.10.17",
+          "sha": "253d69a3ad19558a4bd272dee0509a498e091e24",
+          "build": "failed",
+          "deployment": "unknown"
+        }
+      ]
+    },
     {
       "id": "38954131474:1:uat:daily-build-2026.10.16-r1",
       "runId": 38954131474,
