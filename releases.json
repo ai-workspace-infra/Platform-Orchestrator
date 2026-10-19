@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "github-actions",
-  "updatedAt": "2026-10-19T16:35:15.455241+00:00",
+  "updatedAt": "2026-10-19T21:15:04.483263+00:00",
   "timezone": "Asia/Shanghai",
   "coverage": {
     "since": "2026-09-04T02:53:34Z",
@@ -679,7 +679,8 @@
     "39014055772": "1:2026-10-17T07:34:14Z",
     "39013351091": "1:2026-10-17T07:32:37Z",
     "39056974152": "2:2026-10-17T19:55:36Z",
-    "39154281807": "1:2026-10-18T18:32:05Z"
+    "39154281807": "1:2026-10-18T18:32:05Z",
+    "39323055009": "1:2026-10-19T20:58:52Z"
   },
   "gaps": [
     {
@@ -1223,12 +1224,6 @@
       "reason": "No immutable release evidence"
     },
     {
-      "runId": 35460882828,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
       "runId": 38246463393,
       "workflow": "serverless-orchestrator.yml",
       "status": "completed",
@@ -1416,6 +1411,91 @@
     }
   ],
   "releases": [
+    {
+      "id": "39323055009:1:uat:daily-build-2026.10.19",
+      "runId": 39323055009,
+      "attempt": 1,
+      "environment": "uat",
+      "tag": "daily-build-2026.10.19",
+      "scope": "full-uat",
+      "status": "failed",
+      "workflow": "daily-main-snapshot.yaml",
+      "url": "https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/39323055009",
+      "startedAt": "2026-10-19T20:53:22Z",
+      "completedAt": "2026-10-19T20:58:52Z",
+      "repositories": [
+        {
+          "repository": "ai-workspace-lab/xworkmate-bridge",
+          "tag": "daily-build-2026.10.19",
+          "sha": "1394d927b579eb745f2b7d35ad5d9d466ebbca44",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/accounts",
+          "tag": "daily-build-2026.10.19",
+          "sha": "fe7a146c4c2bdc94e9d4f80cb3800e245eee54a5",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/billing-service",
+          "tag": "daily-build-2026.10.19",
+          "sha": "22cbfc06d3fe030c2d32fa076335853fa6aa2865",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/content-service",
+          "tag": "daily-build-2026.10.19",
+          "sha": "94e722c913a8c6e8adbb5b0bd363b20c9d3b4d08",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/portal",
+          "tag": "daily-build-2026.10.19",
+          "sha": "f4a7f71e910b53e3a4c7235324d3a839f9955c91",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/edge-gateway",
+          "tag": "daily-build-2026.10.19",
+          "sha": "f59980891aac64238e238404fef8f915d9349966",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/frontend-router",
+          "tag": "daily-build-2026.10.19",
+          "sha": "7dfeff426922f6e03bfe94eff840fe199253d67b",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/postgresql",
+          "tag": "daily-build-2026.10.19",
+          "sha": "253d69a3ad19558a4bd272dee0509a498e091e24",
+          "build": "failed",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-xstream/xray-exporter",
+          "tag": "daily-build-2026.10.19",
+          "sha": "1094bd8e11af30eda62fdbb2ecf9d8560d493829",
+          "build": "success",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-xstream/xconnect-edge-agent",
+          "tag": "daily-build-2026.10.19",
+          "sha": "c52528f3ce34154deb5cba05d43fed7597ffc2a6",
+          "build": "success",
+          "deployment": "unknown"
+        }
+      ]
+    },
     {
       "id": "39154281807:1:uat:daily-build-2026.10.18",
       "runId": 39154281807,
