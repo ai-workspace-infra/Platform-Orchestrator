@@ -2,6 +2,44 @@
 
 [🇬🇧 English](README.md) · [🇨🇳 中文版](README_zh.md) · [English alternate](README_EN.md)
 
+## 🚀 快速开始
+
+### Gitea + Gitea Actions 一键安装
+
+在 Debian 12+ 或 Ubuntu 22.04+ 机器上快速安装 Gitea + Caddy（自动配置 HTTPS）及 Gitea Actions Runner。
+
+#### 1. 单机模式 (Standalone)
+
+无需预先配置外部密钥库，自动生成管理员强密码：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/platform-ops-toolkit/main/scripts/setup-gitea.sh | \
+  bash -s -- --domain git.example.com --standalone
+```
+
+#### 2. 团队协作模式 (Team / Vault 注入)
+
+通过环境变量注入管理员凭据与 Runner 注册 Token：
+
+```bash
+export GITEA_DOMAIN="git.example.com"
+export GITEA_ADMIN_USER="platform-admin"
+export GITEA_ADMIN_PASSWORD="<runtime-secret>"
+export RUNNER_REGISTRATION_TOKEN="<runtime-secret>"
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/platform-ops-toolkit/main/scripts/setup-gitea.sh | \
+  bash -s -- --domain "$GITEA_DOMAIN" --with-runner
+unset GITEA_ADMIN_PASSWORD RUNNER_REGISTRATION_TOKEN
+```
+
+#### 3. 卸载与清理 (Uninstall)
+
+停止运行中的容器，自动备份持久化数据至 `/var/backups/gitea`，并移除 Compose 部署栈：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/platform-ops-toolkit/main/scripts/setup-gitea.sh | \
+  bash -s -- --uninstall
+```
+
 ## 先看这里：真正的操作入口
 
 如果你是第一次使用，只需要按下面 4 步走：
