@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "github-actions",
-  "updatedAt": "2026-10-22T01:41:36.110081+00:00",
+  "updatedAt": "2026-10-22T06:36:24.000226+00:00",
   "timezone": "Asia/Shanghai",
   "coverage": {
     "since": "2026-09-04T02:53:34Z",
@@ -1166,42 +1166,6 @@
       "reason": "No immutable release evidence"
     },
     {
-      "runId": 35693617081,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 35693514129,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 35692928077,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 35684810921,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 35684463101,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 35676729931,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
       "runId": 38246463393,
       "workflow": "serverless-orchestrator.yml",
       "status": "completed",
@@ -1365,18 +1329,6 @@
     },
     {
       "runId": 35710956975,
-      "workflow": "serverless-orchestrator.yml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 35684731294,
-      "workflow": "serverless-orchestrator.yml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 35676820641,
       "workflow": "serverless-orchestrator.yml",
       "status": "completed",
       "reason": "No immutable release evidence"
