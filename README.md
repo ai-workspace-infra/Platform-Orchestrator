@@ -40,6 +40,42 @@ curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/platform-ops-too
   bash -s -- --uninstall
 ```
 
+### Vault + Zitadel 一键安装
+
+一键安装 HashiCorp Vault + Zitadel + Caddy（自动 HTTPS 反向代理）及 OIDC/JWT 认证集成。支持 Debian 12+ 与 Ubuntu 22.04+。
+
+#### 1. 独立单机模式 (Standalone)
+
+自动生成随机强密钥并初始化 Vault 与 Zitadel：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/platform-ops-toolkit/main/scripts/setup-vault-zitadel.sh | \
+  bash -s -- --domain vault.example.com --standalone
+```
+
+#### 2. 团队纳管模式 (Team / Vault 注入)
+
+通过环境变量安全注入凭据并自动化配置 Vault JWT/OIDC 认证（指向 Zitadel 发行方 `https://$ZITADEL_DOMAIN/oauth/v2`）：
+
+```bash
+export VAULT_DOMAIN="vault.example.com"
+export ZITADEL_DOMAIN="auth.example.com"
+export ZITADEL_MASTERKEY="<runtime-secret>"
+export VAULT_UNSEAL_KEY="<runtime-secret>"
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/platform-ops-toolkit/main/scripts/setup-vault-zitadel.sh | \
+  bash -s -- --domain "$VAULT_DOMAIN" --with-oidc
+unset ZITADEL_MASTERKEY VAULT_UNSEAL_KEY
+```
+
+#### 3. 卸载与数据备份 (Uninstall)
+
+停止服务并自动安全备份数据目录至 `/opt/vault-zitadel-backup-<timestamp>`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/platform-ops-toolkit/main/scripts/setup-vault-zitadel.sh | \
+  bash -s -- --uninstall
+```
+
 ## Start here: the actual operation entry point
 
 If you are using this repository for the first time, follow these four steps:
