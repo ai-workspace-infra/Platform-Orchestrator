@@ -3,6 +3,10 @@
 本文是 `iac_modules`、`platform-ops-toolkit` 合并后的验收清单。测试分为
 “无需云账号的代码契约测试”和“需要 Vault/对象存储/云账号的集成测试”两层。
 
+新代际候选环境的计算实例删除、净室重建及部署/迁移各三轮真实重放，使用
+[隔离代际验证流程](isolated-generation-validation.md)。该模式要求源/目标 namespace、
+state lineage 和云资源身份隔离；共享 Selfhost 的生产 destroy 禁令保持有效。
+
 ## 统一前置条件
 
 确认所有 Terraform state 参数只来自环境级 Vault KV：
