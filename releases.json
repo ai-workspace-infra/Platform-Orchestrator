@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "github-actions",
-  "updatedAt": "2026-10-23T03:31:49.416759+00:00",
+  "updatedAt": "2026-10-23T08:50:40.533336+00:00",
   "timezone": "Asia/Shanghai",
   "coverage": {
     "since": "2026-09-04T02:53:34Z",
@@ -684,7 +684,7 @@
     "39486829970": "1:2026-10-20T19:54:22Z",
     "39665860031": "1:2026-10-21T19:59:49Z",
     "39842881968": "1:2026-10-22T19:53:24Z",
-    "39891515095": "1:2026-10-23T02:49:28Z"
+    "39891515095": "2:2026-10-23T03:42:56Z"
   },
   "gaps": [
     {
@@ -1132,36 +1132,6 @@
       "reason": "No immutable release evidence"
     },
     {
-      "runId": 35839302694,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 35837750195,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 35835568181,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 35834526360,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 35832671212,
-      "workflow": "daily-main-snapshot.yaml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
       "runId": 38246463393,
       "workflow": "serverless-orchestrator.yml",
       "status": "completed",
@@ -1286,42 +1256,6 @@
       "workflow": "serverless-orchestrator.yml",
       "status": "completed",
       "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 35834125199,
-      "workflow": "serverless-orchestrator.yml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 35833860122,
-      "workflow": "serverless-orchestrator.yml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 35828737006,
-      "workflow": "serverless-orchestrator.yml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 35828397422,
-      "workflow": "serverless-orchestrator.yml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 35828083861,
-      "workflow": "serverless-orchestrator.yml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
-    },
-    {
-      "runId": 35827831927,
-      "workflow": "serverless-orchestrator.yml",
-      "status": "completed",
-      "reason": "No immutable release evidence"
     }
   ],
   "releases": [
@@ -1337,6 +1271,56 @@
       "url": "https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/39891515095",
       "startedAt": "2026-10-23T02:47:45Z",
       "completedAt": "2026-10-23T02:49:28Z",
+      "repositories": [
+        {
+          "repository": "ai-workspace-services/accounts",
+          "tag": "daily-build-2026.10.23-r101",
+          "sha": "b423432dc5f993e5261423e27373703aaff48f2d",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/billing-service",
+          "tag": "daily-build-2026.10.23-r101",
+          "sha": "77557d796a66dcd3373d7731125890bd91ebc5d3",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/content-service",
+          "tag": "daily-build-2026.10.23-r101",
+          "sha": "94e722c913a8c6e8adbb5b0bd363b20c9d3b4d08",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/portal",
+          "tag": "daily-build-2026.10.23-r101",
+          "sha": "02607cf315570097606d90a8ba514fe37dcbe9e6",
+          "build": "unknown",
+          "deployment": "unknown"
+        },
+        {
+          "repository": "ai-workspace-services/postgresql",
+          "tag": "daily-build-2026.10.23-r101",
+          "sha": "253d69a3ad19558a4bd272dee0509a498e091e24",
+          "build": "failed",
+          "deployment": "unknown"
+        }
+      ]
+    },
+    {
+      "id": "39891515095:2:uat:daily-build-2026.10.23-r101",
+      "runId": 39891515095,
+      "attempt": 2,
+      "environment": "uat",
+      "tag": "daily-build-2026.10.23-r101",
+      "scope": "full-uat",
+      "status": "failed",
+      "workflow": "daily-main-snapshot.yaml",
+      "url": "https://github.com/ai-workspace-infra/platform-ops-toolkit/actions/runs/39891515095",
+      "startedAt": "2026-10-23T02:47:45Z",
+      "completedAt": "2026-10-23T03:42:56Z",
       "repositories": [
         {
           "repository": "ai-workspace-services/accounts",
