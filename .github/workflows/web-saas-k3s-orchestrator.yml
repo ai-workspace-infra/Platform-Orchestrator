@@ -212,7 +212,7 @@ jobs:
                 --resources "../gitops/resources/svc.plus/uat/akamai/web-saas-k3s-v5.yaml" \
                 --workdir "${workdir}"
                 
-              host_ip=$(jq -r '.["web-saas-k3s-v5"].ip // .["console-k3s-v5.svc.plus"].ip // "127.0.0.1"' "${workdir}/cmdb.json")
+              host_ip=$(jq -r 'to_entries | .[0].value.ip // .["web-saas-k3s-v5"].ip // .["console-k3s-v5.svc.plus"].ip // "127.0.0.1"' "${workdir}/cmdb.json")
               echo "host_ip=${host_ip}" >> "${GITHUB_OUTPUT}"
               echo "cmdb_json=$(cat "${workdir}/cmdb.json" | jq -c .)" >> "${GITHUB_OUTPUT}"
             else
@@ -355,7 +355,8 @@ jobs:
           - hosts: all
             gather_facts: true
             roles:
-              - role: roles/vhosts/k3s-cluster-server
+              - role: vhosts/k3s-cluster-server
+                action: bootstrap
           PB
 
           ansible-playbook -i "${HOST_IP}," -u root \
