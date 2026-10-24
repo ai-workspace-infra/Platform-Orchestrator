@@ -160,6 +160,7 @@ jobs:
         run: |
           set -euo pipefail
           cd iac_modules
+          iac_root="$(pwd)"
           python3 -m pip install --quiet pyyaml jinja2
 
           workdir="terraform-hcl-standard/akamai-cloud/envs/uat/web-saas-k3s-v5"
@@ -207,7 +208,7 @@ jobs:
               echo "Applying additive-only infrastructure..."
               terraform apply -input=false tfplan
               
-              cd ../../../..
+              cd "${iac_root}"
               python3 terraform-hcl-standard/akamai-cloud/scripts/generate.py inventory \
                 --resources "../gitops/resources/svc.plus/uat/akamai/web-saas-k3s-v5.yaml" \
                 --workdir "${workdir}"
@@ -284,7 +285,7 @@ jobs:
   cluster-bootstrap:
     name: "[4/5] Playbooks Cluster Bootstrap"
     needs: [iac-provision, dns-test-records]
-    if: always() && !cancelled() && needs.iac-provision.result == 'success'
+    if: always() && !cancelled() && needs.iac-provision.result == 'success' && needs.dns-test-records.result != 'failure'
     environment: uat
     runs-on: ubuntu-latest
     steps:
