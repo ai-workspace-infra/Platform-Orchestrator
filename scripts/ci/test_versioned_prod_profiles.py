@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import yaml
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,6 +15,39 @@ ROUTE = ROOT / ".github/scripts/platform-ops/provision/platform-ops_provision_ro
 
 
 class VersionedProdProfilesTest(unittest.TestCase):
+    def test_akamai_generation_uses_declared_target_and_existing_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / 'config').symlink_to(ROOT / 'config', target_is_directory=True)
+            root = workspace / 'gitops'
+            targets = root / 'iac/targets'
+            targets.mkdir(parents=True)
+            resource = root / 'resources/example/prod/akamai/web-saas-prod-v5.yaml'
+            resource.parent.mkdir(parents=True)
+            identity = dict(environment='prod', provider='akamai-cloud', account='fixture-account',
+                            project='fixture-project', workspace='web-saas-prod-v5')
+            state = 'terraform/prod/fixture-project/akamai-cloud/fixture-account/web-saas-prod-v5/terraform.tfstate'
+            resource.write_text(yaml.safe_dump({'global': {**identity, 'region': 'fixture-region'},
+                'hosts': [{'host_vars': {'target_generation': 'prod-v5'}}]}))
+            target = {**identity, 'stages': {'resources': {'mode': 'terraform',
+                'manifest': str(resource.relative_to(root)), 'requires_existing_state': True,
+                'state': {'key': state}}}}
+            manifest = targets / 'fixture.yaml'
+            manifest.write_text(yaml.safe_dump({'targets': [target]}))
+            result, values = self.route('prod-v5', GITHUB_WORKSPACE=str(workspace),
+                INPUT_CLOUD_PROVIDER='akamai-cloud', INPUT_CLOUD_ACCOUNT='fixture-account')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(values['state_key'], state)
+            self.assertEqual(values['terraform_namespace'], identity['workspace'])
+            self.assertEqual(values['terraform_project'], identity['project'])
+            self.assertEqual(Path(values['resource_files_full']).resolve(), resource.resolve())
+            self.assertEqual(values['vault_env_path'], 'prod')
+            target['stages']['resources']['state']['key'] = 'terraform/prod/wrong/terraform.tfstate'
+            manifest.write_text(yaml.safe_dump({'targets': [target]}))
+            refused, _ = self.route('prod-v5', GITHUB_WORKSPACE=str(workspace),
+                INPUT_CLOUD_PROVIDER='akamai-cloud', INPUT_CLOUD_ACCOUNT='fixture-account')
+            self.assertNotEqual(refused.returncode, 0)
+
     def route(self, profile="prod-v3", tag="", **overrides):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "output"
