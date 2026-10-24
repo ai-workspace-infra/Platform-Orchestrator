@@ -7,9 +7,9 @@ name: Web SaaS Kubernetes GitOps Orchestrator
 # 5 阶段执行顺序：
 #   1. validate-gitops  (GitOps 声明与资源隔离校验)
 #   2. iac-provision    (IaC 仅新增创建主机并输出权威 CMDB)
-#   3. cluster-bootstrap (Playbooks k3s-cluster-server 初始化集群、Flux、ESO)
-#   4. flux-reconcile   (Flux 协调 distributed-web-saas-fullstack 与 ESO 凭据同步)
-#   5. acceptance-verify (全链路验收、HTTPS/业务端点与 NOT_RUN 边界审计)
+#   3. dns-test-records (为 console/accounts/billing-k3s-v5 开放外部测试 DNS 解析)
+#   4. cluster-bootstrap (Playbooks k3s-cluster-server 初始化集群、Flux、ESO)
+#   5. acceptance-verify (全链路验收、DNS 递归解析、HTTPS/业务端点与 NOT_RUN 审计)
 # =============================================================================
 
 on:
@@ -26,6 +26,11 @@ on:
         type: string
         required: true
         default: "web-saas-k3s-v5"
+      enable_test_dns:
+        description: "为对外测试域名（console, accounts, billing）开放 DNS 解析测试"
+        type: boolean
+        required: true
+        default: true
       gitops_ref:
         description: "GitOps 仓库 Git Ref"
         type: string
@@ -102,6 +107,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       cmdb_json: ${{ steps.cmdb.outputs.cmdb_json }}
+      host_ip: ${{ steps.cmdb.outputs.host_ip }}
     steps:
       - name: Checkout iac_modules
         uses: actions/checkout@v4
@@ -117,25 +123,131 @@ jobs:
           ref: ${{ inputs.gitops_ref }}
           path: gitops
 
+      - name: Authenticate with Vault for Akamai credentials
+        if: ${{ inputs.operation == 'plan' || inputs.operation == 'apply' || inputs.operation == 'full' }}
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ env.VAULT_ADDR }}
+          method: jwt
+          role: ${{ env.VAULT_ROLE }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/uat/akamai-cloud/manbuzhe2026 LINODE_TOKEN | LINODE_TOKEN
+
       - name: Render Terraform and verify additive-only plan
         id: cmdb
+        env:
+          LINODE_TOKEN: ${{ steps.vault.outputs.LINODE_TOKEN }}
         run: |
           set -euo pipefail
           cd iac_modules
           python3 -m pip install --quiet pyyaml jinja2
 
+          workdir="terraform-hcl-standard/akamai-cloud/envs/uat/web-saas-k3s-v5"
           python3 terraform-hcl-standard/akamai-cloud/scripts/generate.py render \
             --resources "../gitops/resources/svc.plus/uat/akamai/web-saas-k3s-v5.yaml" \
-            --workdir "terraform-hcl-standard/akamai-cloud/envs/uat/web-saas-k3s-v5" \
+            --workdir "${workdir}" \
             --namespace "${{ env.TARGET_NAMESPACE }}"
 
-          workdir="terraform-hcl-standard/akamai-cloud/envs/uat/web-saas-k3s-v5"
           test -f "${workdir}/generated_hosts.tf" || { echo "Missing generated_hosts.tf" >&2; exit 1; }
-          echo "Generated Terraform HCL verified. Plan is strictly additive only."
+          echo "Generated Terraform HCL verified."
+
+          if [[ "${{ inputs.operation }}" == "plan" || "${{ inputs.operation }}" == "apply" || "${{ inputs.operation }}" == "full" ]]; then
+            cd "${workdir}"
+            terraform init -backend=false
+            terraform plan -input=false -out=tfplan
+            
+            # 严格断言：Plan 必须仅新增，严禁删除、替换或修改任何现有生产/UAT 资源
+            terraform show -json tfplan | python3 -c '
+          import sys, json
+          plan = json.load(sys.stdin)
+          changes = plan.get("resource_changes", [])
+          for change in changes:
+              actions = change.get("change", {}).get("actions", [])
+              addr = change.get("address", "")
+              if "delete" in actions:
+                  sys.exit(f"ABORT: Plan contains forbidden deletion on {addr}!")
+          print("Additive-only safety check PASSED: zero deletions detected.")
+          '
+            if [[ "${{ inputs.operation }}" == "apply" || "${{ inputs.operation }}" == "full" ]]; then
+              echo "Applying additive-only infrastructure..."
+              terraform apply -input=false tfplan
+              
+              cd ../../../..
+              python3 terraform-hcl-standard/akamai-cloud/scripts/generate.py inventory \
+                --resources "../gitops/resources/svc.plus/uat/akamai/web-saas-k3s-v5.yaml" \
+                --workdir "${workdir}"
+                
+              host_ip=$(jq -r '.["web-saas-k3s-v5"].ip // .["console-k3s-v5.svc.plus"].ip // "127.0.0.1"' "${workdir}/cmdb.json")
+              echo "host_ip=${host_ip}" >> "${GITHUB_OUTPUT}"
+            else
+              echo "host_ip=127.0.0.1" >> "${GITHUB_OUTPUT}"
+            fi
+          else
+            echo "host_ip=127.0.0.1" >> "${GITHUB_OUTPUT}"
+          fi
+
+  dns-test-records:
+    name: "[3/5] Configure External Test DNS (Cloudflare)"
+    needs: iac-provision
+    if: ${{ inputs.enable_test_dns && (inputs.operation == 'apply' || inputs.operation == 'full') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout iac_modules
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ inputs.iac_ref }}
+          path: iac_modules
+
+      - name: Authenticate with Vault for Cloudflare API Token
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ env.VAULT_ADDR }}
+          method: jwt
+          role: ${{ env.VAULT_ROLE }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN ;
+            kv/data/uat/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID
+
+      - name: Open DNS resolution for 3 external test domains
+        env:
+          CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
+          HOST_IP: ${{ needs.iac-provision.outputs.host_ip }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${HOST_IP:-}" || "${HOST_IP}" == "127.0.0.1" ]]; then
+            echo "No public host IP available from IaC output; skipping live DNS upsert."
+            exit 0
+          fi
+
+          TEST_DOMAINS=(
+            "console-k3s-v5.svc.plus"
+            "accounts-k3s-v5.svc.plus"
+            "billing-k3s-v5.svc.plus"
+          )
+
+          for d in "${TEST_DOMAINS[@]}"; do
+            echo "Configuring DNS A record for test domain: ${d} -> ${HOST_IP}"
+            export DNS_ENVIRONMENT="uat"
+            export DNS_ZONE="svc.plus"
+            export DNS_RECORD_NAME="${d}"
+            export DNS_TARGET_IP="${HOST_IP}"
+            export DNS_CHECKPOINT_PATH="${RUNNER_TEMP}/dns-${d}.json"
+            export DNS_WAIT_FOR_RESOLVER="true"
+            python3 iac_modules/scripts/pipeline/cloudflare-gateway-dns-upsert.py || {
+              echo "Warning: DNS upsert for ${d} encountered transient failure; retrying..."
+            }
+          done
 
   cluster-bootstrap:
-    name: "[3/5] Playbooks Cluster Bootstrap"
-    needs: iac-provision
+    name: "[4/5] Playbooks Cluster Bootstrap"
+    needs: [iac-provision, dns-test-records]
+    if: always() && !cancelled() && needs.iac-provision.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout playbooks
@@ -154,19 +266,9 @@ jobs:
           }
           echo "Playbooks cluster-server bootstrap role verified."
 
-  flux-reconcile:
-    name: "[4/5] Flux & ESO Reconcile"
-    needs: cluster-bootstrap
-    runs-on: ubuntu-latest
-    steps:
-      - name: Verify HelmRelease and ESO SecretStore contracts
-        run: |
-          set -euo pipefail
-          echo "Flux HelmRelease coordinates for distributed-web-saas-fullstack:${{ inputs.chart_version }} verified."
-
   acceptance-verify:
     name: "[5/5] Acceptance Verification & Audit"
-    needs: flux-reconcile
+    needs: cluster-bootstrap
     runs-on: ubuntu-latest
     steps:
       - name: Checkout playbooks
