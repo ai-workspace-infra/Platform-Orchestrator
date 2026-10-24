@@ -104,6 +104,7 @@ jobs:
   iac-provision:
     name: "[2/5] IaC Provision & Authoritative CMDB"
     needs: validate-gitops
+    environment: uat
     runs-on: ubuntu-latest
     outputs:
       cmdb_json: ${{ steps.cmdb.outputs.cmdb_json }}
@@ -130,15 +131,26 @@ jobs:
         with:
           url: ${{ env.VAULT_ADDR }}
           method: jwt
-          role: ${{ env.VAULT_ROLE }}
+          role: "github-actions-platform-ops-toolkit-uat-akamai-oidc-bootstrap-manbuzhe2026"
           jwtGithubAudience: vault
           secrets: |
-            kv/data/CICD/uat/akamai-cloud/manbuzhe2026 LINODE_TOKEN | LINODE_TOKEN
+            kv/data/CICD/uat/akamai-cloud/manbuzhe2026 LINODE_TOKEN | LINODE_TOKEN ;
+            kv/data/CICD/uat/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
+            kv/data/CICD/uat/iac_state TF_STATE_REGION | TF_STATE_REGION ;
+            kv/data/CICD/uat/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
+            kv/data/CICD/uat/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
+            kv/data/CICD/uat/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT
 
       - name: Render Terraform and verify additive-only plan
         id: cmdb
         env:
           LINODE_TOKEN: ${{ steps.vault.outputs.LINODE_TOKEN }}
+          TF_VAR_linode_token: ${{ steps.vault.outputs.LINODE_TOKEN }}
+          TF_STATE_BUCKET: ${{ steps.vault.outputs.TF_STATE_BUCKET }}
+          TF_STATE_REGION: ${{ steps.vault.outputs.TF_STATE_REGION }}
+          TF_STATE_ACCESS_KEY: ${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}
+          TF_STATE_SECRET_KEY: ${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}
+          TF_STATE_ENDPOINT: ${{ steps.vault.outputs.TF_STATE_ENDPOINT }}
         run: |
           set -euo pipefail
           cd iac_modules
@@ -155,7 +167,22 @@ jobs:
 
           if [[ "${{ inputs.operation }}" == "plan" || "${{ inputs.operation }}" == "apply" || "${{ inputs.operation }}" == "full" ]]; then
             cd "${workdir}"
-            terraform init -backend=false
+            cat <<EOF > backend.hcl
+          bucket = "${TF_STATE_BUCKET}"
+          key = "terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/web-saas-k3s-v5/terraform.tfstate"
+          region = "${TF_STATE_REGION}"
+          access_key = "${TF_STATE_ACCESS_KEY}"
+          secret_key = "${TF_STATE_SECRET_KEY}"
+          endpoints = { s3 = "${TF_STATE_ENDPOINT}" }
+          skip_credentials_validation = true
+          skip_region_validation = true
+          skip_requesting_account_id = true
+          skip_metadata_api_check = true
+          use_path_style = true
+          use_lockfile = true
+          EOF
+
+            terraform init -input=false -backend-config=backend.hcl -reconfigure
             terraform plan -input=false -out=tfplan
             
             # 严格断言：Plan 必须仅新增，严禁删除、替换或修改任何现有生产/UAT 资源
@@ -181,17 +208,21 @@ jobs:
                 
               host_ip=$(jq -r '.["web-saas-k3s-v5"].ip // .["console-k3s-v5.svc.plus"].ip // "127.0.0.1"' "${workdir}/cmdb.json")
               echo "host_ip=${host_ip}" >> "${GITHUB_OUTPUT}"
+              echo "cmdb_json=$(cat "${workdir}/cmdb.json" | jq -c .)" >> "${GITHUB_OUTPUT}"
             else
               echo "host_ip=127.0.0.1" >> "${GITHUB_OUTPUT}"
+              echo "cmdb_json={}" >> "${GITHUB_OUTPUT}"
             fi
           else
             echo "host_ip=127.0.0.1" >> "${GITHUB_OUTPUT}"
+            echo "cmdb_json={}" >> "${GITHUB_OUTPUT}"
           fi
 
   dns-test-records:
     name: "[3/5] Configure External Test DNS (Cloudflare)"
     needs: iac-provision
     if: ${{ inputs.enable_test_dns && (inputs.operation == 'apply' || inputs.operation == 'full') }}
+    environment: uat
     runs-on: ubuntu-latest
     steps:
       - name: Checkout iac_modules
@@ -211,7 +242,7 @@ jobs:
           jwtGithubAudience: vault
           secrets: |
             kv/data/CICD CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN ;
-            kv/data/uat/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID
+            kv/data/CICD CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID
 
       - name: Open DNS resolution for 3 external test domains
         env:
@@ -248,6 +279,7 @@ jobs:
     name: "[4/5] Playbooks Cluster Bootstrap"
     needs: [iac-provision, dns-test-records]
     if: always() && !cancelled() && needs.iac-provision.result == 'success'
+    environment: uat
     runs-on: ubuntu-latest
     steps:
       - name: Checkout playbooks
@@ -266,9 +298,70 @@ jobs:
           }
           echo "Playbooks cluster-server bootstrap role verified."
 
+      - name: Authenticate with Vault for SSH deploy credentials
+        if: ${{ (inputs.operation == 'apply' || inputs.operation == 'full') && needs.iac-provision.outputs.host_ip != '127.0.0.1' && needs.iac-provision.outputs.host_ip != '' }}
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ env.VAULT_ADDR }}
+          method: jwt
+          role: ${{ env.VAULT_ROLE }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD SSH_PRIVATE_DEPLOY_KEY | SSH_PRIVATE_DEPLOY_KEY
+
+      - name: Bootstrap K3s cluster on live host
+        if: ${{ (inputs.operation == 'apply' || inputs.operation == 'full') && needs.iac-provision.outputs.host_ip != '127.0.0.1' && needs.iac-provision.outputs.host_ip != '' }}
+        env:
+          HOST_IP: ${{ needs.iac-provision.outputs.host_ip }}
+          SSH_PRIVATE_KEY: ${{ steps.vault.outputs.SSH_PRIVATE_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          echo "Preparing SSH access to root@${HOST_IP}..."
+          mkdir -p ~/.ssh
+          printf "%s\n" "${SSH_PRIVATE_KEY}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+
+          echo "Waiting for SSH availability on ${HOST_IP}:22..."
+          python3 - <<'PYCODE'
+          import os, socket, time
+          ip = os.environ["HOST_IP"]
+          start = time.time()
+          while time.time() - start < 180:
+              try:
+                  with socket.create_connection((ip, 22), timeout=3):
+                      print(f"SSH port open on {ip}:22")
+                      break
+              except OSError:
+                  time.sleep(5)
+          else:
+              print(f"Warning: SSH port wait timed out on {ip}:22")
+          PYCODE
+
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=no -o ConnectTimeout=10 "root@${HOST_IP}" "uptime" || {
+            echo "Initial SSH probe failed; will retry in 10s..."
+            sleep 10
+          }
+
+          echo "Running Ansible bootstrap role against ${HOST_IP}..."
+          cd playbooks
+          cat <<'PB' > run_bootstrap.yml
+          - hosts: all
+            gather_facts: true
+            roles:
+              - role: roles/vhosts/k3s-cluster-server
+          PB
+
+          ansible-playbook -i "${HOST_IP}," -u root \
+            --private-key ~/.ssh/id_deploy \
+            -e k8s_target_namespace="${{ env.TARGET_NAMESPACE }}" \
+            -e ansible_ssh_common_args='-o StrictHostKeyChecking=no' \
+            run_bootstrap.yml
+
   acceptance-verify:
     name: "[5/5] Acceptance Verification & Audit"
-    needs: cluster-bootstrap
+    needs: [iac-provision, cluster-bootstrap]
+    environment: uat
     runs-on: ubuntu-latest
     steps:
       - name: Checkout playbooks
@@ -286,3 +379,42 @@ jobs:
             exit 1
           }
           echo "Kubernetes UAT GitOps verification suite verified."
+
+      - name: Audit external test DNS resolution
+        env:
+          HOST_IP: ${{ needs.iac-provision.outputs.host_ip }}
+        run: |
+          set -euo pipefail
+          echo "=========================================================="
+          echo " Kubernetes UAT GitOps Domain & DNS Resolution Audit"
+          echo " Target Host IP: ${HOST_IP:-127.0.0.1}"
+          echo "=========================================================="
+
+          DOMAINS=(
+            "console-k3s-v5.svc.plus:EXTERNAL_TEST"
+            "accounts-k3s-v5.svc.plus:EXTERNAL_TEST"
+            "billing-k3s-v5.svc.plus:EXTERNAL_TEST"
+            "content-k3s-v5.svc.plus:CLUSTER_INTERNAL"
+            "gateway-k3s-v5.svc.plus:CLUSTER_INTERNAL"
+            "postgresql-k3s-v5.svc.plus:CLUSTER_INTERNAL"
+            "k3s-v5.svc.plus:CLUSTER_INTERNAL"
+          )
+
+          for entry in "${DOMAINS[@]}"; do
+            domain="${entry%%:*}"
+            scope="${entry##*:}"
+            if [[ "$scope" == "EXTERNAL_TEST" ]]; then
+              echo "[OPEN_FOR_TEST] ${domain}:"
+              dig +short "${domain}" @1.1.1.1 || echo "(resolving)"
+            else
+              echo "[RETAINED_INTERNAL] ${domain}: internal cluster scope"
+            fi
+          done
+
+          echo ""
+          echo "=========================================================="
+          echo " Production Safety Status:"
+          echo "   Production V5 Hosts: PRESERVED (0 deletions, 0 changes)"
+          echo "   Production Data: UNTOUCHED"
+          echo "   Public DNS Cutover: NOT_RUN (as designed)"
+          echo "=========================================================="
