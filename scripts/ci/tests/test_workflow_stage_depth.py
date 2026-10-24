@@ -51,7 +51,12 @@ class GraphTests(unittest.TestCase):
                 checker.verify(root)
 
     def test_daily_gate_keeps_order_and_dispatch_inputs(self):
-        jobs = yaml.safe_load((ROOT / ".github/workflows/daily-main-snapshot.yaml").read_text())["jobs"]
+        document = yaml.safe_load((ROOT / ".github/workflows/daily-main-snapshot.yaml").read_text())
+        jobs = document["jobs"]
+        trigger = document.get('on', document.get(True))
+        deployment = trigger['workflow_dispatch']['inputs']['deploy_after_build']
+        self.assertEqual(deployment['type'], 'boolean')
+        self.assertIs(deployment['default'], False)
         self.assertEqual(len(jobs), 5)
         self.assertEqual(len(checker.longest_chain(jobs)), 5)
         gate = jobs["snapshot-gate"]
@@ -65,11 +70,15 @@ class GraphTests(unittest.TestCase):
         dispatch = jobs["dispatch-environment"]
         self.assertEqual(dispatch["needs"], "snapshot-gate")
         self.assertIn("needs.snapshot-gate.result == 'success'", dispatch["if"])
+        self.assertIn("inputs.deploy_after_build == true", dispatch['if'])
+        self.assertEqual(steps[readiness]['if'], '${{ inputs.deploy_after_build == true }}')
+        self.assertEqual(steps[select]['if'], '${{ inputs.deploy_after_build == true }}')
         self.assertIn("needs.snapshot-gate.outputs.matrix", dispatch["strategy"]["matrix"])
         self.assertIn("always()", jobs["snapshot-summary"]["if"])
         failure = jobs["snapshot-summary"]["steps"][-1]["if"]
         self.assertIn("needs.snapshot-gate.result != 'success'", failure)
         self.assertIn("needs.dispatch-environment.result != 'success'", failure)
+        self.assertIn("inputs.deploy_after_build == true && needs.dispatch-environment.result != 'success'", failure)
 
 
 if __name__ == "__main__":

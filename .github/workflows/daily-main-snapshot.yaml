@@ -28,6 +28,11 @@ on:
         description: "可选：精确仓库列表，逗号分隔，例如 ai-workspace-services/accounts"
         required: false
         type: string
+      deploy_after_build:
+        description: "构建通过后是否部署环境；默认 false，仅生成完整快照与构件。"
+        required: false
+        default: false
+        type: boolean
       skip_stripe_catalog:
         description: "可选：跳过 Stripe 目录同步，仅验证核心 UAT/PROD 部署"
         required: false
@@ -287,6 +292,7 @@ jobs:
           DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
 
       - name: Check Shared platform readiness (read-only)
+        if: ${{ inputs.deploy_after_build == true }}
         uses: ai-workspace-infra/playbooks/.github/actions/service-probes@8b29bd81f03c7726f28698ea7c78471827d3c961
         with:
           operation: shared-readiness
@@ -300,6 +306,7 @@ jobs:
 
       - name: Resolve environment dispatch mapping
         id: select
+        if: ${{ inputs.deploy_after_build == true }}
         env:
           DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
         run: |
@@ -347,7 +354,8 @@ jobs:
     if: >-
       ${{
       always() &&
-      needs.snapshot-gate.result == 'success'
+      needs.snapshot-gate.result == 'success' &&
+      inputs.deploy_after_build == true
       }}
     strategy:
       fail-fast: false
@@ -468,6 +476,12 @@ jobs:
           SNAPSHOT_STATUS_OUTPUT: ${{ runner.temp }}/daily-snapshot-summary.json
         run: ${{ github.workspace }}/.github/scripts/snapshots/aggregate-daily-snapshot-status.sh
 
+      - name: Record the explicit deployment policy
+        env:
+          DEPLOY_AFTER_BUILD: ${{ inputs.deploy_after_build == true && 'enabled' || 'NOT_RUN (build-only)' }}
+        run: >-
+          printf '\nEnvironment deployment: %s\n' "${DEPLOY_AFTER_BUILD}" >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Download environment dispatch receipts
         if: ${{ needs.dispatch-environment.result != 'skipped' }}
         uses: actions/download-artifact@v8
@@ -500,6 +514,7 @@ jobs:
             needs.resolve-snapshot-tag.result != 'success' ||
             needs.snapshot.result != 'success' ||
             ((inputs.repositories || '') == '' &&
-              (needs.snapshot-gate.result != 'success' || needs.dispatch-environment.result != 'success'))
+              (needs.snapshot-gate.result != 'success' ||
+                (inputs.deploy_after_build == true && needs.dispatch-environment.result != 'success')))
           }}
         run: exit 1

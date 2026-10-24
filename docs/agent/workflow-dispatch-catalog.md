@@ -206,3 +206,8 @@ Agent 只允许对本文档列出的四个 workflow 调用 `workflow_dispatch`�
 规则新建分支/tag/PR，不得修改这些 workflow 本身、其脚本、或它们部署的目标仓库
 （gitops、Vault）作为让派发"成功"的手段。遇到现有触发/授权规则无法满足的合法请求，
 如实告知用户这是需要人工调整路由/角色绑定的问题，不要绕过。
+# Daily snapshot: build without environment deployment
+
+`daily-main-snapshot.yaml` accepts `deploy_after_build` (boolean, default `false`). Scheduled runs and manual runs with this value unset or false build and publish the selected immutable snapshot without dispatching an environment deployment. Shared deployment-readiness probes and environment mapping are also skipped; the final summary records deployment as `NOT_RUN (build-only)`.
+
+For a complete latest-main snapshot use `deploy_env=uat`, `snapshot_source_ref=main`, an unused `daily-build-YYYY.MM.DD-rN` tag, leave `repositories` empty, and set `deploy_after_build=false`. The canonical build inventory remains `.github/daily-snapshot-builds.json` (currently ten component repositories); the existing XConnect application release dispatch builds its multi-platform client separately. Neither a component tag nor a build-only snapshot authorizes UAT deployment. Explicit `deploy_after_build=true` is required to enable the existing deployment chain.
