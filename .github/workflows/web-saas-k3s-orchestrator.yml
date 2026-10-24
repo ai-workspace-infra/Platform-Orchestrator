@@ -141,6 +141,12 @@ jobs:
             kv/data/CICD/uat/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
             kv/data/CICD/uat/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT
 
+      - name: Set up Terraform CLI
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+
       - name: Render Terraform and verify additive-only plan
         id: cmdb
         env:
