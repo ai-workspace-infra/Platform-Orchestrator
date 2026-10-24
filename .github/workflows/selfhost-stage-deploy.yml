@@ -570,6 +570,13 @@ jobs:
         # the public environment aliases separate and points them at these
         # selfhost targets.
         WEB_SAAS_CONSOLE_DOMAIN:           ${{ format('console-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
+        # Serve the canonical corporate homepage from the production Console
+        # on svc.plus hosts. The brand alias remains unset for UAT/SIT and
+        # unrelated production domains.
+        WEB_SAAS_BRAND_DOMAIN: >-
+          ${{ needs.provision.outputs.deployment_env == 'prod' &&
+          needs.provision.outputs.target_domain_base == 'svc.plus' &&
+          'xworktech.com' || '' }}
         WEB_SAAS_ACCOUNTS_DOMAIN:          ${{ format('accounts-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
         WEB_SAAS_BILLING_DOMAIN:           ${{ format('billing-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
         AGENT_CONTROLLER_URL:              ${{ needs.provision.outputs.agent_accounts_base_url }}
