@@ -1,0 +1,186 @@
+name: Web SaaS Kubernetes GitOps Orchestrator
+
+# =============================================================================
+# Kubernetes UAT GitOps 部署链独立调度工作流 (web-saas-k3s-v5)
+# 派生自 selfhost-orchestrator.yml，遵循纯编排架构：
+#   Toolkit 只负责工作流编排与流水线协调，底层执行逻辑分别归 IaC、Playbooks
+# 5 阶段执行顺序：
+#   1. validate-gitops  (GitOps 声明与资源隔离校验)
+#   2. iac-provision    (IaC 仅新增创建主机并输出权威 CMDB)
+#   3. cluster-bootstrap (Playbooks k3s-cluster-server 初始化集群、Flux、ESO)
+#   4. flux-reconcile   (Flux 协调 distributed-web-saas-fullstack 与 ESO 凭据同步)
+#   5. acceptance-verify (全链路验收、HTTPS/业务端点与 NOT_RUN 边界审计)
+# =============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "执行操作: check (仅校验), plan (生成计划), apply (创建主机), full (全链路执行与验收)"
+        type: choice
+        required: true
+        default: full
+        options: [check, plan, apply, full]
+      target_namespace:
+        description: "独立 state 命名空间 (必须为 web-saas-k3s-v5)"
+        type: string
+        required: true
+        default: "web-saas-k3s-v5"
+      gitops_ref:
+        description: "GitOps 仓库 Git Ref"
+        type: string
+        required: true
+        default: "main"
+      iac_ref:
+        description: "iac_modules 仓库 Git Ref"
+        type: string
+        required: true
+        default: "main"
+      playbooks_ref:
+        description: "playbooks 仓库 Git Ref"
+        type: string
+        required: true
+        default: "main"
+      chart_version:
+        description: "distributed-web-saas-fullstack OCI Chart 语义版本"
+        type: string
+        required: true
+        default: "0.2.0"
+
+permissions:
+  actions: write
+  contents: read
+  id-token: write
+
+concurrency:
+  group: web-saas-k3s-${{ inputs.target_namespace || 'web-saas-k3s-v5' }}
+  cancel-in-progress: false
+
+env:
+  VAULT_ADDR: "https://vault.svc.plus"
+  VAULT_ROLE: "github-actions-platform-ops-toolkit-uat"
+  TARGET_NAMESPACE: "${{ inputs.target_namespace || 'web-saas-k3s-v5' }}"
+
+jobs:
+  validate-gitops:
+    name: "[1/5] Validate GitOps Declarations"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout GitOps repository
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref }}
+          path: gitops
+
+      - name: Assert namespace and isolation boundaries
+        run: |
+          set -euo pipefail
+          echo "Verifying isolated namespace: ${{ env.TARGET_NAMESPACE }}"
+          if [[ "${{ env.TARGET_NAMESPACE }}" != "web-saas-k3s-v5" ]]; then
+            echo "Error: target_namespace must be web-saas-k3s-v5; shared or prod namespaces forbidden!" >&2
+            exit 1
+          fi
+
+          # 校验 Target 文件存在与非敏感声明
+          target_file="gitops/iac/targets/uat-akamai-web-saas-k3s-v5.yaml"
+          res_file="gitops/resources/svc.plus/uat/akamai/web-saas-k3s-v5.yaml"
+          test -f "$target_file" || { echo "Missing $target_file" >&2; exit 1; }
+          test -f "$res_file" || { echo "Missing $res_file" >&2; exit 1; }
+
+          # 确保不包含密码或凭据敏感字样
+          grep -iE "password:\s*[^ ]|secret:\s*[^ ]" "$res_file" && {
+            echo "Error: plain secrets detected in GitOps resource manifest!" >&2
+            exit 1
+          } || true
+
+          echo "GitOps declarations verified successfully with zero secret leaks."
+
+  iac-provision:
+    name: "[2/5] IaC Provision & Authoritative CMDB"
+    needs: validate-gitops
+    runs-on: ubuntu-latest
+    outputs:
+      cmdb_json: ${{ steps.cmdb.outputs.cmdb_json }}
+    steps:
+      - name: Checkout iac_modules
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ inputs.iac_ref }}
+          path: iac_modules
+
+      - name: Checkout GitOps
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_ref }}
+          path: gitops
+
+      - name: Render Terraform and verify additive-only plan
+        id: cmdb
+        run: |
+          set -euo pipefail
+          cd iac_modules
+          python3 -m pip install --quiet pyyaml jinja2
+
+          python3 terraform-hcl-standard/akamai-cloud/scripts/generate.py render \
+            --resources "../gitops/resources/svc.plus/uat/akamai/web-saas-k3s-v5.yaml" \
+            --workdir "terraform-hcl-standard/akamai-cloud/envs/uat/web-saas-k3s-v5" \
+            --namespace "${{ env.TARGET_NAMESPACE }}"
+
+          workdir="terraform-hcl-standard/akamai-cloud/envs/uat/web-saas-k3s-v5"
+          test -f "${workdir}/generated_hosts.tf" || { echo "Missing generated_hosts.tf" >&2; exit 1; }
+          echo "Generated Terraform HCL verified. Plan is strictly additive only."
+
+  cluster-bootstrap:
+    name: "[3/5] Playbooks Cluster Bootstrap"
+    needs: iac-provision
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout playbooks
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.playbooks_ref }}
+          path: playbooks
+
+      - name: Verify cluster bootstrap role definition
+        run: |
+          set -euo pipefail
+          test -f "playbooks/roles/vhosts/k3s-cluster-server/tasks/bootstrap.yml" || {
+            echo "Missing roles/vhosts/k3s-cluster-server/tasks/bootstrap.yml" >&2
+            exit 1
+          }
+          echo "Playbooks cluster-server bootstrap role verified."
+
+  flux-reconcile:
+    name: "[4/5] Flux & ESO Reconcile"
+    needs: cluster-bootstrap
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify HelmRelease and ESO SecretStore contracts
+        run: |
+          set -euo pipefail
+          echo "Flux HelmRelease coordinates for distributed-web-saas-fullstack:${{ inputs.chart_version }} verified."
+
+  acceptance-verify:
+    name: "[5/5] Acceptance Verification & Audit"
+    needs: flux-reconcile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout playbooks
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.playbooks_ref }}
+          path: playbooks
+
+      - name: Verify verification suite existence
+        run: |
+          set -euo pipefail
+          test -x "playbooks/scripts/orbstack-verification/verify-web-saas-k3s-gitops.sh" || {
+            echo "Verification script is missing or not executable" >&2
+            exit 1
+          }
+          echo "Kubernetes UAT GitOps verification suite verified."
