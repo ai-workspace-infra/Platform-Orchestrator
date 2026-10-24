@@ -7,6 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 OWNER_SHA = "18fa333e5d76143f2a3a3ce94b1766a04003ebd8"
+CERT_OWNER_SHA = "ce70a1a2e842f37a4f20f319c8467575dae0a208"
 
 
 class NonIaCOwnerHandoffContractTest(unittest.TestCase):
@@ -38,10 +39,11 @@ class NonIaCOwnerHandoffContractTest(unittest.TestCase):
     def test_toolkit_keeps_the_vault_authorization_and_exact_reads(self) -> None:
         read = "- name: Read domain TLS record through the authorized Vault session"
         self.assertEqual(self.workflow.count(read), 2)
-        self.assertEqual(self.workflow.count('test -n "${VAULT_TOKEN:-}"'), 3)
-        # One exact read is for the external node record and two are for the
-        # domain certificate. Response files cross the owner boundary.
-        self.assertEqual(self.workflow.count('-H "X-Vault-Token: ${VAULT_TOKEN}"'), 3)
+        self.assertEqual(self.workflow.count('test -n "${VAULT_TOKEN:-}"'), 4)
+        # One exact read is for the external node record, two are for the
+        # service-domain certificate, and one is for the brand-domain cert.
+        # Response files cross the owner boundary.
+        self.assertEqual(self.workflow.count('-H "X-Vault-Token: ${VAULT_TOKEN}"'), 4)
         self.assertEqual(self.workflow.count("200|404) ;;"), 2)
         self.assertEqual(
             self.workflow.count(
@@ -54,9 +56,9 @@ class NonIaCOwnerHandoffContractTest(unittest.TestCase):
     def test_existing_and_non_iac_restore_use_the_same_exact_owner(self) -> None:
         owner = (
             "uses: ai-workspace-infra/playbooks/.github/actions/"
-            f"caddy-certificate-restore@{OWNER_SHA}"
+            f"caddy-certificate-restore@{CERT_OWNER_SHA}"
         )
-        self.assertEqual(self.workflow.count(owner), 2)
+        self.assertEqual(self.workflow.count(owner), 3)
         self.assertNotIn("ref: 14f6196bbf69b78d07f1adb9fb8c97bc816a485b", self.workflow)
         self.assertNotIn("caddy-restore-playbooks/caddy_certificate_restore.yml", self.workflow)
         non_iac_restore = self.workflow.index(
