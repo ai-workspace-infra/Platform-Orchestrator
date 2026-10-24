@@ -113,6 +113,10 @@ resolve_gitops_resource_files() {
   local domains="$3"
   local gitops_root="${GITHUB_WORKSPACE:-${PWD}}/gitops/resources/svc.plus"
   local provider_dir
+  if [[ "${environment}" == prod-v* && "${provider}" == akamai-cloud ]]; then
+    jq -er '.resource_manifest' <<<"${versioned_akamai_route:?Akamai generation route must be validated first}"
+    return 0
+  fi
   provider_dir="$(registry_value "${provider}" gitops_provider)" || {
     echo "::error::Unsupported GitOps resource provider '${provider}'." >&2
     return 1
@@ -245,9 +249,13 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   
   cloud_provider="${INPUT_CLOUD_PROVIDER:-$(default_provider_for_environment "${deployment_env}")}"
   set_provider_metadata
-  if [[ "${deployment_env}" == prod-v* && ( "${target_domains}" != web-saas || "${cloud_provider}" != gcp-cloud ) ]]; then
-    echo "::error::Versioned production profiles currently require the declared GCP web-saas topology." >&2
+  if [[ "${deployment_env}" == prod-v* && ( "${target_domains}" != web-saas || ( "${cloud_provider}" != gcp-cloud && "${cloud_provider}" != akamai-cloud ) ) ]]; then
+    echo "::error::Versioned production profiles require a reviewed GCP or Akamai web-saas topology." >&2
     exit 1
+  fi
+  if [[ "${deployment_env}" == prod-v* && "${cloud_provider}" == akamai-cloud ]]; then
+    versioned_akamai_route="$(python3 "$(dirname "${BASH_SOURCE[0]}")/resolve-versioned-akamai-target.py" \
+      --gitops-root "${GITHUB_WORKSPACE:-${PWD}}/gitops" --profile "${deployment_env}" --account "${account}")"
   fi
   existing_target_host="${INPUT_EXISTING_TARGET_HOST:-}"
   existing_target_user="${INPUT_EXISTING_TARGET_USER:-root}"
@@ -365,6 +373,14 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     else
       state_key="terraform/${deployment_env}/${state_project}/${cloud_provider}/${account}/${rf}/terraform.tfstate"
     fi
+  fi
+  if [[ -n "${versioned_akamai_route:-}" ]]; then
+    state_project="$(jq -er '.project' <<<"${versioned_akamai_route}")"
+    terraform_namespace="$(jq -er '.workspace' <<<"${versioned_akamai_route}")"
+    terraform_workspace="${terraform_namespace}"
+    rf="${terraform_namespace}"
+    resource_file="prod/${rf}"
+    state_key="$(jq -er '.state_key' <<<"${versioned_akamai_route}")"
   fi
   # UI 使用单一 operation。下游 job 只消费解析后的执行意图，避免在
   # workflow 中重复拼接相互矛盾的开关条件。
@@ -754,7 +770,7 @@ else
   echo 'count=0' >> "$GITHUB_OUTPUT"
 fi
 terraform_workdir="envs/platform-ops-toolkit"
-if [[ "${deployment_env}" == "uat" && "${cloud_provider}" == "akamai-cloud" ]]; then
+if [[ "${cloud_provider}" == "akamai-cloud" && ( "${deployment_env}" == "uat" || "${deployment_env}" == prod-v* ) ]]; then
   # Akamai UAT has one Terraform root per namespace. The generator rejects
   # the historical shared directory because it would make six state locks
   # look like one workdir and can overwrite generated files between runs.
