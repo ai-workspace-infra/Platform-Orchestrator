@@ -461,7 +461,7 @@ jobs:
 
     - name: Restore domain TLS with pinned Playbooks owner
       if: ${{ steps.tls_record.outcome == 'success' }}
-      uses: ai-workspace-infra/playbooks/.github/actions/caddy-certificate-restore@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
+      uses: ai-workspace-infra/playbooks/.github/actions/caddy-certificate-restore@ce70a1a2e842f37a4f20f319c8467575dae0a208
       with:
         inventory_file: cmdb/inventory.ini
         vault_response_file: ${{ steps.tls_record.outputs.response_file }}
@@ -470,6 +470,42 @@ jobs:
         # Public wildcard PEM is separate from web-saas/certs/, which belongs
         # to stunnel's internal CA. Non-Caddy consumers use current/ below.
         domain_tls_directory: /etc/xcontrol/tls/${{ needs.provision.outputs.target_domain_base }}
+        deploy_key_file: ${{ steps.runner.outputs.deploy_key_file }}
+
+    - name: Read the brand-domain certificate from its Vault KV path
+      id: brand_tls_record
+      if: ${{ (needs.provision.outputs.deployment_env == 'prod' || startsWith(needs.provision.outputs.deployment_env, 'prod-v')) && needs.provision.outputs.target_domain_base == 'svc.plus' && contains(needs.provision.outputs.target_domains, 'web-saas') }}
+      env:
+        VAULT_CADDY_PATH: kv/data/CICD/domains/xworktech.com
+        TLS_VAULT_RESPONSE_FILE: ${{ runner.temp }}/brand-domain-tls-vault.json
+      run: |
+        set -euo pipefail
+        umask 077
+        test -n "${VAULT_TOKEN:-}" || {
+          echo "::error::Vault token was not exported for brand TLS restoration." >&2
+          exit 1
+        }
+        status="$(curl --silent --show-error \
+          -o "${TLS_VAULT_RESPONSE_FILE}" -w '%{http_code}' \
+          -H "X-Vault-Token: ${VAULT_TOKEN}" \
+          "${VAULT_ADDR%/}/v1/${VAULT_CADDY_PATH}")"
+        case "${status}" in
+          200) ;;
+          *) echo "::error::Brand TLS Vault read returned HTTP ${status}; the required xworktech.com certificate is unavailable." >&2; exit 1 ;;
+        esac
+        printf 'http_status=%s\nresponse_file=%s\n' \
+          "${status}" "${TLS_VAULT_RESPONSE_FILE}" >>"${GITHUB_OUTPUT}"
+
+    - name: Restore the xworktech.com certificate from Vault
+      if: ${{ steps.brand_tls_record.outcome == 'success' }}
+      uses: ai-workspace-infra/playbooks/.github/actions/caddy-certificate-restore@ce70a1a2e842f37a4f20f319c8467575dae0a208
+      with:
+        inventory_file: cmdb/inventory.ini
+        vault_response_file: ${{ steps.brand_tls_record.outputs.response_file }}
+        vault_http_status: ${{ steps.brand_tls_record.outputs.http_status }}
+        target: ${{ matrix.host }}
+        domain_tls_directory: /etc/xcontrol/tls/xworktech.com
+        expected_hostname: xworktech.com
         deploy_key_file: ${{ steps.runner.outputs.deploy_key_file }}
 
     - name: Bootstrap node according to CMDB role
@@ -574,7 +610,13 @@ jobs:
         # on svc.plus hosts. The brand alias remains unset for UAT/SIT and
         # unrelated production domains.
         WEB_SAAS_BRAND_DOMAIN: >-
-          ${{ needs.provision.outputs.deployment_env == 'prod' &&
+          ${{ (needs.provision.outputs.deployment_env == 'prod' ||
+          startsWith(needs.provision.outputs.deployment_env, 'prod-v')) &&
+          needs.provision.outputs.target_domain_base == 'svc.plus' &&
+          'xworktech.com' || '' }}
+        WEB_SAAS_BRAND_TLS_DOMAIN: >-
+          ${{ (needs.provision.outputs.deployment_env == 'prod' ||
+          startsWith(needs.provision.outputs.deployment_env, 'prod-v')) &&
           needs.provision.outputs.target_domain_base == 'svc.plus' &&
           'xworktech.com' || '' }}
         WEB_SAAS_ACCOUNTS_DOMAIN:          ${{ format('accounts-selfhost-{0}.{1}', needs.provision.outputs.deployment_env, needs.provision.outputs.target_domain_base) }}
@@ -1265,7 +1307,7 @@ jobs:
           "${status}" "${TLS_VAULT_RESPONSE_FILE}" >>"${GITHUB_OUTPUT}"
 
     - name: Restore domain TLS with pinned Playbooks owner
-      uses: ai-workspace-infra/playbooks/.github/actions/caddy-certificate-restore@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
+      uses: ai-workspace-infra/playbooks/.github/actions/caddy-certificate-restore@ce70a1a2e842f37a4f20f319c8467575dae0a208
       with:
         inventory_file: ${{ steps.inventory.outputs.inventory }}
         vault_response_file: ${{ steps.tls_record.outputs.response_file }}
