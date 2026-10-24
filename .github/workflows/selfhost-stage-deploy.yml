@@ -461,7 +461,7 @@ jobs:
 
     - name: Restore domain TLS with pinned Playbooks owner
       if: ${{ steps.tls_record.outcome == 'success' }}
-      uses: ai-workspace-infra/playbooks/.github/actions/caddy-certificate-restore@ce70a1a2e842f37a4f20f319c8467575dae0a208
+      uses: ai-workspace-infra/playbooks/.github/actions/caddy-certificate-restore@5f406807fb33a3c9a44fbc44c6c26eced7ee41a3
       with:
         inventory_file: cmdb/inventory.ini
         vault_response_file: ${{ steps.tls_record.outputs.response_file }}
@@ -498,7 +498,7 @@ jobs:
 
     - name: Restore the xworktech.com certificate from Vault
       if: ${{ steps.brand_tls_record.outcome == 'success' }}
-      uses: ai-workspace-infra/playbooks/.github/actions/caddy-certificate-restore@ce70a1a2e842f37a4f20f319c8467575dae0a208
+      uses: ai-workspace-infra/playbooks/.github/actions/caddy-certificate-restore@5f406807fb33a3c9a44fbc44c6c26eced7ee41a3
       with:
         inventory_file: cmdb/inventory.ini
         vault_response_file: ${{ steps.brand_tls_record.outputs.response_file }}
@@ -1307,7 +1307,7 @@ jobs:
           "${status}" "${TLS_VAULT_RESPONSE_FILE}" >>"${GITHUB_OUTPUT}"
 
     - name: Restore domain TLS with pinned Playbooks owner
-      uses: ai-workspace-infra/playbooks/.github/actions/caddy-certificate-restore@ce70a1a2e842f37a4f20f319c8467575dae0a208
+      uses: ai-workspace-infra/playbooks/.github/actions/caddy-certificate-restore@5f406807fb33a3c9a44fbc44c6c26eced7ee41a3
       with:
         inventory_file: ${{ steps.inventory.outputs.inventory }}
         vault_response_file: ${{ steps.tls_record.outputs.response_file }}
