@@ -80,6 +80,13 @@ class GraphTests(unittest.TestCase):
         self.assertIn("needs.dispatch-environment.result != 'success'", failure)
         self.assertIn("inputs.deploy_after_build == true && needs.dispatch-environment.result != 'success'", failure)
 
+        prepare_vault = next(s for s in jobs["resolve-snapshot-tag"]["steps"] if s.get("id") == "vault")
+        self.assertIn("github-actions-platform-ops-toolkit-prod-release", prepare_vault["with"]["role"])
+        build_vault = next(s for s in jobs["snapshot"]["steps"] if s.get("id") == "vault")
+        self.assertIn("github-actions-platform-ops-toolkit-prod-release", build_vault["with"]["role"])
+        dispatch_vault = next(s for s in jobs["dispatch-environment"]["steps"] if s.get("id") == "vault")
+        self.assertIn("github-actions-platform-ops-toolkit-prod-release", dispatch_vault["with"]["role"])
+
 
 if __name__ == "__main__":
     unittest.main()
