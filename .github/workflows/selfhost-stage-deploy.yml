@@ -417,7 +417,7 @@ jobs:
 
     - name: Setup deployment runner
       id: runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@ce70a1a2e842f37a4f20f319c8467575dae0a208
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}
@@ -1046,7 +1046,7 @@ jobs:
           ${{ runner.os }}-pip-
 
     - name: Setup deployment runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@ce70a1a2e842f37a4f20f319c8467575dae0a208
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}
@@ -1216,7 +1216,7 @@ jobs:
 
     - name: Setup deployment runner
       id: runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@ce70a1a2e842f37a4f20f319c8467575dae0a208
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         matrix_host: ${{ matrix.host }}
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
@@ -1249,7 +1249,7 @@ jobs:
 
     - name: Render non-IaC Agent Proxy inventory
       id: inventory
-      uses: ai-workspace-infra/playbooks/.github/actions/non-iac-agent-proxy-inventory@ce70a1a2e842f37a4f20f319c8467575dae0a208
+      uses: ai-workspace-infra/playbooks/.github/actions/non-iac-agent-proxy-inventory@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         environment: ${{ needs.provision.outputs.deployment_env }}
         topology_file: ${{ github.workspace }}/gitops/topology/${{ needs.provision.outputs.deployment_env }}/selfhost/${{ needs.provision.outputs.deployment_env == 'uat' && 'xconnect-regional-pool.yaml' || 'xconnect-regional-pools.yaml' }}
@@ -1502,7 +1502,7 @@ jobs:
           ${{ runner.os }}-pip-
 
     - name: Setup deployment runner
-      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@ce70a1a2e842f37a4f20f319c8467575dae0a208
+      uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
         ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}
