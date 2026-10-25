@@ -1,7 +1,9 @@
 # V5 automatic report → existing Environment Data Orchestrator
 
-The only workflow change is one optional `post_migration_v5` host matrix in
-`.github/workflows/environment-data-operations.yml`. No new workflow is added;
+The operational workflow change is one optional `post_migration_v5` host matrix in
+`.github/workflows/environment-data-operations.yml`. No new workflow is added; the existing repository-conventions CI owner snapshot
+is advanced to the tested Playbooks commit so the unchanged strict reference
+checker can find the new action (not an execution or release pin);
 Selfhost stage workflows are unchanged. Use its existing workflow_dispatch or
 workflow_call entry and nonsecret `config_json.post_migration_v5` plan. This
 matrix runs after the selected data executor succeeds, not before migration.
