@@ -2,7 +2,9 @@
 
 Task: [V4→V5 干净重建与 Selfhost 全流程验收](codex://threads/01a1691f-61fc-7843-9e1d-e04d1bfe900d).
 No new or modified GitHub workflow is included. SSH → Playbook → Role is the
-first execution route. `v5-matrix.json` records the 23 suites and stage DAG for
+first execution route. [中文验收矩阵](v5-matrix.zh.md) 与 `v5-matrix.json`（v2）记录同一份 23 组清单、
+多阶段映射、必需断言及有时间边界的历史/采样状态，供后续审阅。
+The matrix records the stage DAG for
 later migration-dispatch integration; it does not implement or enable that DAG.
 Every suite listed is required for final acceptance. A stage approval never
 substitutes for the receipt from its resource owner.
