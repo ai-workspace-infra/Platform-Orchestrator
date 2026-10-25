@@ -66,6 +66,7 @@ jobs:
           python3 scripts/ci/test_versioned_prod_profiles.py -v
           python3 scripts/ci/tests/test_delivery_workflow_handoff.py -v
           python3 scripts/ci/tests/test_serverless_stages.py -v
+          python3 scripts/ci/tests/test_portal_domain_yaml.py -v
           python3 scripts/release_status/test_collect.py -v
           python3 scripts/ci/tests/test_nested_owner_action_checkout.py -v
           python3 scripts/tests/test_gcp_owner_routing.py -v
