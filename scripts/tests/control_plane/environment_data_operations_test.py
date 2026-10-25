@@ -144,10 +144,10 @@ class DataControlPlaneTests(unittest.TestCase):
                 self.assertNotIn(forbidden, text)
         self.assertIn('stage-dispatch.py', (ROOT / '.github/workflows/selfhost-orchestrator.yml').read_text())
         self.assertIn('environment-upgrade/dispatch.py', (ROOT / '.github/workflows/selfhost-stage-migrate.yml').read_text())
-        for name in ('hybrid-orchestrator.yml', 'serverless-orchestrator.yml'):
+        for name in ('hybrid-orchestrator.yml', 'serverless-stage-deploy.yml', 'serverless-stage-migrate.yml'):
             text = (ROOT / '.github/workflows' / name).read_text()
             self.assertIn('environment-upgrade/dispatch.py', text)
-        serverless = workflow('serverless-orchestrator.yml')['jobs']
+        serverless = workflow('serverless-stage-deploy.yml')['jobs']
         for job in ('supabase', 'uat_accounts_schema_probe', 'uat_accounts_baseline', 'uat_accounts_schema_migration'):
             self.assertIn('environment-upgrade/dispatch.py', json.dumps(serverless[job]))
 

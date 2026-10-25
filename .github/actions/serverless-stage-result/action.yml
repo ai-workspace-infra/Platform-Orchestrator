@@ -1,0 +1,33 @@
+name: Serverless stage result
+description: Retain public current-run results and reject failed or cancelled stage dependencies.
+inputs:
+  stage:
+    description: Approved serverless stage
+    required: true
+  results:
+    description: JSON needs map from the current reusable stage
+    required: true
+  prior-stages:
+    description: Parent stage needs map for the terminal gate
+    required: false
+    default: '{}'
+outputs:
+  context:
+    description: Allowlisted job results and control-plane outputs
+    value: ${{ steps.collect.outputs.context }}
+runs:
+  using: composite
+  steps:
+    - id: collect
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/result.py"
+      env:
+        SERVERLESS_STAGE: ${{ inputs.stage }}
+        STAGE_JOBS: ${{ inputs.results }}
+        STAGE_RESULTS: ${{ inputs.prior-stages }}
+    - uses: actions/upload-artifact@v7
+      if: ${{ always() && steps.collect.outputs.result_file != '' }}
+      with:
+        name: serverless-stage-${{ inputs.stage }}-${{ github.run_attempt }}
+        path: ${{ steps.collect.outputs.result_file }}
+        if-no-files-found: error

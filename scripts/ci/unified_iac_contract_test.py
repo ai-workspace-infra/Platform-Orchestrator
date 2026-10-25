@@ -182,7 +182,8 @@ class UnifiedWorkflowContract(unittest.TestCase):
                 self.assertIn('dispatch external pipeline', jobs['iac']['name'])
                 self.assertEqual(jobs['iac']['steps'][-1]['run'], 'python3 .github/scripts/platform-ops/provision/dispatch-iac-pipeline.py')
             else:
-                jobs = workflow['jobs']
+                self.assertEqual(len(workflow['jobs']), 5)
+                jobs = load('serverless-stage-infra.yml')['jobs']
                 self.assertEqual(jobs['iac']['uses'],'./.github/workflows/iac-orchestrator.yml')
                 self.assertEqual(jobs['iac']['with']['stage_scope'],'resources')
             self.assertTrue(any(s.get('uses')=='./iac_modules/.github/actions/iac-receipt-verify' for s in jobs[gate]['steps']))
@@ -196,7 +197,7 @@ class UnifiedWorkflowContract(unittest.TestCase):
     def test_exact_artifact_id_download_uses_expected_flat_directory(self):
         # download-artifact ID mode creates a name subdirectory unless merging
         # is explicit, even for one ID. Consumers read report/summary at root.
-        for name in ('iac-self-check-matrix.yml','selfhost-stage-resolve.yml','selfhost-stage-infra.yml','selfhost-stage-deploy.yml','selfhost-stage-migrate.yml','selfhost-stage-verify.yml','serverless-orchestrator.yml'):
+        for name in ('iac-self-check-matrix.yml','selfhost-stage-resolve.yml','selfhost-stage-infra.yml','selfhost-stage-deploy.yml','selfhost-stage-migrate.yml','selfhost-stage-verify.yml','serverless-orchestrator.yml','serverless-stage-infra.yml','serverless-stage-deploy.yml','serverless-stage-verify.yml'):
             for job in load(name)['jobs'].values():
                 for step in job.get('steps',[]):
                     if 'artifact-ids' in step.get('with',{}):

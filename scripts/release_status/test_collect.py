@@ -44,6 +44,13 @@ class EvidenceTests(unittest.TestCase):
         jobs += [{'name':f'Cloudflare / Edge Gateway {b}','conclusion':'success'} for b in ('Auth','Admin','Router Core')]
         self.assertEqual(c.serverless_records(RUN,meta,jobs)[0]['status'],'success')
         self.assertEqual(c.serverless_records(RUN,meta,jobs[1:])[0]['status'],'unknown')
+        nested = [{**job, 'name': '[3/5] Deploy / ' + job['name']} for job in jobs]
+        self.assertEqual(c.serverless_records(RUN,meta,nested)[0]['status'],'success')
+        self.assertEqual(c.serverless_records(RUN,meta,nested[1:])[0]['status'],'unknown')
+        nested[0]['conclusion'] = 'failure'
+        self.assertEqual(c.serverless_records(RUN,meta,nested)[0]['status'],'unknown')
+        self.assertEqual(c.serverless_records({**RUN, 'conclusion': 'failure'},meta,nested)[0]['status'],'failed')
+        self.assertEqual(c.serverless_jobs([{'name': 'Unrelated / Cloud Run / accounts'}])[0]['name'], 'Unrelated / Cloud Run / accounts')
     def test_mutable_ref_is_excluded(self):
         self.assertEqual(c.snapshot_records(RUN,[{**ROWS[0],'tag':'main'}],[]),[])
 if __name__ == '__main__': unittest.main()

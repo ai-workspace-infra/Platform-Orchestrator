@@ -1,0 +1,178 @@
+name: Serverless Stage / IaC & Provision
+'on':
+  workflow_call:
+    inputs:
+      operation:
+        description: 执行范围：plan 校验；init-schema 初始化；deploy/upgrade 部署；migrate 数据迁移；deploy+migrate 部署+迁移；repair-schema
+          仅修复已审阅 r3 UAT schema（不部署、不切 DNS）；destroy 销毁（Prod 禁止）
+        required: true
+        type: string
+      vault_env_path:
+        description: Target environment
+        required: false
+        default: uat
+        type: string
+      resolve_context:
+        description: Exact resolve job results from this reusable-workflow run
+        required: true
+        type: string
+    outputs:
+      context:
+        description: Current run stage results and public control-plane outputs
+        value: ${{ jobs.stage_result.outputs.context }}
+permissions:
+  id-token: write
+  contents: read
+  actions: write
+
+jobs:
+  iac:
+    if: fromJSON(inputs.resolve_context).preflight.result == 'success' && contains(fromJSON('["plan","deploy","upgrade","deploy+migrate","destroy"]'), inputs.operation)
+    uses: ./.github/workflows/iac-orchestrator.yml
+    with:
+      action: ${{ inputs.operation == 'plan' && 'plan' || (inputs.operation == 'destroy' && 'destroy' || 'apply') }}
+      environment: ${{ inputs.vault_env_path || 'uat' }}
+      target_manifest: ${{ fromJSON(inputs.resolve_context).preflight.outputs.target_manifest }}
+      gitops_ref: ${{ fromJSON(inputs.resolve_context).preflight.outputs.gitops_ref }}
+      iac_ref: ${{ fromJSON(inputs.resolve_context).preflight.outputs.iac_sha }}
+      stage_scope: resources
+      bootstrap_mode: verify
+      correlation_id: ${{ github.run_id }}:${{ github.run_attempt }}:serverless
+      selectors: ${{ fromJSON(inputs.resolve_context).preflight.outputs.selectors }}
+    secrets: inherit
+
+  iac-verified:
+    needs: [iac]
+    if: ${{ !cancelled() && fromJSON(inputs.resolve_context).preflight.result == 'success' && needs.iac.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: ai-workspace-infra/iac_modules
+        ref: ${{ fromJSON(inputs.resolve_context).preflight.outputs.iac_sha }}
+        path: iac_modules
+        persist-credentials: false
+    - uses: actions/download-artifact@v4
+      with:
+        artifact-ids: ${{ needs.iac.outputs.receipt_artifact_id }}
+        merge-multiple: true
+        path: ${{ runner.temp }}/iac-summary
+    - uses: ./iac_modules/.github/actions/iac-receipt-verify
+      with:
+        summary-file: ${{ runner.temp }}/iac-summary/summary.json
+        receipt-sha256: ${{ needs.iac.outputs.receipt_sha256 }}
+        run-id: ${{ github.run_id }}
+        run-attempt: ${{ github.run_attempt }}
+        gitops-sha: ${{ fromJSON(inputs.resolve_context).preflight.outputs.gitops_ref }}
+        iac-sha: ${{ fromJSON(inputs.resolve_context).preflight.outputs.iac_sha }}
+        target-manifest: ${{ fromJSON(inputs.resolve_context).preflight.outputs.target_manifest }}
+        action: ${{ inputs.operation == 'plan' && 'plan' || (inputs.operation == 'destroy' && 'destroy' || 'apply') }}
+        correlation-id: ${{ github.run_id }}:${{ github.run_attempt }}:serverless
+
+  destroy:
+    name: Destroy / Cloud Run ephemeral compute
+    needs: [iac-verified]
+    if: ${{ always() && fromJSON(inputs.resolve_context).preflight.result == 'success' && needs.iac-verified.result == 'success' && inputs.operation == 'destroy' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout GitOps GCP project declaration
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ fromJSON(inputs.resolve_context).preflight.outputs.gitops_ref }}
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/uat/serverless/cleanup-policy.yaml
+            resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+
+      - name: Checkout IaC GCP target reader
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/gitops-gcp-target
+            scripts/pipeline/gitops_cloud_targets.py
+
+      - name: Read GitOps GCP target
+        id: gitops_gcp
+        uses: ./iac_modules/.github/actions/gitops-gcp-target
+        with:
+          manifest: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+          mode: read
+
+      - name: Load GCP deployment identity from Vault
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          exportToken: true
+          secrets: |
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_WORKLOAD_IDENTITY_PROVIDER | GCP_WORKLOAD_IDENTITY_PROVIDER ;
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL
+
+      - name: Verify Vault GCP target matches GitOps project declaration
+        uses: ./iac_modules/.github/actions/gitops-gcp-target
+        with:
+          manifest: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+          mode: validate
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          project-id: ${{ steps.gitops_gcp.outputs.project_id }}
+          region: ${{ steps.gitops_gcp.outputs.region }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ steps.vault.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ steps.vault.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Require explicit UAT cleanup scope
+        env:
+          CLEANUP_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
+        run: |
+          [[ "$CLEANUP_ENVIRONMENT" == uat ]] || { echo '::error::Compute cleanup is UAT-only.'; exit 2; }
+
+      - uses: ./.github/actions/setup-yq
+
+      - name: Run immutable UAT cleanup owner
+        id: cleanup
+        uses: ai-workspace-infra/iac_modules/.github/actions/uat-compute-cleanup@d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
+        with:
+          policy: ${{ github.workspace }}/gitops/topology/uat/serverless/cleanup-policy.yaml
+          mode: apply
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uat-compute-cleanup-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.cleanup.outputs.receipt }}
+          if-no-files-found: error
+
+  stage_result:
+    name: Require stage completion and retain its result
+    needs: [iac, iac-verified, destroy]
+    if: ${{ always() && needs.iac.result != '' && needs.iac-verified.result != '' && needs.destroy.result != '' }}
+    runs-on: ubuntu-latest
+    outputs:
+      context: ${{ steps.result.outputs.context }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Collect exact current-run stage results
+        id: result
+        uses: ./.github/actions/serverless-stage-result
+        with:
+          stage: infra
+          results: ${{ toJSON(needs) }}
+          prior-stages: '{}'

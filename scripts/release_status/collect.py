@@ -92,7 +92,23 @@ def record(run, env, tag, scope, verdict, repos, completed):
             'workflow': run['path'].split('/')[-1], 'url': f'https://github.com/{REPO}/actions/runs/{run["id"]}',
             'startedAt': run['created_at'], 'completedAt': completed, 'repositories': repos}
 
+def serverless_jobs(run_jobs):
+    """Keep matrix identity when local reusable stages prefix the existing job names."""
+    prefixes = ('[1/5] Resolve & Validate / ', '[2/5] IaC & Provision / ',
+                '[3/5] Deploy / ', '[4/5] Migrate & Configure / ', '[5/5] Verify & Report / ')
+    normalized = []
+    for job in run_jobs:
+        name = job['name']
+        for prefix in prefixes:
+            if name.startswith(prefix):
+                name = name[len(prefix):]
+                break
+        normalized.append({**job, 'name': name})
+    return normalized
+
+
 def serverless_records(run, metadata, run_jobs):
+    run_jobs = serverless_jobs(run_jobs)
     env, tag = metadata.get('environment'), metadata.get('tag', '')
     if env not in ('uat', 'prod') or not TAG.fullmatch(tag): return []
     if metadata.get('operation') not in ('deploy', 'upgrade', 'deploy+migrate'): return []
@@ -116,6 +132,7 @@ def serverless_records(run, metadata, run_jobs):
 
 def legacy_serverless_metadata(run, run_jobs):
     """Recover only four public dispatch fields from retained preflight logs."""
+    run_jobs = serverless_jobs(run_jobs)
     preflight = next((j for j in run_jobs if j['name'] == 'Validate / Dispatch inputs'), None)
     if not preflight: return None
     raw = api(f'repos/{REPO}/actions/jobs/{preflight["id"]}/logs', binary=True)

@@ -159,28 +159,58 @@ failed deployment.
 
 ## Deployment stages and dependencies
 
-Deployment order is intentionally separate from request topology. The application targets run in
-parallel after preflight, then readiness is the single fan-in:
+The entrypoint has exactly five jobs, numbered in the same style as Selfhost:
 
 ```text
-                         preflight
-             ┌──────────────┼──────────────┐
-             ▼              ▼              ▼
-      Supabase       Cloud Run       Cloudflare
-                                      SSR / Router /
-                                      Gateway / Pages
-             └──────────────┼──────────────┘
-                            ▼
-                  Readiness / public chain
-                            ▼
-                    Migrate (if selected)
-                            ▼
-                      Verify / Summary
+[1/5] Resolve & Validate
+  → [2/5] IaC & Provision
+  → [3/5] Deploy
+  → [4/5] Migrate & Configure
+  → [5/5] Verify & Report
 ```
 
-Supabase, Cloud Run, SSR, Frontend Router, Edge Gateway, and Pages depend only on `preflight` and
-run in parallel. Migration runs after readiness and is serialized by the shared data-migration
-concurrency group for the environment and migration scope.
+Each job calls a local `serverless-stage-*.yml` reusable workflow at the same
+Toolkit revision. Local calls retain the parent `github.run_id` and
+`github.run_attempt`; owner receipt checks, digest records and artifact IDs keep
+their existing current-run semantics. There is no new stage dispatch API or
+cross-run artifact trust boundary. Unified database operations still dispatch
+and wait for the existing reviewed owner route.
+
+Resolve freezes the GitOps SHA and validates inputs, topology, domains and the
+promotion manifest. IaC invokes the existing resource owner and validates its
+exact receipt; the separately guarded UAT destroy lane stays in that phase.
+Deploy retains checkpoint, optional schema prerequisites, sequential Cloud Run
+rollouts, backend gate, SSR, Pages, frontend router, edge gateway, domain owner
+and public-chain probes. Schema changes remain before Cloud Run. Frontend
+publication remains behind the backend gate, Pages behind SSR, and the router
+behind Pages. The deploy child retains a ten-job critical path as explicitly
+tracked legacy debt; the parent has five jobs. No gate was removed to flatten
+the graph.
+
+Migrate & Configure retains the explicit legacy import rejection/opt-in gate and
+optional, nonblocking Stripe catalog reconciliation. Verify consumes the same-run
+owner receipts and records Console metadata even if an earlier phase failed or
+was cancelled. Every child aggregates its actual job results; the terminal gate
+rejects a failed, cancelled or unexpectedly skipped parent phase. Plan and other
+non-deploy operations keep their intentionally skipped internal lanes.
+
+Stage artifacts contain only approved control-plane outputs and status, plus the
+run ID/attempt. Parent outputs pass the same results directly to the next local
+workflow. The release-status collector recognizes stage-prefixed job names and
+still requires the full service matrix before reporting a complete deployment.
+A per-environment `serverless-<environment>` lock serializes parent runs.
+
+### Stage workflow authorization rollout
+
+The credential-consuming `infra`, `deploy` and `migrate` stage filenames require
+exact entries in the existing environment-specific Vault role declarations.
+Those entries reuse each role's current ref allowlist; feature branches are not
+newly authorized. Configuration committed to Git is not proof that a live Vault
+role has been updated. Apply and verify only the intended environment through its
+existing owner procedure before dispatching the refactored deployment. Preserve
+the old entrypoint claims for rollback. Do not apply PROD roles as part of UAT
+validation. Until the authorization rollout and reviewed control revision are
+available, the refactored deployment is blocked at preflight.
 
 `edge-gateway` is a required stage. selfhost→Cloud Run request-level failover is enabled only
 when `spec.runtime.mode` is `hybrid`; `serverless` routes directly to Cloud Run and `selfhost` is
