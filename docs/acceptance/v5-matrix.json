@@ -1,0 +1,40 @@
+{
+  "schema_version": "v5-matrix/v1",
+  "entry": "SSH -> Playbook -> Role; migration dispatch job matrix only after owner review and UAT",
+  "stages": {
+    "S0": {"needs": [], "approval": "read-only"},
+    "S1": {"needs": ["S0"], "approval": "separate rebuild approval; UAT first"},
+    "S2": {"needs": ["S1"], "approval": "configuration recovery approval"},
+    "S3": {"needs": ["S2"], "approval": "backup/restore verified; migration approval"},
+    "S4": {"needs": ["S3"], "approval": "deployment approval"},
+    "S5": {"needs": ["S4"], "approval": "independent single-writer and DNS cutover approval; UAT evidence"},
+    "S6": {"needs": ["S5"], "approval": "read-only pages; isolated test writes separately approved"},
+    "S7": {"needs": ["S6"], "approval": "UAT only until separate production approval"},
+    "S8": {"needs": ["S7"], "approval": "all required exact receipts PASS"}
+  },
+  "suites": [
+    {"id":"V5-01","name":"DNS target","owner":"iac_modules","stage":"S5","engine":"dnspython/pytest"},
+    {"id":"V5-02","name":"TLS and routes","owner":"playbooks","stage":"S4","engine":"httpx/pytest"},
+    {"id":"V5-03","name":"Service health","owner":"playbooks","stage":"S4","engine":"httpx/pytest"},
+    {"id":"V5-04","name":"Login validation","owner":"playbooks","stage":"S6","engine":"httpx/Playwright"},
+    {"id":"V5-05","name":"Session and ingest authentication","owner":"playbooks","stage":"S6","engine":"httpx/pytest"},
+    {"id":"V5-06","name":"Schema version and dirty","owner":"playbooks","stage":"S3","engine":"SQL/psycopg/pytest"},
+    {"id":"V5-07","name":"Business equality","owner":"playbooks","stage":"S3","engine":"SQL/psycopg/pytest"},
+    {"id":"V5-08","name":"Subscription references","owner":"playbooks","stage":"S3","engine":"SQL/psycopg/pytest"},
+    {"id":"V5-09","name":"Identity and scoped approved exceptions","owner":"playbooks","stage":"S3","engine":"migratectl/HMAC comparison"},
+    {"id":"V5-10","name":"Traffic pipeline","owner":"playbooks","stage":"S6","engine":"pytest/metrics/SQL"},
+    {"id":"V5-11","name":"All Agent heartbeats","owner":"playbooks","stage":"S4","engine":"pytest/Agent API/SQL"},
+    {"id":"V5-12","name":"Regional pools","owner":"playbooks","stage":"S6","engine":"pytest/Playwright"},
+    {"id":"V5-13","name":"Flux ESO semantic drift","owner":"playbooks","stage":"S2","engine":"kubectl/Flux/pytest"},
+    {"id":"V5-14","name":"Vault Raft and dual KV equality","owner":"playbooks","stage":"S2","engine":"Vault API/hvac/in-memory HMAC"},
+    {"id":"V5-15","name":"Grafana dashboards alerts telemetry","owner":"playbooks","stage":"S6","engine":"Grafana API/pytest"},
+    {"id":"V5-16","name":"Real login business reconciliation","owner":"playbooks","stage":"S6","engine":"Playwright"},
+    {"id":"V5-17","name":"Three-round idempotency","owner":"playbooks","stage":"S7","engine":"Ansible/pytest"},
+    {"id":"V5-18","name":"Controlled isolation and recovery","owner":"playbooks","stage":"S7","engine":"Ansible/pytest"},
+    {"id":"V5-19","name":"Clean rebuild provenance","owner":"iac_modules","stage":"S1","engine":"IaC facts/Ansible receipts"},
+    {"id":"V5-20","name":"Migration provenance","owner":"playbooks","stage":"S3","engine":"migratectl/pytest"},
+    {"id":"V5-21","name":"Single writer handoff","owner":"playbooks","stage":"S5","engine":"writer isolation/SQL/pytest"},
+    {"id":"V5-22","name":"Cutover and rollback","owner":"platform-ops-toolkit","stage":"S5","engine":"IaC and Playbooks exact receipts"},
+    {"id":"V5-23","name":"Evidence contract","owner":"platform-ops-toolkit","stage":"S8","engine":"offline pytest receipt gate"}
+  ]
+}
