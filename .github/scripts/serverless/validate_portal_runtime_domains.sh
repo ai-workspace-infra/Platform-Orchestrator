@@ -19,9 +19,18 @@ fi
 
 console_host="$(jq -er '.spec.serverless.console_host' "${CONFIG_FILE}")"
 accounts_host="$(jq -er '.spec.serverless.accounts_host' "${CONFIG_FILE}")"
-portal_dashboard="$(awk '$1 == "dashboardUrl:" {print $2}' "${portal_config}")"
-portal_auth="$(awk '$1 == "authUrl:" {print $2}' "${portal_config}")"
-portal_api="$(awk '$1 == "apiBaseUrl:" {print $2}' "${portal_config}")"
+# YAML may include a separate selfhost mapping with the same key names.
+# Read only top-level strings; aliases and arbitrary YAML objects are disabled.
+portal_origins="$(ruby -ryaml -rjson -e '
+  document = YAML.safe_load(File.read(ARGV.fetch(0)), permitted_classes: [], permitted_symbols: [], aliases: false)
+  abort("Portal runtime config must be a YAML mapping") unless document.is_a?(Hash)
+  keys = %w[dashboardUrl authUrl apiBaseUrl]
+  abort("Portal runtime origins must be non-empty top-level strings") unless keys.all? { |key| document[key].is_a?(String) && !document[key].empty? }
+  puts JSON.generate(document.slice(*keys))
+' "${portal_config}")"
+portal_dashboard="$(jq -er '.dashboardUrl' <<<"${portal_origins}")"
+portal_auth="$(jq -er '.authUrl' <<<"${portal_origins}")"
+portal_api="$(jq -er '.apiBaseUrl' <<<"${portal_origins}")"
 
 matches_origin() {
   local actual="$1"
