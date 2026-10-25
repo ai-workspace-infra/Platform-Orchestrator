@@ -1,0 +1,428 @@
+name: Serverless Deploy / Frontend
+'on':
+  workflow_call:
+    inputs:
+      operation:
+        description: 执行范围：plan 校验；init-schema 初始化；deploy/upgrade 部署；migrate 数据迁移；deploy+migrate 部署+迁移；repair-schema
+          仅修复已审阅 r3 UAT schema（不部署、不切 DNS）；destroy 销毁（Prod 禁止）
+        required: true
+        type: string
+      vault_env_path:
+        description: Target environment
+        required: false
+        default: uat
+        type: string
+      tag_ref:
+        description: Unified immutable tag for Cloud Run images, portal, and edge-gateway (for example daily-build-2026.08.17-r1)
+        required: false
+        type: string
+      website_content_ref:
+        description: Reviewed knowledge commit or immutable tag consumed by Portal website builds
+        required: false
+        default: main
+        type: string
+      deploy_cloudflare:
+        description: Deploy Cloudflare SSR Workers, edge gateway, and Pages static assets
+        required: false
+        default: true
+        type: boolean
+      resolve_context:
+        description: Exact resolve job results from this reusable-workflow run
+        required: true
+        type: string
+      infra_context:
+        description: Exact infra job results from this reusable-workflow run
+        required: true
+        type: string
+      backend_context:
+        required: true
+        type: string
+        description: Same-run job results from the preceding local owner phase
+    outputs:
+      context:
+        description: Same-run phase results
+        value: ${{ jobs.stage_result.outputs.context }}
+permissions:
+  id-token: write
+  contents: read
+  actions: write
+
+jobs:
+  cloudflare_ssr:
+    name: Cloudflare / SSR / ${{ matrix.boundary }}
+    if: >-
+      ${{ always() && fromJSON(inputs.resolve_context).preflight.result == 'success' && fromJSON(inputs.infra_context).iac-verified.result == 'success' &&
+      contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
+      inputs.deploy_cloudflare == true &&
+      (fromJSON(inputs.backend_context).backend_gate.result == 'success' || fromJSON(inputs.backend_context).backend_gate.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        boundary:
+          - public
+          - content
+          - auth
+          - console
+          - workspace
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout GitOps runtime topology
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          # GitOps runtime topology is the environment configuration source of truth;
+          # use the preflight SHA while deployable artifacts share tag_ref.
+          ref: ${{ fromJSON(inputs.resolve_context).preflight.outputs.gitops_ref }}
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+
+      - name: Render GitOps runtime topology YAML
+        run: ./.github/scripts/gitops/prepare_gitops_routing_config.sh
+        env:
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+
+      - name: Validate Cloudflare boundary contract
+        run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          REQUIRED_RUNTIME_MODE: serverless
+
+      - name: Checkout portal source
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-services/portal
+          ref: ${{ inputs.tag_ref || 'main' }}
+          path: portal
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Authenticate to Vault with GitHub OIDC
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          exportToken: true
+          secrets: |
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN ;
+            kv/data/WEB_SAAS INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN
+
+      - name: Deploy SSR Worker boundary
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
+        with:
+          operation: ssr
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
+        env:
+          CLOUDFLARE_TARGET: ssr
+          PORTAL_SSR_BOUNDARY: ${{ matrix.boundary }}
+          WEBSITE_CONTENT_REF: ${{ inputs.website_content_ref || 'main' }}
+          CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          PORTAL_DIR: ${{ github.workspace }}/portal
+          EDGE_ASSETS_OUT: ${{ runner.temp }}/edge-assets
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
+
+      # The boundary serves its HTML, but with a static CDN declared the client
+      # chunks are fetched from <static_cdn_url>/_edge/<boundary>; hand them to
+      # the static-pages job so one Pages deployment carries every boundary.
+      - name: Upload boundary edge assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: edge-assets-${{ matrix.boundary }}
+          path: ${{ runner.temp }}/edge-assets
+          retention-days: 1
+          if-no-files-found: error
+
+  frontend_router:
+    name: Cloudflare / frontend-router
+    # Publish Portal HTML and the matching static assets before switching the
+    # router to discovery paths owned by that Portal build.
+    needs: [static_pages]
+    if: >-
+      ${{ always() && fromJSON(inputs.resolve_context).preflight.result == 'success' &&
+      contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
+      inputs.deploy_cloudflare == true &&
+      needs.static_pages.result == 'success' &&
+      (fromJSON(inputs.backend_context).backend_gate.result == 'success' || fromJSON(inputs.backend_context).backend_gate.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout GitOps runtime topology
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ fromJSON(inputs.resolve_context).preflight.outputs.gitops_ref }}
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+
+      - name: Render GitOps runtime topology YAML
+        run: ./.github/scripts/gitops/prepare_gitops_routing_config.sh
+        env:
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+
+      - name: Validate Cloudflare boundary contract
+        run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          REQUIRED_RUNTIME_MODE: serverless
+
+      - name: Checkout frontend-router deployment tooling at the release tag
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-services/frontend-router
+          ref: ${{ inputs.tag_ref || 'main' }}
+          path: frontend-router
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Authenticate to Vault with GitHub OIDC
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          exportToken: true
+          secrets: |
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN ;
+
+      - name: Deploy Frontend Router Worker
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
+        with:
+          operation: frontend-router
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
+        env:
+          CLOUDFLARE_TARGET: frontend-router
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          FRONTEND_ROUTER_DIR: ${{ github.workspace }}/frontend-router
+          FRONTEND_ROUTER_RELEASE_TAG: ${{ inputs.tag_ref }}
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
+
+  edge_gateway:
+    name: Cloudflare / ${{ matrix.display_name }}
+    if: >-
+      ${{ always() && fromJSON(inputs.resolve_context).preflight.result == 'success' && fromJSON(inputs.infra_context).iac-verified.result == 'success' &&
+      fromJSON(inputs.resolve_context).preflight.outputs.guarded_api_gateway != 'true' &&
+      contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
+      inputs.deploy_cloudflare == true &&
+      (fromJSON(inputs.backend_context).backend_gate.result == 'success' || fromJSON(inputs.backend_context).backend_gate.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    # hybrid-orchestrator writes these same three Worker names on the same
+    # routes, differing only in the vars it sets, so the two orchestrators must
+    # never write the same boundary concurrently. The group is per boundary: a
+    # group shared by all three matrix legs would make GitHub cancel the queued
+    # legs instead of serialising them.
+    concurrency:
+      group: edge-gateway-${{ inputs.vault_env_path || 'uat' }}-${{ matrix.boundary }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - boundary: auth
+            display_name: Edge Gateway Auth
+          - boundary: admin
+            display_name: Edge Gateway Admin
+          - boundary: core
+            display_name: Edge Gateway Router Core
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout GitOps runtime topology
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          # GitOps runtime topology is the environment configuration source of truth;
+          # use the preflight SHA while deployable artifacts share tag_ref.
+          ref: ${{ fromJSON(inputs.resolve_context).preflight.outputs.gitops_ref }}
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+
+      - name: Render GitOps runtime topology YAML
+        run: ./.github/scripts/gitops/prepare_gitops_routing_config.sh
+        env:
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+
+      - name: Validate Cloudflare boundary contract
+        run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          REQUIRED_RUNTIME_MODE: serverless
+
+      - name: Checkout edge-gateway source
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-services/edge-gateway
+          ref: main
+          path: edge-gateway
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Authenticate to Vault with GitHub OIDC
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          exportToken: true
+          secrets: |
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN ;
+            kv/data/WEB_SAAS INTERNAL_SERVICE_TOKEN | INTERNAL_SERVICE_TOKEN
+
+      - name: Deploy edge-gateway Worker boundary
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
+        with:
+          operation: edge-gateway
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
+        env:
+          CLOUDFLARE_TARGET: edge-gateway
+          EDGE_GATEWAY_BOUNDARY: ${{ matrix.boundary }}
+          CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          WORKER_DIR: ${{ github.workspace }}/edge-gateway
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
+          INTERNAL_SERVICE_TOKEN: ${{ steps.vault.outputs.INTERNAL_SERVICE_TOKEN }}
+
+  static_pages:
+    name: Cloudflare / static-pages
+    # The Pages deployment carries the client chunks of every SSR boundary
+    # (assetPrefix points at static_cdn_url), so it can only be published once
+    # the boundaries have been built and their assets uploaded.
+    needs: [cloudflare_ssr]
+    if: >-
+      ${{ always() && fromJSON(inputs.resolve_context).preflight.result == 'success' &&
+      contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
+      inputs.deploy_cloudflare == true &&
+      needs.cloudflare_ssr.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout GitOps runtime topology
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          # GitOps runtime topology is the environment configuration source of truth;
+          # use the preflight SHA while deployable artifacts share tag_ref.
+          ref: ${{ fromJSON(inputs.resolve_context).preflight.outputs.gitops_ref }}
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+
+      - name: Render GitOps runtime topology YAML
+        run: ./.github/scripts/gitops/prepare_gitops_routing_config.sh
+        env:
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+
+      - name: Validate Cloudflare boundary contract
+        run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          REQUIRED_RUNTIME_MODE: serverless
+
+      - name: Checkout portal source
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-services/portal
+          ref: ${{ inputs.tag_ref || 'main' }}
+          path: portal
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Authenticate to Vault with GitHub OIDC
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          exportToken: true
+          secrets: |
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID ;
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
+
+      - name: Download boundary edge assets
+        uses: actions/download-artifact@v8
+        with:
+          pattern: edge-assets-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/edge-assets
+
+      - name: Deploy Cloudflare Pages static assets
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
+        with:
+          operation: static-pages
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
+        env:
+          CLOUDFLARE_TARGET: static-pages
+          WEBSITE_CONTENT_REF: ${{ inputs.website_content_ref || 'main' }}
+          EDGE_ASSETS_DIR: ${{ runner.temp }}/edge-assets
+          CLOUDFLARE_ENV: ${{ inputs.vault_env_path || 'uat' }}
+          PAGES_BRANCH: ${{ inputs.vault_env_path || 'uat' }}
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          PORTAL_DIR: ${{ github.workspace }}/portal
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
+          INTERNAL_SERVICE_TOKEN: ${{ steps.vault.outputs.INTERNAL_SERVICE_TOKEN }}
+
+  stage_result:
+    name: Retain phase completion evidence
+    needs: [cloudflare_ssr, frontend_router, edge_gateway, static_pages]
+    if: ${{ always() && needs.cloudflare_ssr.result != '' && needs.frontend_router.result != '' && needs.edge_gateway.result != '' && needs.static_pages.result != '' }}
+    runs-on: ubuntu-latest
+    outputs:
+      context: ${{ steps.result.outputs.context }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: result
+        uses: ./.github/actions/serverless-stage-result
+        with:
+          stage: frontend
+          results: ${{ toJSON(needs) }}

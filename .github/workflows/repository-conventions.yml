@@ -65,6 +65,8 @@ jobs:
           python3 scripts/ci/unified_iac_contract_test.py -v
           python3 scripts/ci/test_versioned_prod_profiles.py -v
           python3 scripts/ci/tests/test_delivery_workflow_handoff.py -v
+          python3 scripts/ci/tests/test_serverless_stages.py -v
+          python3 scripts/release_status/test_collect.py -v
           python3 scripts/ci/tests/test_nested_owner_action_checkout.py -v
           python3 scripts/tests/test_gcp_owner_routing.py -v
           python3 scripts/tests/test_gcp_delivery_fact_routing.py -v
@@ -115,7 +117,7 @@ jobs:
 
       - name: Verify YAML and Shell control-plane contracts
         run: |
-          bash scripts/ci/action-metadata-verify.sh .github/actions/prod-selfhost-control/action.yml .github/actions/serverless-runtime/action.yml .github/actions/serverless-summary/action.yml .github/actions/setup-yq/action.yml .github/actions/xconnect-network-invite-handoff/action.yml
+          bash scripts/ci/action-metadata-verify.sh .github/actions/prod-selfhost-control/action.yml .github/actions/serverless-runtime/action.yml .github/actions/serverless-summary/action.yml .github/actions/serverless-stage-result/action.yml .github/actions/setup-yq/action.yml .github/actions/xconnect-network-invite-handoff/action.yml
           bash .github/actions/prod-selfhost-control/tests/control-test.sh
           bash .github/actions/serverless-runtime/tests/runtime-test.sh
           bash .github/actions/serverless-summary/tests/summary-test.sh

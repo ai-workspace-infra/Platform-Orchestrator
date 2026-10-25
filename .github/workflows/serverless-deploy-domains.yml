@@ -1,0 +1,161 @@
+name: Serverless Deploy / Domains
+'on':
+  workflow_call:
+    inputs:
+      operation:
+        description: 执行范围：plan 校验；init-schema 初始化；deploy/upgrade 部署；migrate 数据迁移；deploy+migrate 部署+迁移；repair-schema
+          仅修复已审阅 r3 UAT schema（不部署、不切 DNS）；destroy 销毁（Prod 禁止）
+        required: true
+        type: string
+      vault_env_path:
+        description: Target environment
+        required: false
+        default: uat
+        type: string
+      tag_ref:
+        description: Unified immutable tag for Cloud Run images, portal, and edge-gateway (for example daily-build-2026.08.17-r1)
+        required: false
+        type: string
+      apply_accounts_schema_migration:
+        description: 'UAT only: apply one reviewed Accounts sql/migrations change before Cloud Run deployment'
+        required: false
+        default: false
+        type: boolean
+      adopt_accounts_baseline:
+        description: 'UAT only: adopt the reviewed expand-only Accounts baseline before Cloud Run deployment'
+        required: false
+        default: false
+        type: boolean
+      deploy_cloudflare:
+        description: Deploy Cloudflare SSR Workers, edge gateway, and Pages static assets
+        required: false
+        default: true
+        type: boolean
+      dns_mode:
+        description: DNS 行为：none 不发布；uat-records 更新 SIT/UAT canonical；prod-cutover 接管生产 canonical（普通部署不会改 canonical）
+        required: false
+        default: none
+        type: string
+      resolve_context:
+        description: Exact resolve job results from this reusable-workflow run
+        required: true
+        type: string
+      data_context:
+        required: true
+        type: string
+        description: Same-run job results from the preceding local owner phase
+      backend_context:
+        required: true
+        type: string
+        description: Same-run job results from the preceding local owner phase
+      frontend_context:
+        required: true
+        type: string
+        description: Same-run job results from the preceding local owner phase
+    outputs:
+      context:
+        description: Same-run phase results
+        value: ${{ jobs.stage_result.outputs.context }}
+permissions:
+  id-token: write
+  contents: read
+  actions: write
+
+jobs:
+  serverless_domains_provider:
+    name: Cloudflare / IaC domain owner
+    if: >-
+      ${{ always() && fromJSON(inputs.resolve_context).preflight.result == 'success' &&
+      contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
+      inputs.deploy_cloudflare == true &&
+      (fromJSON(inputs.data_context).supabase.result == 'success' || fromJSON(inputs.data_context).supabase.result == 'failure' || fromJSON(inputs.data_context).supabase.result == 'skipped') &&
+      (!inputs.adopt_accounts_baseline || fromJSON(inputs.data_context).uat_accounts_baseline.result == 'success') &&
+      (!inputs.apply_accounts_schema_migration || fromJSON(inputs.data_context).uat_accounts_schema_migration.result == 'success') &&
+      (fromJSON(inputs.backend_context).cloud_run.result == 'success' || fromJSON(inputs.backend_context).cloud_run.result == 'skipped') &&
+      (fromJSON(inputs.frontend_context).cloudflare_ssr.result == 'success' || fromJSON(inputs.frontend_context).cloudflare_ssr.result == 'skipped') &&
+      (fromJSON(inputs.frontend_context).frontend_router.result == 'success' || fromJSON(inputs.frontend_context).frontend_router.result == 'skipped') &&
+      (fromJSON(inputs.frontend_context).edge_gateway.result == 'success' || fromJSON(inputs.frontend_context).edge_gateway.result == 'skipped') &&
+      (fromJSON(inputs.frontend_context).static_pages.result == 'success' || fromJSON(inputs.frontend_context).static_pages.result == 'skipped') }}
+    uses: ./.github/workflows/iac-cloudflare-serverless-domains.yaml
+    with:
+      environment: ${{ inputs.vault_env_path || 'uat' }}
+      dns_mode: ${{ inputs.dns_mode || 'none' }}
+      release_ref: ${{ inputs.tag_ref }}
+      gitops_ref: ${{ fromJSON(inputs.resolve_context).preflight.outputs.gitops_ref }}
+
+  serverless_domains:
+    name: Verify / public CORS, frontend and brand entries
+    needs: [serverless_domains_provider]
+    if: ${{ always() && fromJSON(inputs.resolve_context).preflight.result == 'success' && needs.serverless_domains_provider.result == 'success' }}
+    concurrency:
+      group: public-dns-${{ inputs.vault_env_path || 'uat' }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout GitOps serverless runtime topology
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          # The GitOps runtime topology is the source of truth for the public
+          # console/accounts hosts and the Pages/Worker boundary names.
+          ref: ${{ fromJSON(inputs.resolve_context).preflight.outputs.gitops_ref }}
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+
+      - name: Render GitOps runtime topology YAML
+        run: ./.github/scripts/gitops/prepare_gitops_routing_config.sh
+        env:
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+
+      - name: Verify public Console to Accounts CORS chain
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@9d585e147348800b1603c4f7b0d8a6bcf0546007
+        with:
+          operation: public-chain
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          SERVERLESS_DNS_MODE: ${{ inputs.dns_mode || 'none' }}
+
+      - name: Verify Frontend Router boundary assets
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@9d585e147348800b1603c4f7b0d8a6bcf0546007
+        with:
+          operation: frontend-assets
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+
+      # Post-deploy checklist: the brand website must stay reviewable by
+      # Google / Apple / Android company and app-store reviewers (pages served
+      # in place on the brand domain, legal name, company-domain email, no
+      # legacy branding). Spec: store-and-startup-homepage-spec skill.
+      - name: Verify brand website review readiness
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@8b29bd81f03c7726f28698ea7c78471827d3c961
+        with:
+          operation: brand-entry
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
+        env:
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+
+  stage_result:
+    name: Retain phase completion evidence
+    needs: [serverless_domains_provider, serverless_domains]
+    if: ${{ always() && needs.serverless_domains_provider.result != '' && needs.serverless_domains.result != '' }}
+    runs-on: ubuntu-latest
+    outputs:
+      context: ${{ steps.result.outputs.context }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: result
+        uses: ./.github/actions/serverless-stage-result
+        with:
+          stage: domains
+          results: ${{ toJSON(needs) }}

@@ -1,0 +1,198 @@
+name: Serverless Stage / Resolve & Validate
+'on':
+  workflow_call:
+    inputs:
+      operation:
+        description: 执行范围：plan 校验；init-schema 初始化；deploy/upgrade 部署；migrate 数据迁移；deploy+migrate 部署+迁移；repair-schema
+          仅修复已审阅 r3 UAT schema（不部署、不切 DNS）；destroy 销毁（Prod 禁止）
+        required: true
+        type: string
+      target_domains:
+        description: 选择要执行的业务域 (Business Domain)。serverless 仅部署 web-saas；默认 all 在 serverless 中解析为 web-saas，其它业务域走
+          cloud_provider 环境副本链路。
+        required: false
+        default: all
+        type: string
+      cloud_provider:
+        description: 混合环境关联的云服务商；serverless 运行时仍由 Cloud Run/Cloudflare 承载，资源创建由对应 IaC workflow 负责
+        required: false
+        default: gcp-cloud
+        type: string
+      vault_env_path:
+        description: Target environment
+        required: false
+        default: uat
+        type: string
+      tag_ref:
+        description: Unified immutable tag for Cloud Run images, portal, and edge-gateway (for example daily-build-2026.08.17-r1)
+        required: false
+        type: string
+      apply_accounts_schema_migration:
+        description: 'UAT only: apply one reviewed Accounts sql/migrations change before Cloud Run deployment'
+        required: false
+        default: false
+        type: boolean
+      adopt_accounts_baseline:
+        description: 'UAT only: adopt the reviewed expand-only Accounts baseline before Cloud Run deployment'
+        required: false
+        default: false
+        type: boolean
+      accounts_schema_expected_version:
+        description: UAT current schema_migrations version before applying the change
+        required: false
+        type: string
+      accounts_schema_target_version:
+        description: Target version of the one Accounts .up.sql migration
+        required: false
+        type: string
+      accounts_schema_sha256:
+        description: Expected SHA-256 of the target Accounts .up.sql migration
+        required: false
+        type: string
+      probe_accounts_schema:
+        description: 'UAT plan only: inspect schema_migrations version and lifecycle readiness without changes'
+        required: false
+        default: false
+        type: boolean
+      deploy_cloudflare:
+        description: Deploy Cloudflare SSR Workers, edge gateway, and Pages static assets
+        required: false
+        default: true
+        type: boolean
+      deploy_cloud_run:
+        description: Deploy backend services to GCP Cloud Run
+        required: false
+        default: true
+        type: boolean
+      dns_mode:
+        description: DNS 行为：none 不发布；uat-records 更新 SIT/UAT canonical；prod-cutover 接管生产 canonical（普通部署不会改 canonical）
+        required: false
+        default: none
+        type: string
+      promotion_manifest:
+        description: 仅 PROD：Daily 校验过的 UAT 制品清单（JSON）。PROD Cloud Run 按 digest 晋级，不从源码重建
+        required: false
+        default: ''
+        type: string
+    outputs:
+      context:
+        description: Current run stage results and public control-plane outputs
+        value: ${{ jobs.stage_result.outputs.context }}
+permissions:
+  id-token: write
+  contents: read
+  actions: write
+
+jobs:
+  preflight:
+    name: Validate / Dispatch inputs
+    environment: ${{ inputs.vault_env_path == 'prod' && 'production' || '' }}
+    runs-on: ubuntu-latest
+    outputs:
+      gitops_ref: ${{ steps.topology.outputs.gitops_ref }}
+      guarded_api_gateway: ${{ steps.topology.outputs.guarded_api_gateway }}
+      target_manifest: ${{ steps.iac_target.outputs.target_manifest }}
+      iac_sha: ${{ steps.iac_target.outputs.iac_sha }}
+      selectors: ${{ steps.iac_target.outputs.selectors }}
+    steps:
+    - name: Checkout platform toolkit
+      uses: actions/checkout@v7
+    - name: Checkout GitOps serverless runtime topology
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/gitops
+        ref: main
+        path: gitops
+    - name: Checkout Portal runtime configuration
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-services/portal
+        ref: ${{ inputs.tag_ref || 'main' }}
+        path: portal-runtime-config
+        sparse-checkout-cone-mode: false
+        sparse-checkout: 'src/config/runtime-service-config.${{ inputs.vault_env_path || ''uat'' }}.yaml
+
+          '
+    - name: Render GitOps serverless runtime topology
+      run: ./.github/scripts/gitops/prepare_gitops_routing_config.sh
+      env:
+        GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+        GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+    - name: Freeze the GitOps revision and select the API publisher
+      id: topology
+      run: python3 .github/scripts/serverless/select-domain-owner.py
+      env:
+        CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+        GITOPS_DIR: ${{ github.workspace }}/gitops
+        REQUESTED_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
+    - name: Validate Portal and GitOps public domains
+      run: ./.github/scripts/serverless/validate_portal_runtime_domains.sh
+      env:
+        CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+        PORTAL_DIR: ${{ github.workspace }}/portal-runtime-config
+        PORTAL_ENV: ${{ inputs.vault_env_path || 'uat' }}
+    - name: Validate serverless GitOps contract
+      run: python3 scripts/serverless_uat/validate_cloudflare_boundaries.py
+      env:
+        CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+        REQUIRED_RUNTIME_MODE: serverless
+    - name: Validate serverless dispatch
+      run: ./.github/scripts/serverless/validate_dispatch_inputs.sh
+      env:
+        OPERATION: ${{ inputs.operation || 'plan' }}
+        TARGET_DOMAINS: ${{ inputs.target_domains || 'all' }}
+        CLOUD_PROVIDER: ${{ inputs.cloud_provider || 'vultr-vps' }}
+        VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
+        TAG_REF: ${{ inputs.tag_ref }}
+        DEPLOY_CLOUDFLARE: ${{ inputs.deploy_cloudflare }}
+        DEPLOY_CLOUD_RUN: ${{ inputs.deploy_cloud_run }}
+        SERVERLESS_DNS_MODE: ${{ inputs.dns_mode || 'none' }}
+        APPLY_ACCOUNTS_SCHEMA_MIGRATION: ${{ inputs.apply_accounts_schema_migration || false }}
+        ADOPT_ACCOUNTS_BASELINE: ${{ inputs.adopt_accounts_baseline || false }}
+        ACCOUNTS_SCHEMA_EXPECTED_VERSION: ${{ inputs.accounts_schema_expected_version }}
+        ACCOUNTS_SCHEMA_TARGET_VERSION: ${{ inputs.accounts_schema_target_version }}
+        ACCOUNTS_SCHEMA_SHA256: ${{ inputs.accounts_schema_sha256 }}
+        PROBE_ACCOUNTS_SCHEMA: ${{ inputs.probe_accounts_schema || false }}
+    - name: Validate the PROD promotion manifest
+      run: ./.github/scripts/serverless/validate_promotion_manifest.sh
+      env:
+        GH_TOKEN: ${{ github.token }}
+        VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
+        DEPLOYS_CLOUD_RUN: ${{ inputs.deploy_cloud_run == true && contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) }}
+        PROMOTION_MANIFEST: ${{ inputs.promotion_manifest }}
+        RELEASE_TAG: ${{ inputs.tag_ref }}
+    - if: contains(fromJSON('["plan","deploy","upgrade","deploy+migrate","destroy"]'), inputs.operation)
+      uses: actions/checkout@v4
+      with:
+        repository: ai-workspace-infra/iac_modules
+        ref: be8456282f7495e098170e0894e742605a94dae6
+        path: iac_modules
+        persist-credentials: false
+    - id: iac_target
+      if: contains(fromJSON('["plan","deploy","upgrade","deploy+migrate","destroy"]'), inputs.operation)
+      uses: ./iac_modules/.github/actions/iac-caller-targets
+      with:
+        iac-root: ${{ github.workspace }}/iac_modules
+        gitops-root: ${{ github.workspace }}/gitops
+        target-manifest: ${{ '' }}
+        caller: serverless
+        topology-path: topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+        selectors: ${{ format('{{"environment":"{0}"}}', inputs.vault_env_path || 'uat') }}
+        state-key: ''
+
+  stage_result:
+    name: Require stage completion and retain its result
+    needs: [preflight]
+    if: ${{ always() && needs.preflight.result != '' }}
+    runs-on: ubuntu-latest
+    outputs:
+      context: ${{ steps.result.outputs.context }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Collect exact current-run stage results
+        id: result
+        uses: ./.github/actions/serverless-stage-result
+        with:
+          stage: resolve
+          results: ${{ toJSON(needs) }}
+          prior-stages: '{}'

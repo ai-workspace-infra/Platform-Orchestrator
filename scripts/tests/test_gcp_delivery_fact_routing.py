@@ -8,7 +8,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 OWNER_SHA = "d7e49189a5de9c105a940f1c79abfb3b2b33bbd4"
-SERVERLESS = ROOT / ".github/workflows/serverless-orchestrator.yml"
+SERVERLESS = ROOT / ".github/workflows/serverless-deploy-backend.yml"
 DIAGNOSTICS = ROOT / ".github/workflows/prod-agent-proxy-diagnostics.yml"
 GATE = ROOT / ".github/scripts/serverless/verify_cloud_run_digest_facts.sh"
 
@@ -40,7 +40,7 @@ class GcpDeliveryFactRoutingTests(unittest.TestCase):
         self.assertIn("steps.cloud_run_facts.outputs.serving_digest", gate["env"]["SERVING_DIGEST"])
 
     def test_destroy_reader_and_aws_diagnostics_use_fixed_owner(self):
-        serverless = load(SERVERLESS)
+        serverless = load(ROOT / ".github/workflows/serverless-stage-infra.yml")
         destroy = serverless["jobs"]["destroy"]["steps"]
         checkout = next(step for step in destroy if step.get("with", {}).get("repository") == "ai-workspace-infra/iac_modules")
         self.assertEqual(checkout["with"]["ref"], OWNER_SHA)

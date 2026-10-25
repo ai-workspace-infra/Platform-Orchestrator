@@ -1,0 +1,189 @@
+name: Serverless Stage / Migrate & Configure
+'on':
+  workflow_call:
+    inputs:
+      operation:
+        description: 执行范围：plan 校验；init-schema 初始化；deploy/upgrade 部署；migrate 数据迁移；deploy+migrate 部署+迁移；repair-schema
+          仅修复已审阅 r3 UAT schema（不部署、不切 DNS）；destroy 销毁（Prod 禁止）
+        required: true
+        type: string
+      vault_env_path:
+        description: Target environment
+        required: false
+        default: uat
+        type: string
+      tag_ref:
+        description: Unified immutable tag for Cloud Run images, portal, and edge-gateway (for example daily-build-2026.08.17-r1)
+        required: false
+        type: string
+      apply_accounts_schema_migration:
+        description: 'UAT only: apply one reviewed Accounts sql/migrations change before Cloud Run deployment'
+        required: false
+        default: false
+        type: boolean
+      adopt_accounts_baseline:
+        description: 'UAT only: adopt the reviewed expand-only Accounts baseline before Cloud Run deployment'
+        required: false
+        default: false
+        type: boolean
+      deploy_cloudflare:
+        description: Deploy Cloudflare SSR Workers, edge gateway, and Pages static assets
+        required: false
+        default: true
+        type: boolean
+      deploy_cloud_run:
+        description: Deploy backend services to GCP Cloud Run
+        required: false
+        default: true
+        type: boolean
+      skip_stripe_catalog:
+        description: Skip optional Stripe catalog synchronization without blocking core deployment
+        required: false
+        default: false
+        type: boolean
+      resolve_context:
+        description: Exact resolve job results from this reusable-workflow run
+        required: true
+        type: string
+      deploy_context:
+        description: Exact deploy job results from this reusable-workflow run
+        required: true
+        type: string
+    outputs:
+      context:
+        description: Current run stage results and public control-plane outputs
+        value: ${{ jobs.stage_result.outputs.context }}
+permissions:
+  id-token: write
+  contents: read
+  actions: write
+
+jobs:
+  trigger_data_migration:
+    name: Legacy import requires explicit opt-in
+    if: ${{ contains(fromJSON('["migrate","deploy+migrate"]'), inputs.operation) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Dispatch explicit import gate (automatic copy remains disabled)
+        run: python3 .github/scripts/environment-upgrade/dispatch.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DATA_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
+          DATA_OPERATION: legacy_import
+          DATA_CONFIG_JSON: '{"confirm_legacy_import":false}'
+          RELEASE_TAG: ${{ inputs.tag_ref }}
+          ACCOUNTS_REF: ${{ inputs.tag_ref || 'main' }}
+
+  stripe_catalog:
+    name: Stripe / Catalog Bootstrap
+    # Stripe catalog synchronization is a post-deploy reconciliation task.
+    # An Accounts administrator may require interactive MFA, which cannot be
+    # completed by a GitHub runner. Do not roll back or mark the core PROD
+    # deployment failed for that condition; retain the job log for the
+    # follow-up run with a non-interactive service credential.
+    continue-on-error: true
+    if: >-
+      ${{ always() && !cancelled() &&
+      fromJSON(inputs.resolve_context).preflight.result == 'success' &&
+      contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
+      (!inputs.adopt_accounts_baseline || fromJSON(inputs.deploy_context).uat_accounts_baseline.result == 'success') &&
+      (!inputs.apply_accounts_schema_migration || fromJSON(inputs.deploy_context).uat_accounts_schema_migration.result == 'success') &&
+      inputs.deploy_cloud_run == true &&
+      inputs.skip_stripe_catalog != true &&
+      inputs.deploy_cloudflare == true &&
+      (fromJSON(inputs.deploy_context).supabase.result == 'success' || fromJSON(inputs.deploy_context).supabase.result == 'skipped') &&
+      (fromJSON(inputs.deploy_context).cloud_run.result == 'success' || fromJSON(inputs.deploy_context).cloud_run.result == 'skipped') &&
+      fromJSON(inputs.deploy_context).serverless_domains.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout Accounts catalog source
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-services/accounts
+          ref: ${{ inputs.tag_ref || 'main' }}
+          path: accounts
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            scripts/seed-billing-plans.sql
+            scripts/stripe-catalog.yaml
+            scripts/stripe-sync-catalog.sh
+
+      - name: Checkout GitOps runtime topology
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ fromJSON(inputs.resolve_context).preflight.outputs.gitops_ref }}
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+
+      - name: Resolve Accounts catalog endpoint
+        run: |
+          ./.github/scripts/gitops/prepare_gitops_routing_config.sh
+          accounts_host="$(jq -er '.spec.serverless.accounts_host' "${RUNNER_TEMP}/edge-routing.json")"
+          accounts_run_url="$(jq -er '.spec.serverless.cloud_run.accounts' "${RUNNER_TEMP}/edge-routing.json")"
+          domain_base="${accounts_host#*.}"
+          [[ "${domain_base}" != "${accounts_host}" ]] || {
+            echo "invalid Accounts host in GitOps topology: ${accounts_host}" >&2
+            exit 1
+          }
+          [[ "${accounts_run_url}" =~ ^https://[^/]+\.run\.app$ ]] || {
+            echo "invalid Accounts Cloud Run URL in GitOps topology: ${accounts_run_url}" >&2
+            exit 1
+          }
+          # The public Accounts hostname is protected by Cloudflare. Catalog
+          # bootstrap runs on a GitHub-hosted runner, so use the GitOps-owned
+          # Cloud Run origin for its authenticated API calls and retain the
+          # public domain only for domain-derived catalog metadata.
+          echo "ACCOUNTS_BASE_URL=${accounts_run_url}" >> "${GITHUB_ENV}"
+          echo "DOMAIN_BASE=${domain_base}" >> "${GITHUB_ENV}"
+        env:
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+
+      - name: Install catalog bootstrap dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+          python3 -m pip install --user pyyaml
+
+      - name: Install Vault CLI
+        run: ./.github/scripts/serverless/install_vault_cli.sh
+
+      - name: Authenticate to Vault with GitHub OIDC
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          exportToken: true
+
+      - name: Bootstrap Stripe billing catalog
+        run: ./scripts/serverless_uat/bootstrap_stripe_catalog.sh
+        env:
+          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
+          ACCOUNTS_DIR: ${{ github.workspace }}/accounts
+
+  stage_result:
+    name: Require stage completion and retain its result
+    needs: [trigger_data_migration, stripe_catalog]
+    if: ${{ always() && needs.trigger_data_migration.result != '' && needs.stripe_catalog.result != '' }}
+    runs-on: ubuntu-latest
+    outputs:
+      context: ${{ steps.result.outputs.context }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Collect exact current-run stage results
+        id: result
+        uses: ./.github/actions/serverless-stage-result
+        with:
+          stage: migrate
+          results: ${{ toJSON(needs) }}
+          prior-stages: '{}'

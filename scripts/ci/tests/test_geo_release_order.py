@@ -10,7 +10,9 @@ class GeoReleaseOrderTests(unittest.TestCase):
     def setUp(self):
         root = Path(__file__).resolve().parents[3]
         workflow = root / ".github/workflows/serverless-orchestrator.yml"
-        self.workflow = yaml.load(workflow.read_text(), Loader=yaml.BaseLoader)
+        self.parent = yaml.load(workflow.read_text(), Loader=yaml.BaseLoader)
+        stage = root / ".github/workflows/serverless-deploy-frontend.yml"
+        self.workflow = yaml.load(stage.read_text(), Loader=yaml.BaseLoader)
 
     def test_router_waits_for_successful_portal_asset_publication(self):
         router = self.workflow["jobs"]["frontend_router"]
@@ -18,7 +20,7 @@ class GeoReleaseOrderTests(unittest.TestCase):
         self.assertIn("needs.static_pages.result == 'success'", router["if"])
 
     def test_website_content_ref_is_shared_by_ssr_and_static_builds(self):
-        inputs = self.workflow["on"]["workflow_dispatch"]["inputs"]
+        inputs = self.parent["on"]["workflow_dispatch"]["inputs"]
         self.assertEqual(inputs["website_content_ref"]["default"], "main")
         for job in ("cloudflare_ssr", "static_pages"):
             steps = self.workflow["jobs"][job]["steps"]

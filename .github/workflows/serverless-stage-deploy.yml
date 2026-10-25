@@ -1,0 +1,174 @@
+name: Serverless Stage / Deploy
+'on':
+  workflow_call:
+    inputs:
+      operation:
+        description: 执行范围：plan 校验；init-schema 初始化；deploy/upgrade 部署；migrate 数据迁移；deploy+migrate 部署+迁移；repair-schema
+          仅修复已审阅 r3 UAT schema（不部署、不切 DNS）；destroy 销毁（Prod 禁止）
+        required: true
+        type: string
+      vault_env_path:
+        description: Target environment
+        required: false
+        default: uat
+        type: string
+      tag_ref:
+        description: Unified immutable tag for Cloud Run images, portal, and edge-gateway (for example daily-build-2026.08.17-r1)
+        required: false
+        type: string
+      website_content_ref:
+        description: Reviewed knowledge commit or immutable tag consumed by Portal website builds
+        required: false
+        default: main
+        type: string
+      apply_accounts_schema_migration:
+        description: 'UAT only: apply one reviewed Accounts sql/migrations change before Cloud Run deployment'
+        required: false
+        default: false
+        type: boolean
+      adopt_accounts_baseline:
+        description: 'UAT only: adopt the reviewed expand-only Accounts baseline before Cloud Run deployment'
+        required: false
+        default: false
+        type: boolean
+      accounts_schema_expected_version:
+        description: UAT current schema_migrations version before applying the change
+        required: false
+        type: string
+      accounts_schema_target_version:
+        description: Target version of the one Accounts .up.sql migration
+        required: false
+        type: string
+      accounts_schema_sha256:
+        description: Expected SHA-256 of the target Accounts .up.sql migration
+        required: false
+        type: string
+      probe_accounts_schema:
+        description: 'UAT plan only: inspect schema_migrations version and lifecycle readiness without changes'
+        required: false
+        default: false
+        type: boolean
+      deploy_cloudflare:
+        description: Deploy Cloudflare SSR Workers, edge gateway, and Pages static assets
+        required: false
+        default: true
+        type: boolean
+      deploy_cloud_run:
+        description: Deploy backend services to GCP Cloud Run
+        required: false
+        default: true
+        type: boolean
+      cloud_run_service:
+        description: Optional single Cloud Run service to deploy; empty deploys the backend service set
+        required: false
+        default: ''
+        type: string
+      dns_mode:
+        description: DNS 行为：none 不发布；uat-records 更新 SIT/UAT canonical；prod-cutover 接管生产 canonical（普通部署不会改 canonical）
+        required: false
+        default: none
+        type: string
+      promotion_manifest:
+        description: 仅 PROD：Daily 校验过的 UAT 制品清单（JSON）。PROD Cloud Run 按 digest 晋级，不从源码重建
+        required: false
+        default: ''
+        type: string
+      resolve_context:
+        description: Exact resolve job results from this reusable-workflow run
+        required: true
+        type: string
+      infra_context:
+        description: Exact infra job results from this reusable-workflow run
+        required: true
+        type: string
+    outputs:
+      context:
+        description: Current run stage results and public control-plane outputs
+        value: ${{ jobs.stage_result.outputs.context }}
+permissions:
+  id-token: write
+  contents: read
+  actions: write
+jobs:
+  data:
+    uses: ./.github/workflows/serverless-deploy-data.yml
+    with:
+      operation: ${{ inputs.operation }}
+      vault_env_path: ${{ inputs.vault_env_path }}
+      tag_ref: ${{ inputs.tag_ref }}
+      apply_accounts_schema_migration: ${{ inputs.apply_accounts_schema_migration }}
+      adopt_accounts_baseline: ${{ inputs.adopt_accounts_baseline }}
+      accounts_schema_expected_version: ${{ inputs.accounts_schema_expected_version }}
+      accounts_schema_target_version: ${{ inputs.accounts_schema_target_version }}
+      accounts_schema_sha256: ${{ inputs.accounts_schema_sha256 }}
+      probe_accounts_schema: ${{ inputs.probe_accounts_schema }}
+      resolve_context: ${{ inputs.resolve_context }}
+  backend:
+    uses: ./.github/workflows/serverless-deploy-backend.yml
+    needs:
+    - data
+    with:
+      operation: ${{ inputs.operation }}
+      vault_env_path: ${{ inputs.vault_env_path }}
+      tag_ref: ${{ inputs.tag_ref }}
+      apply_accounts_schema_migration: ${{ inputs.apply_accounts_schema_migration }}
+      adopt_accounts_baseline: ${{ inputs.adopt_accounts_baseline }}
+      deploy_cloud_run: ${{ inputs.deploy_cloud_run }}
+      cloud_run_service: ${{ inputs.cloud_run_service }}
+      promotion_manifest: ${{ inputs.promotion_manifest }}
+      resolve_context: ${{ inputs.resolve_context }}
+      infra_context: ${{ inputs.infra_context }}
+      data_context: ${{ needs.data.outputs.context || '{}' }}
+  frontend:
+    uses: ./.github/workflows/serverless-deploy-frontend.yml
+    needs:
+    - data
+    - backend
+    with:
+      operation: ${{ inputs.operation }}
+      vault_env_path: ${{ inputs.vault_env_path }}
+      tag_ref: ${{ inputs.tag_ref }}
+      website_content_ref: ${{ inputs.website_content_ref }}
+      deploy_cloudflare: ${{ inputs.deploy_cloudflare }}
+      resolve_context: ${{ inputs.resolve_context }}
+      infra_context: ${{ inputs.infra_context }}
+      backend_context: ${{ needs.backend.outputs.context || '{}' }}
+  domains:
+    uses: ./.github/workflows/serverless-deploy-domains.yml
+    needs:
+    - data
+    - backend
+    - frontend
+    with:
+      operation: ${{ inputs.operation }}
+      vault_env_path: ${{ inputs.vault_env_path }}
+      tag_ref: ${{ inputs.tag_ref }}
+      apply_accounts_schema_migration: ${{ inputs.apply_accounts_schema_migration }}
+      adopt_accounts_baseline: ${{ inputs.adopt_accounts_baseline }}
+      deploy_cloudflare: ${{ inputs.deploy_cloudflare }}
+      dns_mode: ${{ inputs.dns_mode }}
+      resolve_context: ${{ inputs.resolve_context }}
+      data_context: ${{ needs.data.outputs.context || '{}' }}
+      backend_context: ${{ needs.backend.outputs.context || '{}' }}
+      frontend_context: ${{ needs.frontend.outputs.context || '{}' }}
+  stage_result:
+    name: Require stage completion and retain its result
+    needs:
+    - data
+    - backend
+    - frontend
+    - domains
+    if: ${{ always() && needs.data.result != '' && needs.backend.result != '' && needs.frontend.result != '' &&
+      needs.domains.result != '' }}
+    runs-on: ubuntu-latest
+    outputs:
+      context: ${{ steps.result.outputs.context }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: Collect exact current-run stage results
+      id: result
+      uses: ./.github/actions/serverless-stage-result
+      with:
+        stage: deploy
+        results: ${{ toJSON(needs) }}
+        prior-stages: '{}'

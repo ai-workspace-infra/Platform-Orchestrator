@@ -1,0 +1,175 @@
+name: Serverless Stage / Verify & Report
+'on':
+  workflow_call:
+    inputs:
+      operation:
+        description: 执行范围：plan 校验；init-schema 初始化；deploy/upgrade 部署；migrate 数据迁移；deploy+migrate 部署+迁移；repair-schema
+          仅修复已审阅 r3 UAT schema（不部署、不切 DNS）；destroy 销毁（Prod 禁止）
+        required: true
+        type: string
+      target_domains:
+        description: 选择要执行的业务域 (Business Domain)。serverless 仅部署 web-saas；默认 all 在 serverless 中解析为 web-saas，其它业务域走
+          cloud_provider 环境副本链路。
+        required: false
+        default: all
+        type: string
+      vault_env_path:
+        description: Target environment
+        required: false
+        default: uat
+        type: string
+      tag_ref:
+        description: Unified immutable tag for Cloud Run images, portal, and edge-gateway (for example daily-build-2026.08.17-r1)
+        required: false
+        type: string
+      apply_accounts_schema_migration:
+        description: 'UAT only: apply one reviewed Accounts sql/migrations change before Cloud Run deployment'
+        required: false
+        default: false
+        type: boolean
+      adopt_accounts_baseline:
+        description: 'UAT only: adopt the reviewed expand-only Accounts baseline before Cloud Run deployment'
+        required: false
+        default: false
+        type: boolean
+      deploy_cloudflare:
+        description: Deploy Cloudflare SSR Workers, edge gateway, and Pages static assets
+        required: false
+        default: true
+        type: boolean
+      deploy_cloud_run:
+        description: Deploy backend services to GCP Cloud Run
+        required: false
+        default: true
+        type: boolean
+      cloud_run_service:
+        description: Optional single Cloud Run service to deploy; empty deploys the backend service set
+        required: false
+        default: ''
+        type: string
+      dns_mode:
+        description: DNS 行为：none 不发布；uat-records 更新 SIT/UAT canonical；prod-cutover 接管生产 canonical（普通部署不会改 canonical）
+        required: false
+        default: none
+        type: string
+      resolve_context:
+        description: Exact resolve job results from this reusable-workflow run
+        required: true
+        type: string
+      infra_context:
+        description: Exact infra job results from this reusable-workflow run
+        required: true
+        type: string
+      deploy_context:
+        description: Exact deploy job results from this reusable-workflow run
+        required: true
+        type: string
+      migrate_context:
+        description: Exact migrate job results from this reusable-workflow run
+        required: true
+        type: string
+      stage_results:
+        required: true
+        type: string
+    outputs:
+      context:
+        description: Current run stage results and public control-plane outputs
+        value: ${{ jobs.stage_result.outputs.context }}
+permissions:
+  id-token: write
+  contents: read
+  actions: write
+
+jobs:
+  verify:
+    name: Verify / Summary
+    if: >-
+      ${{ always() && fromJSON(inputs.resolve_context).preflight.result == 'success' &&
+      contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
+      fromJSON(inputs.deploy_context).supabase.result != 'cancelled' &&
+      (!inputs.adopt_accounts_baseline || fromJSON(inputs.deploy_context).uat_accounts_baseline.result == 'success') &&
+      (!inputs.apply_accounts_schema_migration || fromJSON(inputs.deploy_context).uat_accounts_schema_migration.result == 'success') &&
+      fromJSON(inputs.deploy_context).cloud_run.result != 'cancelled' &&
+      fromJSON(inputs.deploy_context).cloudflare_ssr.result != 'cancelled' &&
+      fromJSON(inputs.deploy_context).frontend_router.result != 'cancelled' &&
+      fromJSON(inputs.deploy_context).edge_gateway.result != 'cancelled' &&
+      fromJSON(inputs.deploy_context).static_pages.result != 'cancelled' &&
+      fromJSON(inputs.deploy_context).serverless_domains.result != 'cancelled' &&
+      (fromJSON(inputs.migrate_context).stripe_catalog.result == 'success' || fromJSON(inputs.migrate_context).stripe_catalog.result == 'skipped') &&
+      (fromJSON(inputs.migrate_context).trigger_data_migration.result == 'success' || fromJSON(inputs.migrate_context).trigger_data_migration.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Download current-run owner operation receipts
+        if: inputs.deploy_cloud_run == true || inputs.deploy_cloudflare == true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: owner-receipt-*
+          path: ${{ runner.temp }}/serverless-owner-receipts
+
+      - name: Verify selected owner receipts and publish final status
+        uses: ./.github/actions/serverless-summary
+        with:
+          receipts: ${{ runner.temp }}/serverless-owner-receipts
+        env:
+          RELEASE_ENVIRONMENT: ${{ inputs.vault_env_path || 'uat' }}
+          RELEASE_TAG: ${{ inputs.tag_ref }}
+          PROVIDER_OWNER_SHA: d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
+          PLAYBOOKS_OWNER_SHA: 8b29bd81f03c7726f28698ea7c78471827d3c961
+          DEPLOYS_CLOUD_RUN: ${{ inputs.deploy_cloud_run }}
+          DEPLOYS_CLOUDFLARE: ${{ inputs.deploy_cloudflare }}
+          GUARDED_API_GATEWAY: ${{ fromJSON(inputs.resolve_context).preflight.outputs.guarded_api_gateway }}
+          SERVERLESS_DNS_MODE: ${{ inputs.dns_mode || 'none' }}
+          CLOUD_RUN_SERVICE: ${{ inputs.cloud_run_service }}
+          DATA_RUN_ID: ${{ fromJSON(inputs.deploy_context).supabase.outputs.data_run_id }}
+          CLOUDFLARE_RESULT: ${{ fromJSON(inputs.deploy_context).cloudflare_ssr.result }}
+          FRONTEND_ROUTER_RESULT: ${{ fromJSON(inputs.deploy_context).frontend_router.result }}
+          EDGE_GATEWAY_RESULT: ${{ fromJSON(inputs.deploy_context).edge_gateway.result }}
+          STATIC_PAGES_RESULT: ${{ fromJSON(inputs.deploy_context).static_pages.result }}
+          SERVERLESS_DOMAINS_RESULT: ${{ fromJSON(inputs.deploy_context).serverless_domains.result }}
+          CLOUD_RUN_RESULT: ${{ fromJSON(inputs.deploy_context).cloud_run.result }}
+          SUPABASE_RESULT: ${{ fromJSON(inputs.deploy_context).supabase.result }}
+
+  console_release_metadata:
+    name: Record release identity for Operations Console
+    needs: verify
+    if: ${{ always() && needs.verify.result != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Write allowlisted release metadata, including failed stages
+        run: python3 .github/actions/serverless-stage-result/result.py metadata
+        env:
+          RELEASE_ENV: ${{ inputs.vault_env_path || 'uat' }}
+          RELEASE_TAG: ${{ inputs.tag_ref }}
+          RELEASE_OPERATION: ${{ inputs.operation }}
+          RELEASE_TARGET: ${{ inputs.target_domains || 'all' }}
+          STAGE_CONTEXTS: ${{ toJSON(inputs) }}
+          STAGE_RESULTS: ${{ inputs.stage_results }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: console-release-metadata
+          path: release-metadata.json
+          if-no-files-found: error
+
+  stage_result:
+    name: Require stage completion and retain its result
+    needs: [verify, console_release_metadata]
+    if: ${{ always() && needs.verify.result != '' && needs.console_release_metadata.result != '' }}
+    runs-on: ubuntu-latest
+    outputs:
+      context: ${{ steps.result.outputs.context }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Collect exact current-run stage results
+        id: result
+        uses: ./.github/actions/serverless-stage-result
+        with:
+          stage: verify
+          results: ${{ toJSON(needs) }}
+          prior-stages: ${{ inputs.stage_results }}

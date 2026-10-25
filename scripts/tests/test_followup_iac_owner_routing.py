@@ -6,7 +6,8 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SERVERLESS = ROOT / ".github/workflows/serverless-orchestrator.yml"
+SERVERLESS = ROOT / ".github/workflows/serverless-stage-deploy.yml"
+SERVERLESS_STAGES = sorted((ROOT / ".github/workflows").glob("serverless-*.yml"))
 XCONNECT = ROOT / ".github/workflows/xconnect-zero-cloud.yaml"
 OWNER_SHA = "d7e49189a5de9c105a940f1c79abfb3b2b33bbd4"
 
@@ -17,7 +18,7 @@ def load(path: Path):
 
 class FollowupIacOwnerRoutingTests(unittest.TestCase):
     def test_serverless_cloud_mutations_use_one_fixed_iac_owner(self):
-        workflow = load(SERVERLESS)
+        workflow = {"jobs": {key: job for path in SERVERLESS_STAGES for key, job in load(path)["jobs"].items() if key != "stage_result"}}
         owner_calls = []
         for job in workflow["jobs"].values():
             if not isinstance(job, dict):
@@ -39,7 +40,7 @@ class FollowupIacOwnerRoutingTests(unittest.TestCase):
         owner_refs = {step["uses"].rsplit("@", 1)[1] for step in owner_calls}
         self.assertEqual(owner_refs, {OWNER_SHA})
 
-        source = SERVERLESS.read_text(encoding="utf-8")
+        source = "\n".join(path.read_text(encoding="utf-8") for path in SERVERLESS_STAGES)
         for legacy_executor in (
             ".github/scripts/serverless/run_cloudflare_target.sh",
             ".github/scripts/serverless/sync_smtp_secrets.sh",
@@ -47,7 +48,7 @@ class FollowupIacOwnerRoutingTests(unittest.TestCase):
             self.assertNotIn(legacy_executor, source)
 
     def test_control_gates_stay_in_toolkit_and_consume_owner_facts(self):
-        source = SERVERLESS.read_text(encoding="utf-8")
+        source = "\n".join(path.read_text(encoding="utf-8") for path in SERVERLESS_STAGES)
         for control_gate in (
             ".github/scripts/serverless/select-domain-owner.py",
             ".github/scripts/serverless/validate_portal_runtime_domains.sh",

@@ -1,0 +1,403 @@
+name: Serverless Deploy / Backend
+'on':
+  workflow_call:
+    inputs:
+      operation:
+        description: 执行范围：plan 校验；init-schema 初始化；deploy/upgrade 部署；migrate 数据迁移；deploy+migrate 部署+迁移；repair-schema
+          仅修复已审阅 r3 UAT schema（不部署、不切 DNS）；destroy 销毁（Prod 禁止）
+        required: true
+        type: string
+      vault_env_path:
+        description: Target environment
+        required: false
+        default: uat
+        type: string
+      tag_ref:
+        description: Unified immutable tag for Cloud Run images, portal, and edge-gateway (for example daily-build-2026.08.17-r1)
+        required: false
+        type: string
+      apply_accounts_schema_migration:
+        description: 'UAT only: apply one reviewed Accounts sql/migrations change before Cloud Run deployment'
+        required: false
+        default: false
+        type: boolean
+      adopt_accounts_baseline:
+        description: 'UAT only: adopt the reviewed expand-only Accounts baseline before Cloud Run deployment'
+        required: false
+        default: false
+        type: boolean
+      deploy_cloud_run:
+        description: Deploy backend services to GCP Cloud Run
+        required: false
+        default: true
+        type: boolean
+      cloud_run_service:
+        description: Optional single Cloud Run service to deploy; empty deploys the backend service set
+        required: false
+        default: ''
+        type: string
+      promotion_manifest:
+        description: 仅 PROD：Daily 校验过的 UAT 制品清单（JSON）。PROD Cloud Run 按 digest 晋级，不从源码重建
+        required: false
+        default: ''
+        type: string
+      resolve_context:
+        description: Exact resolve job results from this reusable-workflow run
+        required: true
+        type: string
+      infra_context:
+        description: Exact infra job results from this reusable-workflow run
+        required: true
+        type: string
+      data_context:
+        required: true
+        type: string
+        description: Same-run job results from the preceding local owner phase
+    outputs:
+      context:
+        description: Same-run phase results
+        value: ${{ jobs.stage_result.outputs.context }}
+permissions:
+  id-token: write
+  contents: read
+  actions: write
+
+jobs:
+  cloud_run:
+    name: Cloud Run / ${{ matrix.service }}
+    if: ${{ always() && fromJSON(inputs.resolve_context).preflight.result == 'success' && fromJSON(inputs.infra_context).iac-verified.result == 'success' && (!inputs.adopt_accounts_baseline || fromJSON(inputs.data_context).uat_accounts_baseline.result == 'success') && (!inputs.apply_accounts_schema_migration || fromJSON(inputs.data_context).uat_accounts_schema_migration.result == 'success') && contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) && inputs.deploy_cloud_run == true }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # Accounts owns two PostgreSQL pools (business + admin settings) and
+      # shares Supabase's session pooler quota with billing-service. Parallel
+      # rolling revisions can exceed the shared pool_size before either
+      # replacement revision becomes ready.
+      max-parallel: 1
+      matrix:
+        service: ${{ fromJSON(inputs.cloud_run_service != '' && format('["{0}"]', inputs.cloud_run_service) || '["accounts","content-service","billing-service"]') }}
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout GitOps runtime topology
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          # GitOps runtime topology is the environment configuration source of truth;
+          # use the preflight SHA while deployable artifacts share tag_ref.
+          ref: ${{ fromJSON(inputs.resolve_context).preflight.outputs.gitops_ref }}
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+            services/accounts/${{ inputs.vault_env_path || 'uat' }}/oauth/github.yaml
+            resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+
+      - name: Checkout IaC delivery fact and registry owners
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/cloud-run-serving-facts
+            .github/actions/gitops-gcp-target
+            scripts/pipeline
+
+      - name: Render OAuth metadata for the deployment consumer
+        uses: ./.github/actions/gitops-yaml-json
+        with:
+          source: ${{ github.workspace }}/gitops/services/accounts/${{ inputs.vault_env_path || 'uat' }}/oauth/github.yaml
+          output: ${{ runner.temp }}/accounts-github-oauth.json
+      - name: Read GitOps GCP target
+        id: gitops_gcp
+        uses: ./iac_modules/.github/actions/gitops-gcp-target
+        with:
+          manifest: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+          mode: read
+
+      # accounts rejects any browser Origin that is not on its CORS allowlist,
+      # so the deploy has to pass this environment's console host through.
+      - name: Render GitOps runtime topology YAML
+        run: ./.github/scripts/gitops/prepare_gitops_routing_config.sh
+        env:
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.vault_env_path || 'uat' }}/serverless/runtime-topology.yaml
+          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+
+      - name: Authenticate to Vault with GitHub OIDC
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.vault_env_path || 'uat' }}
+          jwtGithubAudience: vault
+          exportToken: true
+          secrets: |
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_WORKLOAD_IDENTITY_PROVIDER | GCP_WORKLOAD_IDENTITY_PROVIDER ;
+            kv/data/${{ inputs.vault_env_path || 'uat' }}/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL ;
+            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
+
+      # The legacy service-repository pipelines publish to the retired
+      # xworktech/asia-northeast1 registry. Build the same immutable source tag
+      # here and push it with the target project's WIF identity, so a new
+      # open-platform project is self-contained and does not depend on the old
+      # account or registry.
+      - name: Create service-source GitHub App token
+        id: source_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: Iv23liNwStpQIiXajhpb
+          private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+          owner: ai-workspace-services
+          repositories: ${{ matrix.service }}
+          permission-contents: read
+
+      - name: Checkout immutable service source
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-services/${{ matrix.service }}
+          ref: ${{ inputs.tag_ref }}
+          token: ${{ steps.source_token.outputs.token }}
+          path: service-source
+
+      - name: Verify Vault GCP target matches GitOps project declaration
+        uses: ./iac_modules/.github/actions/gitops-gcp-target
+        with:
+          manifest: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+          mode: validate
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          project-id: ${{ steps.gitops_gcp.outputs.project_id }}
+          region: ${{ steps.gitops_gcp.outputs.region }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ steps.vault.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ steps.vault.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - uses: ./.github/actions/setup-yq
+
+      - name: Verify target Artifact Registry through the IaC owner
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
+        with:
+          operation: registry-preflight
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
+          gcp_declaration: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+        env:
+          GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
+          GCP_REGION: ${{ steps.gitops_gcp.outputs.region }}
+          CLOUD_RUN_SERVICE: ${{ matrix.service }}
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+
+      - name: Authenticate Docker to target Artifact Registry
+        run: gcloud auth configure-docker "${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev" --quiet
+
+      # UAT builds the image from the immutable source tag. PROD never does:
+      # it copies the digest UAT accepted (next step).
+      - name: Build and publish target Cloud Run image
+        id: build
+        if: ${{ inputs.vault_env_path != 'prod' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: service-source
+          file: service-source/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev/${{ steps.gitops_gcp.outputs.project_id }}/serverless/${{ matrix.service }}:${{ inputs.tag_ref }}
+
+      - name: Promote the UAT-accepted image by digest
+        id: promoted
+        if: ${{ inputs.vault_env_path == 'prod' }}
+        run: ./iac_modules/scripts/pipeline/artifact-registry-promote.sh
+        env:
+          PROMOTION_MANIFEST: ${{ inputs.promotion_manifest }}
+          SERVICE: ${{ matrix.service }}
+          TARGET_IMAGE: ${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev/${{ steps.gitops_gcp.outputs.project_id }}/serverless/${{ matrix.service }}
+          IMAGE_TAG: ${{ inputs.tag_ref }}
+
+      - name: Wait for service image in Artifact Registry
+        run: ./iac_modules/scripts/pipeline/artifact-registry-wait.sh
+        env:
+          ARTIFACT_IMAGE_REPOSITORY: ${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev/${{ steps.gitops_gcp.outputs.project_id }}/serverless/${{ matrix.service }}
+          IMAGE_TAG: ${{ inputs.tag_ref }}
+
+      # accounts is the only service that sends mail today. Its Cloud Run
+      # revision reads SMTP credentials as secretKeyRef, so Secret Manager has
+      # to carry what Vault holds before the new revision starts.
+      - name: Sync SMTP credentials from Vault to Secret Manager
+        id: smtp
+        if: ${{ matrix.service == 'accounts' }}
+        uses: ai-workspace-infra/iac_modules/.github/actions/platform-resource-operations@d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
+        with:
+          operation: smtp-sync
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+        env:
+          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
+          GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
+
+      - name: Prepare Cloud Run runtime authorization and inputs
+        uses: ./.github/actions/serverless-runtime
+        with:
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          service: ${{ matrix.service }}
+        env:
+          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          GITOPS_OAUTH_GITHUB_CONFIG: ${{ runner.temp }}/accounts-github-oauth.json
+
+      - name: Deploy Cloud Run service through the Provider owner
+        uses: ai-workspace-infra/iac_modules/.github/actions/serverless-provider-operations@d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
+        with:
+          operation: cloud-run
+          environment: ${{ inputs.vault_env_path || 'uat' }}
+          release_ref: ${{ inputs.tag_ref }}
+          gcp_declaration: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.vault_env_path || 'uat' }}/gcp/open-platform-${{ inputs.vault_env_path || 'uat' }}.yaml
+        env:
+          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          VAULT_ENV_PATH: ${{ inputs.vault_env_path || 'uat' }}
+          DEPLOY_ENV: ${{ inputs.vault_env_path || 'uat' }}
+          GCP_PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
+          GCP_REGION: ${{ steps.gitops_gcp.outputs.region }}
+          GCP_ARTIFACT_REGISTRY_REGION: ${{ steps.gitops_gcp.outputs.region }}
+          IMAGE_TAG: ${{ inputs.tag_ref }}
+          SMTP_CONFIGURED: ${{ steps.smtp.outputs.smtp_configured }}
+          CLOUD_RUN_SERVICE: ${{ matrix.service }}
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          GITOPS_OAUTH_GITHUB_CONFIG: ${{ runner.temp }}/accounts-github-oauth.json
+
+      # A tag is not evidence: the serving revision must run the digest UAT
+      # built, or in PROD the digest UAT accepted.
+      - name: Query the serving revision through the IaC owner
+        id: cloud_run_facts
+        uses: ./iac_modules/.github/actions/cloud-run-serving-facts
+        with:
+          project-id: ${{ steps.gitops_gcp.outputs.project_id }}
+          region: ${{ steps.gitops_gcp.outputs.region }}
+          service: ${{ inputs.vault_env_path || 'uat' }}-${{ matrix.service }}
+          image: ${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev/${{ steps.gitops_gcp.outputs.project_id }}/serverless/${{ matrix.service }}
+          artifact-digest: ${{ inputs.vault_env_path == 'prod' && steps.promoted.outputs.digest || steps.build.outputs.digest }}
+
+      - name: Verify the serving revision runs the expected digest
+        run: ./.github/scripts/serverless/verify_cloud_run_digest_facts.sh
+        env:
+          CLOUD_RUN_SERVICE_NAME: ${{ inputs.vault_env_path || 'uat' }}-${{ matrix.service }}
+          EXPECTED_DIGEST: ${{ inputs.vault_env_path == 'prod' && steps.promoted.outputs.digest || steps.build.outputs.digest }}
+          LATEST_READY_REVISION: ${{ steps.cloud_run_facts.outputs.latest_ready_revision }}
+          TRAFFIC_REVISIONS: ${{ steps.cloud_run_facts.outputs.traffic_revisions }}
+          SERVING_DIGEST: ${{ steps.cloud_run_facts.outputs.serving_digest }}
+          LINUX_AMD64_CHILD_DIGEST: ${{ steps.cloud_run_facts.outputs.linux_amd64_child_digest }}
+
+      - name: Record the UAT image digest
+        if: ${{ inputs.vault_env_path != 'prod' }}
+        run: ./.github/scripts/serverless/record_image_digest.sh
+        env:
+          SERVICE: ${{ matrix.service }}
+          IMAGE: ${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev/${{ steps.gitops_gcp.outputs.project_id }}/serverless/${{ matrix.service }}
+          IMAGE_TAG: ${{ inputs.tag_ref }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          SOURCE_DIR: service-source
+          OUTPUT_DIR: ${{ runner.temp }}/image-manifest
+
+      - name: Upload the UAT image digest record
+        if: ${{ inputs.vault_env_path != 'prod' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: serverless-image-${{ matrix.service }}
+          path: ${{ runner.temp }}/image-manifest/${{ matrix.service }}.json
+          if-no-files-found: error
+
+  # The UAT artifact manifest: the exact images this run built and verified,
+  # which is all a PROD promotion may deploy.
+
+  artifact_manifest:
+    name: Artifacts / UAT image manifest
+    needs: [cloud_run]
+    if: ${{ always() && needs.cloud_run.result == 'success' && inputs.vault_env_path != 'prod' && inputs.cloud_run_service == '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the per-service digest records
+        uses: actions/download-artifact@v8
+        with:
+          pattern: serverless-image-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/image-manifest
+
+      - name: Assemble the UAT artifact manifest
+        env:
+          SNAPSHOT_TAG: ${{ inputs.tag_ref }}
+          RECORD_DIR: ${{ runner.temp }}/image-manifest
+          OUTPUT: ${{ runner.temp }}/serverless-artifact-manifest.json
+        run: |
+          set -euo pipefail
+          jq -s --arg tag "${SNAPSHOT_TAG}" \
+            '{schema: 1, environment: "uat", snapshot_tag: $tag, images: (sort_by(.service))}' \
+            "${RECORD_DIR}"/*.json > "${OUTPUT}"
+          jq -e '[.images[].service] | sort == ["accounts", "billing-service", "content-service"]' "${OUTPUT}" >/dev/null || {
+            echo "::error::The UAT artifact manifest must cover accounts, billing-service and content-service." >&2
+            exit 1
+          }
+          jq . "${OUTPUT}"
+
+      - name: Upload the UAT artifact manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: serverless-artifact-manifest
+          path: ${{ runner.temp }}/serverless-artifact-manifest.json
+          if-no-files-found: error
+
+  backend_gate:
+    name: Gate / backend rollout
+    # `gcloud run deploy` only exits 0 once the revision is serving, so the
+    # matrix result already carries backend readiness. What was missing is that
+    # nothing consumed it: the Cloudflare jobs depended on preflight alone, so a
+    # failed backend still shipped a frontend pointing at it, and `fail-fast:
+    # false` could leave one service on the new tag while another stayed on the
+    # previous one. This gate turns both into an explicit stop before any
+    # frontend job runs.
+    needs: [cloud_run]
+    if: >-
+      ${{ always() && fromJSON(inputs.resolve_context).preflight.result == 'success' &&
+      needs.cloud_run.result != 'cancelled' &&
+      contains(fromJSON('["deploy","upgrade","deploy+migrate"]'), inputs.operation) &&
+      inputs.deploy_cloud_run == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a complete Cloud Run rollout
+        env:
+          CLOUD_RUN_RESULT: ${{ needs.cloud_run.result }}
+        run: |
+          if [[ "${CLOUD_RUN_RESULT}" != "success" ]]; then
+            echo "::error::Cloud Run rollout is '${CLOUD_RUN_RESULT}'; refusing to publish a frontend against a partial or failed backend."
+            echo "A partial rollout leaves some services on the new tag and others on the previous one, a state nothing downstream describes." >&2
+            exit 1
+          fi
+          echo "Cloud Run rollout complete; frontend deployment may proceed."
+
+  stage_result:
+    name: Retain phase completion evidence
+    needs: [cloud_run, artifact_manifest, backend_gate]
+    if: ${{ always() && needs.cloud_run.result != '' && needs.artifact_manifest.result != '' && needs.backend_gate.result != '' }}
+    runs-on: ubuntu-latest
+    outputs:
+      context: ${{ steps.result.outputs.context }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: result
+        uses: ./.github/actions/serverless-stage-result
+        with:
+          stage: backend
+          results: ${{ toJSON(needs) }}
