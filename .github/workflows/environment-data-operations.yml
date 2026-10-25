@@ -129,6 +129,7 @@ jobs:
     outputs:
       config_json: ${{ steps.gate.outputs.config_json }}
       account: ${{ steps.gate.outputs.account }}
+      v5_matrix: ${{ steps.gate.outputs.v5_matrix }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -137,6 +138,7 @@ jobs:
         run: python3 .github/scripts/environment-upgrade/validate_operation.py
         env:
           DATA_CONFIG_JSON: ${{ inputs.config_json }}
+          V5_ACCEPTANCE_TRUSTED_VAULT_ADDR: ${{ vars.VAULT_ADDR }}
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
 
@@ -269,10 +271,75 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  post_migration_v5:
+    name: V5 read-only acceptance / ${{ matrix.host }}
+    needs: [request_gate, serverless_database, selfhost_database, core_users, release_controller]
+    if: >-
+      ${{ always() && !cancelled() && needs.request_gate.result == 'success' &&
+      fromJSON(needs.request_gate.outputs.config_json).post_migration_v5 != null &&
+      (needs.serverless_database.result == 'success' || needs.selfhost_database.result == 'success' ||
+      needs.core_users.result == 'success' || needs.release_controller.result == 'success') }}
+    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.request_gate.outputs.v5_matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify exact infrastructure artifact and materialize one target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V5_MODE: materialize
+          V5_MATRIX_ROW: ${{ toJSON(matrix) }}
+        run: python3 .github/scripts/acceptance/migration_matrix.py
+      - name: Checkout immutable Playbooks owner
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ matrix.playbooks_sha }}
+          path: playbooks
+          persist-credentials: false
+      - name: Load environment-scoped SSH identity
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ matrix.vault_addr }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.environment }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/${{ inputs.environment }} SSH_PRIVATE_DEPLOY_KEY_B64 | V5_SSH_KEY_B64
+      - name: Execute same SSH Playbook Role and generate readable evidence
+        uses: ./playbooks/.github/actions/v5-readonly-acceptance
+        with:
+          plan: ${{ runner.temp }}/v5-input/plan.json
+          cmdb: ${{ runner.temp }}/v5-input/cmdb.json
+          evidence-dir: ${{ runner.temp }}/v5-evidence
+          ssh-key-b64: ${{ steps.vault.outputs.V5_SSH_KEY_B64 }}
+      - name: Archive Markdown JUnit and sanitized evidence even after failed checks
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: v5-report-${{ matrix.host }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/v5-evidence
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Require exact report identity checksums and all mandatory checks
+        if: ${{ always() }}
+        env:
+          V5_REPORT_DIR: ${{ runner.temp }}/v5-evidence/report
+          V5_MATRIX_ROW: ${{ toJSON(matrix) }}
+        run: python3 .github/scripts/acceptance/verify_report.py
+
   verdict:
     name: Selected executor must succeed (dispatch is not acceptance)
-    if: ${{ always() && needs.request_gate.result != '' && needs.legacy_import.result != '' && needs.akamai_preflight.result != '' && needs.serverless_database.result != '' && needs.selfhost_database.result != '' && needs.selfhost_components.result != '' && needs.core_users.result != '' && needs.release_controller.result != '' }}
-    needs: [request_gate, legacy_import, akamai_preflight, serverless_database, selfhost_database, selfhost_components, core_users, release_controller]
+    if: ${{ always() && needs.request_gate.result != '' && needs.legacy_import.result != '' && needs.akamai_preflight.result != '' && needs.serverless_database.result != '' && needs.selfhost_database.result != '' && needs.selfhost_components.result != '' && needs.core_users.result != '' && needs.release_controller.result != '' && needs.post_migration_v5.result != '' }}
+    needs: [request_gate, legacy_import, akamai_preflight, serverless_database, selfhost_database, selfhost_components, core_users, release_controller, post_migration_v5]
     runs-on: ubuntu-latest
     steps:
       - env:
@@ -294,5 +361,7 @@ jobs:
                     "release_controller")
           if any(needs[job]["result"] != "success" for job in ("request_gate", target)):
               raise SystemExit("Selected data operation did not pass; downstream blocked")
+          if config.get("post_migration_v5") is not None and needs["post_migration_v5"]["result"] != "success":
+              raise SystemExit("V5 matrix missing, failed or skipped; downstream blocked")
           print("Selected executor completed; consult scoped evidence for live acceptance")
           PY

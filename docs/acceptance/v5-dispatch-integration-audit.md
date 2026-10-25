@@ -50,3 +50,12 @@ Existing dispatch contract tests (7) and strict receipt tests (55) passed
 locally; no operational Actions dispatch was performed. The runtime
 `v5-readonly-observation/v1` result is not a GitHub dispatch receipt and cannot
 be used to claim completion of V5-23.
+
+## Later scoped integration
+
+The user selected `environment-data-operations.yml` as the single integration
+point instead of the Selfhost stage chain. See `v5-environment-data-matrix.md`: one
+optional existing-workflow matrix now calls the same owner Role and validates
+automatically generated reports. The Selfhost findings above remain historical
+audit evidence; its workflows and stage dispatcher were not changed. Actual
+Actions execution and UAT qualification remain NOT_RUN.
