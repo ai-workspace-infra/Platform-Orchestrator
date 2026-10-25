@@ -1,6 +1,6 @@
 # Serverless dispatch catalog
 
-Source: `.github/workflows/serverless-orchestrator.yml` and its five local stage workflows.
+Source: `.github/workflows/serverless-orchestrator.yml` and its five local stages plus four deployment phase workflows.
 
 Track: [#1445](https://github.com/ai-workspace-infra/platform-ops-toolkit/issues/1445).
 

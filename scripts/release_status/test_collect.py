@@ -47,6 +47,9 @@ class EvidenceTests(unittest.TestCase):
         nested = [{**job, 'name': '[3/5] Deploy / ' + job['name']} for job in jobs]
         self.assertEqual(c.serverless_records(RUN,meta,nested)[0]['status'],'success')
         self.assertEqual(c.serverless_records(RUN,meta,nested[1:])[0]['status'],'unknown')
+        grouped = [{**job, 'name': '[3/5] Deploy / backend / ' + job['name']} for job in jobs]
+        self.assertEqual(c.serverless_records(RUN,meta,grouped)[0]['status'],'success')
+        self.assertEqual(c.serverless_records(RUN,meta,grouped[1:])[0]['status'],'unknown')
         nested[0]['conclusion'] = 'failure'
         self.assertEqual(c.serverless_records(RUN,meta,nested)[0]['status'],'unknown')
         self.assertEqual(c.serverless_records({**RUN, 'conclusion': 'failure'},meta,nested)[0]['status'],'failed')

@@ -37,10 +37,12 @@
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-cloudflare-serverless-domains.yaml@refs/heads/*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-stage-infra.yml@refs/pull/*/merge",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-stage-infra.yml@refs/heads/*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-stage-deploy.yml@refs/pull/*/merge",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-stage-deploy.yml@refs/heads/*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-stage-migrate.yml@refs/pull/*/merge",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-stage-migrate.yml@refs/heads/*"
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-stage-migrate.yml@refs/heads/*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-deploy-backend.yml@refs/pull/*/merge",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-deploy-backend.yml@refs/heads/*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-deploy-frontend.yml@refs/pull/*/merge",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-deploy-frontend.yml@refs/heads/*"
     ],
     "ref": [
       "refs/pull/*/merge",

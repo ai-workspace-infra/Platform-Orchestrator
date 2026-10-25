@@ -8,7 +8,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 OWNER_SHA = "d7e49189a5de9c105a940f1c79abfb3b2b33bbd4"
-SERVERLESS = ROOT / ".github/workflows/serverless-stage-deploy.yml"
+SERVERLESS = ROOT / ".github/workflows/serverless-deploy-backend.yml"
 DIAGNOSTICS = ROOT / ".github/workflows/prod-agent-proxy-diagnostics.yml"
 GATE = ROOT / ".github/scripts/serverless/verify_cloud_run_digest_facts.sh"
 

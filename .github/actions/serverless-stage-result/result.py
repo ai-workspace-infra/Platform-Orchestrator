@@ -17,6 +17,13 @@ STAGES = {
     'migrate': ('trigger_data_migration', 'stripe_catalog'),
     'verify': ('verify', 'console_release_metadata'),
 }
+DEPLOY_PHASES = {
+    'data': STAGES['deploy'][:5],
+    'backend': ('cloud_run', 'artifact_manifest', 'backend_gate'),
+    'frontend': ('cloudflare_ssr', 'frontend_router', 'edge_gateway', 'static_pages'),
+    'domains': ('serverless_domains_provider', 'serverless_domains'),
+}
+STAGES.update(DEPLOY_PHASES)
 OUTPUTS = {
     'preflight': ('gitops_ref', 'guarded_api_gateway', 'target_manifest', 'iac_sha', 'selectors'),
     'supabase': ('data_run_id',),
@@ -46,7 +53,8 @@ def sanitize(results: dict, expected) -> dict:
 def metadata() -> None:
     contexts = json.loads(os.environ['STAGE_CONTEXTS'])
     lanes = {}
-    for stage, expected in STAGES.items():
+    for stage in ('resolve', 'infra', 'deploy', 'migrate'):
+        expected = STAGES[stage]
         if stage == 'verify':
             continue
         value = json.loads(contexts.get(f'{stage}_context', '{}'))
@@ -70,7 +78,26 @@ def main() -> None:
     stage = os.environ['SERVERLESS_STAGE']
     if stage not in STAGES:
         raise ValueError('Unknown serverless stage')
-    clean = sanitize(json.loads(os.environ['STAGE_JOBS']), STAGES[stage])
+    raw = json.loads(os.environ['STAGE_JOBS'])
+    group_failures = []
+    if stage == 'deploy':
+        phases = sanitize(raw, DEPLOY_PHASES)
+        clean = {}
+        for name, phase in phases.items():
+            value = raw[name].get('outputs', {}).get('context', '')
+            if phase['result'] == 'success':
+                if not value:
+                    raise ValueError(f'Missing successful phase context: {name}')
+                clean.update(sanitize(json.loads(value), DEPLOY_PHASES[name]))
+            else:
+                group_failures.append(f'phase:{name}')
+                # A failed reusable workflow can omit its outputs; never turn
+                # that into a successful phase or invent successful lanes.
+                clean.update({job: {'result': phase['result'], 'outputs': {}}
+                              for job in DEPLOY_PHASES[name]})
+        clean = sanitize(clean, STAGES['deploy'])
+    else:
+        clean = sanitize(raw, STAGES[stage])
     prior = json.loads(os.environ.get('STAGE_RESULTS', '{}'))
     if stage == 'verify':
         prior = sanitize(prior, PARENTS)
@@ -87,7 +114,7 @@ def main() -> None:
                                'run_attempt': attempt, 'context': clean}) + '\n')
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
         output.write(f'context={context}\nresult_file={path}\n')
-    failures = [name for name, value in clean.items() if value['result'] in {'failure', 'cancelled'}]
+    failures = group_failures + [name for name, value in clean.items() if value['result'] in {'failure', 'cancelled'}]
     failures.extend(f'parent:{name}' for name, value in prior.items() if value['result'] != 'success')
     with open(os.environ.get('GITHUB_STEP_SUMMARY', os.devnull), 'a') as summary:
         summary.write(f'### Serverless {stage}\n\n')

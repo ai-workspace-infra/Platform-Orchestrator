@@ -40,10 +40,12 @@
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-cloudflare-serverless-domains.yaml@refs/heads/release/v*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-stage-infra.yml@refs/tags/v*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-stage-infra.yml@refs/heads/release/v*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-stage-deploy.yml@refs/tags/v*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-stage-deploy.yml@refs/heads/release/v*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-stage-migrate.yml@refs/tags/v*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-stage-migrate.yml@refs/heads/release/v*"
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-stage-migrate.yml@refs/heads/release/v*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-deploy-backend.yml@refs/tags/v*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-deploy-backend.yml@refs/heads/release/v*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-deploy-frontend.yml@refs/tags/v*",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-deploy-frontend.yml@refs/heads/release/v*"
     ],
     "ref": [
       "refs/tags/v*",

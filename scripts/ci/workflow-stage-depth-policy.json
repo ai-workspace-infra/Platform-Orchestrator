@@ -16,10 +16,6 @@
     "vault-server.yml": {
       "max_stages": 8,
       "reason": "Existing Vault lifecycle; consolidate readiness and evidence gates in follow-up."
-    },
-    "serverless-stage-deploy.yml": {
-      "max_stages": 10,
-      "reason": "Preserved Serverless deployment DAG moved from the 13-stage entrypoint; schema, backend and frontend owner gates remain ordered. Parent now has five jobs; consolidate the remaining child owner handoffs in follow-up."
     }
   }
 }

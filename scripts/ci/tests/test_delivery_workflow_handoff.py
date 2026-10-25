@@ -32,7 +32,7 @@ class WorkflowHandoff(unittest.TestCase):
                 self.assertEqual(document['concurrency']['cancel-in-progress'], False)
 
     def test_callers_have_no_iac_delivery_workflow_dependency(self):
-        for filename, job, wrapper in [('serverless-stage-deploy.yml', 'serverless_domains_provider', 'iac-cloudflare-serverless-domains.yaml'),
+        for filename, job, wrapper in [('serverless-deploy-domains.yml', 'serverless_domains_provider', 'iac-cloudflare-serverless-domains.yaml'),
                                       ('environment-data-operations.yml', 'akamai_preflight', 'iac-akamai-state-preflight.yaml')]:
             document = self.load(filename)
             self.assertEqual(document['jobs'][job]['uses'], './.github/workflows/'+wrapper)

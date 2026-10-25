@@ -102,6 +102,11 @@ def serverless_jobs(run_jobs):
         for prefix in prefixes:
             if name.startswith(prefix):
                 name = name[len(prefix):]
+                if prefix == '[3/5] Deploy / ':
+                    for phase in ('data / ', 'backend / ', 'frontend / ', 'domains / '):
+                        if name.startswith(phase):
+                            name = name[len(phase):]
+                            break
                 break
         normalized.append({**job, 'name': name})
     return normalized

@@ -7,7 +7,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 SERVERLESS = ROOT / ".github/workflows/serverless-stage-deploy.yml"
-SERVERLESS_STAGES = sorted((ROOT / ".github/workflows").glob("serverless-stage-*.yml"))
+SERVERLESS_STAGES = sorted((ROOT / ".github/workflows").glob("serverless-*.yml"))
 XCONNECT = ROOT / ".github/workflows/xconnect-zero-cloud.yaml"
 OWNER_SHA = "d7e49189a5de9c105a940f1c79abfb3b2b33bbd4"
 

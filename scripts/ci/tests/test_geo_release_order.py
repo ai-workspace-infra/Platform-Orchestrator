@@ -11,7 +11,7 @@ class GeoReleaseOrderTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[3]
         workflow = root / ".github/workflows/serverless-orchestrator.yml"
         self.parent = yaml.load(workflow.read_text(), Loader=yaml.BaseLoader)
-        stage = root / ".github/workflows/serverless-stage-deploy.yml"
+        stage = root / ".github/workflows/serverless-deploy-frontend.yml"
         self.workflow = yaml.load(stage.read_text(), Loader=yaml.BaseLoader)
 
     def test_router_waits_for_successful_portal_asset_publication(self):

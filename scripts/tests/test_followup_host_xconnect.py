@@ -57,7 +57,7 @@ class FollowupHostXConnectCallerTests(unittest.TestCase):
         self.assertNotRegex(reconcile, r'(?m)^\s+ssh\s')
 
     def test_frontend_boundary_probes_are_fixed_owner_calls(self):
-        source = (ROOT / '.github/workflows/serverless-stage-deploy.yml').read_text()
+        source = (ROOT / '.github/workflows/serverless-deploy-domains.yml').read_text()
         for operation in ('public-chain', 'frontend-assets'):
             match = re.search(
                 rf'uses: ai-workspace-infra/playbooks/\.github/actions/service-probes@([0-9a-f]{{40}})\n'

@@ -183,9 +183,10 @@ Deploy retains checkpoint, optional schema prerequisites, sequential Cloud Run
 rollouts, backend gate, SSR, Pages, frontend router, edge gateway, domain owner
 and public-chain probes. Schema changes remain before Cloud Run. Frontend
 publication remains behind the backend gate, Pages behind SSR, and the router
-behind Pages. The deploy child retains a ten-job critical path as explicitly
-tracked legacy debt; the parent has five jobs. No gate was removed to flatten
-the graph.
+behind Pages. The deploy stage calls four ordered local phases: data prerequisites, backend,
+frontend and domains. Its critical path has five jobs, including the result
+gate; each phase has at most four. The old Serverless legacy-depth exception
+is removed. No gate was removed to flatten the graph.
 
 Migrate & Configure retains the explicit legacy import rejection/opt-in gate and
 optional, nonblocking Stripe catalog reconciliation. Verify consumes the same-run
@@ -202,7 +203,8 @@ A per-environment `serverless-<environment>` lock serializes parent runs.
 
 ### Stage workflow authorization rollout
 
-The credential-consuming `infra`, `deploy` and `migrate` stage filenames require
+The credential-consuming `serverless-stage-infra`, `serverless-stage-migrate`,
+`serverless-deploy-backend` and `serverless-deploy-frontend` workflow filenames require
 exact entries in the existing environment-specific Vault role declarations.
 Those entries reuse each role's current ref allowlist; feature branches are not
 newly authorized. Configuration committed to Git is not proof that a live Vault

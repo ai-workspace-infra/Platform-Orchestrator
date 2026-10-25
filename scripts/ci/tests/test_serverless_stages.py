@@ -46,7 +46,8 @@ class ServerlessStages(unittest.TestCase):
         import re
         parent = workflow('serverless-orchestrator.yml')
         trigger = parent.get('on', parent.get(True))['workflow_dispatch']['inputs']
-        for job in parent['jobs'].values():
+        callers = list(parent['jobs'].values()) + [job for name, job in workflow('serverless-stage-deploy.yml')['jobs'].items() if name != 'stage_result']
+        for job in callers:
             child = workflow(job['uses'].rsplit('/', 1)[1])
             declared = child.get('on', child.get(True))['workflow_call']['inputs']
             referenced = set(re.findall(r'\binputs\.([a-z_][a-z_0-9]*)', json.dumps(child['jobs'])))
@@ -61,7 +62,10 @@ class ServerlessStages(unittest.TestCase):
 
     def test_no_dangling_needs_and_collectors_include_every_job(self):
         for stage, expected in result.STAGES.items():
-            child = workflow(f'serverless-stage-{stage}.yml')
+            filename = f'serverless-deploy-{stage}.yml' if stage in result.DEPLOY_PHASES else f'serverless-stage-{stage}.yml'
+            child = workflow(filename)
+            if stage == 'deploy':
+                expected = tuple(result.DEPLOY_PHASES)
             jobs = child['jobs']
             self.assertEqual(set(jobs), set(expected) | {'stage_result'})
             self.assertEqual(set(jobs['stage_result']['needs']), set(expected))
@@ -75,14 +79,12 @@ class ServerlessStages(unittest.TestCase):
             self.assertEqual(action['with']['results'], '${{ toJSON(needs) }}')
 
     def test_schema_and_backend_frontend_order_remains_strict(self):
-        jobs = workflow('serverless-stage-deploy.yml')['jobs']
+        jobs = {name: job for phase in result.DEPLOY_PHASES for name, job in workflow(f'serverless-deploy-{phase}.yml')['jobs'].items() if name != 'stage_result'}
         for schema in ('uat_accounts_baseline', 'uat_accounts_schema_migration'):
-            self.assertIn(schema, jobs['cloud_run']['needs'])
-            self.assertIn(f'needs.{schema}.result == \'success\'', jobs['cloud_run']['if'])
+            self.assertIn(f'fromJSON(inputs.data_context).{schema}.result == \'success\'', jobs['cloud_run']['if'])
         self.assertIn('cloud_run', jobs['backend_gate']['needs'])
         for frontend in ('cloudflare_ssr', 'edge_gateway', 'frontend_router'):
-            self.assertIn('backend_gate', jobs[frontend]['needs'])
-            self.assertIn("needs.backend_gate.result == 'success'", jobs[frontend]['if'])
+            self.assertIn("fromJSON(inputs.backend_context).backend_gate.result == 'success'", jobs[frontend]['if'])
         self.assertIn('cloudflare_ssr', jobs['static_pages']['needs'])
         self.assertIn("needs.cloudflare_ssr.result == 'success'", jobs['static_pages']['if'])
         self.assertIn('static_pages', jobs['frontend_router']['needs'])
@@ -94,14 +96,16 @@ class ServerlessStages(unittest.TestCase):
         for environment in ('sit', 'uat', 'prod'):
             role = json.loads((ROOT / f'scripts/vault/roles/github-actions-platform-ops-toolkit-{environment}.json').read_text())
             claims = role['bound_claims']
-            for stage in ('infra', 'deploy', 'migrate'):
-                prefix = f'ai-workspace-infra/platform-ops-toolkit/.github/workflows/serverless-stage-{stage}.yml@'
+            for name in ('serverless-stage-infra', 'serverless-stage-migrate', 'serverless-deploy-backend', 'serverless-deploy-frontend'):
+                prefix = f'ai-workspace-infra/platform-ops-toolkit/.github/workflows/{name}.yml@'
                 selected = [value.removeprefix(prefix) for value in claims['job_workflow_ref'] if value.startswith(prefix)]
                 self.assertEqual(selected, claims['ref'])
                 self.assertNotIn('*', selected)
             self.assertFalse(any('refs/heads/feature/' in value for value in claims['job_workflow_ref']))
 
     def run_stage(self, stage, jobs, prior=None):
+        if stage == 'deploy' and set(jobs) == set(result.STAGES['deploy']):
+            jobs = {name: {'result': 'success', 'outputs': {'context': json.dumps({job: jobs[job] for job in expected})}} for name, expected in result.DEPLOY_PHASES.items()}
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / 'output'
             env = dict(os.environ, SERVERLESS_STAGE=stage, STAGE_JOBS=json.dumps(jobs),
@@ -136,6 +140,30 @@ class ServerlessStages(unittest.TestCase):
             run, _ = self.run_stage('verify', success('verify'), prior)
             self.assertNotEqual(run.returncode, 0)
             self.assertIn('parent:deploy', run.stderr)
+
+    def test_nested_deploy_failures_and_missing_context_cannot_pass(self):
+        phases = {name: {'result': 'success', 'outputs': {'context': json.dumps(success(name))}}
+                  for name in result.DEPLOY_PHASES}
+        run, artifact = self.run_stage('deploy', phases)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(set(artifact['context']), set(result.STAGES['deploy']))
+        phases['backend']['outputs'] = {}
+        run, _ = self.run_stage('deploy', phases)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('Missing successful phase context', run.stderr)
+        phases['backend']['result'] = 'failure'
+        run, artifact = self.run_stage('deploy', phases)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertEqual(artifact['context']['cloud_run']['result'], 'failure')
+
+    def test_every_new_workflow_has_at_most_five_sequential_jobs(self):
+        spec = importlib.util.spec_from_file_location('depth', ROOT / 'scripts/ci/workflow_stage_depth_verify.py')
+        depth = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(depth)
+        for path in WF.glob('serverless-*.yml'):
+            self.assertLessEqual(len(depth.longest_chain(yaml.safe_load(path.read_text())['jobs'])), 5, path.name)
+        policy = json.loads((ROOT / 'scripts/ci/workflow-stage-depth-policy.json').read_text())
+        self.assertFalse(any(name.startswith('serverless-') for name in policy['legacy']))
 
     def test_wrong_missing_unknown_and_non_string_results_are_rejected(self):
         fixtures = [{}, {'unexpected': {'result': 'success'}}, {'preflight': {'result': 'unknown'}},
