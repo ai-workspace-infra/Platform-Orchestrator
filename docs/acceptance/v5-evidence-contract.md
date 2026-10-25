@@ -1,7 +1,8 @@
 # V4 → V5 acceptance: first owner-first delivery
 
 Task: [V4→V5 干净重建与 Selfhost 全流程验收](codex://threads/01a1691f-61fc-7843-9e1d-e04d1bfe900d).
-No new or modified GitHub workflow is included. SSH → Playbook → Role is the
+The existing `environment-data-operations.yml` now contains one optional
+post-migration V5 job matrix; no new workflow is added. SSH → Playbook → Role is the
 first execution route. [中文验收矩阵](v5-matrix.zh.md) 与 `v5-matrix.json`（v2）记录同一份 23 组清单、
 多阶段映射、必需断言及有时间边界的历史/采样状态，供后续审阅。
 The matrix records the stage DAG for
@@ -53,7 +54,9 @@ workflow/repository + immutable artifact ID/digest using authenticated API
 metadata, verify the download/archive digest before extraction, and build the
 trusted request independently. A receipt copied into its own request is not
 trusted evidence. OCI release digest and download archive digest must be
-verified separately by that adapter. No caller is enabled yet; this is not a
+verified separately by that adapter. The optional same-workflow matrix uses the independently validated automatic
+report gate described in `v5-environment-data-matrix.md`; the generic cross-run
+receipt caller is not yet enabled; this is not a
 production gate cutover or UAT acceptance claim.
 
 Manual SSH observations use `v5-readonly-observation/v1`, not invented GitHub

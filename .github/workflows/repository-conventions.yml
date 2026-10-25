@@ -47,7 +47,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/playbooks
-          ref: 18fa333e5d76143f2a3a3ce94b1766a04003ebd8
+          # Includes the V5 owner action under review in Playbooks PR #764.
+          # This is a CI contract snapshot, not a production execution pin.
+          ref: f8fefbf73c3e2c6bff27d50ac242251c04e22a75
           path: contract/playbooks
 
       - name: Checkout immutable GitOps declarations
