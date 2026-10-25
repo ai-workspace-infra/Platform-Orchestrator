@@ -9,7 +9,9 @@
   "bound_claims_type": "glob",
   "bound_claims": {
     "repository": "ai-workspace-services/content-service",
-    "job_workflow_ref": "ai-workspace-services/content-service/.github/workflows/*pipeline.ym*@*",
+    "job_workflow_ref": [
+      "ai-workspace-services/content-service/.github/workflows/ci-pipeline.yml@*"
+    ],
     "ref": [
       "refs/heads/main",
       "refs/heads/release/*",
