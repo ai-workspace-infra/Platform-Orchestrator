@@ -9,7 +9,10 @@
   "bound_claims_type": "glob",
   "bound_claims": {
     "repository": "ai-workspace-services/portal",
-    "job_workflow_ref": "ai-workspace-services/portal/.github/workflows/*pipeline.ym*@*",
+    "job_workflow_ref": [
+      "ai-workspace-services/portal/.github/workflows/ci-pipeline.yml@*",
+      "ai-workspace-services/portal/.github/workflows/console-uat-pipeline.yml@*"
+    ],
     "ref": [
       "refs/heads/main",
       "refs/heads/release/*",
