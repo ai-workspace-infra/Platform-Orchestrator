@@ -1,6 +1,6 @@
 # V4 → V5：23 组正式验收矩阵
 
-执行顺序：SSH → Playbook → Role；完成 owner 验证及 UAT 后，由现有迁移流程结束后的 dispatch 调用 job 矩阵。本次不新增或修改 GitHub Workflow。
+执行顺序：SSH → Playbook → Role；完成 owner 验证及 UAT 后，由现有迁移流程结束后的 dispatch 调用 job 矩阵。仅在现有 `environment-data-operations.yml` 扩展一个可选迁移后 job 矩阵，不新增 Workflow。
 
 “用户历史快照”保留原表结果；“最近只读采样”为 2026-10-25 17:38（北京时间），并非本次新执行。未采样项不继承历史 PASS。阶段编号表达生命周期，不表示阶段已执行。
 

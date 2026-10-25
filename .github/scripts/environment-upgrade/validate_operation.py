@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Validate control-plane inputs before any execution-owner credentials."""
+import importlib.util
+from pathlib import Path
 import json
 import os
 import re
@@ -111,9 +113,21 @@ def main():
     for field in ("expected_schema_version", "target_schema_version", "migration_sha256"):
         if os.environ.get(field.upper()):
             config[field] = os.environ[field.upper()]
+    matrix_spec=importlib.util.spec_from_file_location('v5_matrix',Path(__file__).resolve().parents[1]/'acceptance/migration_matrix.py')
+    matrix_module=importlib.util.module_from_spec(matrix_spec);matrix_spec.loader.exec_module(matrix_module)
+    try:
+        matrix=matrix_module.validate_data_plan(config,environment,os.environ.get('GITHUB_SHA',''))
+    except (ValueError,KeyError,TypeError):
+        raise SystemExit('Invalid post-migration V5 acceptance scope or immutable source')
+    if matrix:
+        require(config['post_migration_v5']['vault_addr'] == os.environ.get('V5_ACCEPTANCE_TRUSTED_VAULT_ADDR') and bool(os.environ.get('V5_ACCEPTANCE_TRUSTED_VAULT_ADDR')),
+                'V5 Vault endpoint must match the trusted repository/environment VAULT_ADDR variable')
+        require(mode in {'migrate','upgrade','selfhost_verify','core_users'}, 'V5 matrix must follow an explicit supported data operation')
+        require(mode != 'core_users' or config.get('action') == 'copy', 'core_users matrix requires explicit completed copy, not compare')
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a") as output:
             output.write("config_json=" + json.dumps(config, separators=(",", ":")) + "\n")
+            output.write("v5_matrix=" + json.dumps({'include':matrix},separators=(',',':')) + "\n")
             output.write("account=" + str(config.get("account", "")) + "\n")
     print(f"Validated {mode} request for {environment}; no credentials or resources changed")
 
