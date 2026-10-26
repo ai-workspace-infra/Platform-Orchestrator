@@ -10,7 +10,8 @@ IAC='1d3bc5b54a49b946b98e48bf9f73606369b77d02'
 PLATFORM='60bf8621c5a0d1dfd3f7ce38758a48740f9f14e7'
 PLAYBOOKS='4a5dbb8e1240a096e7818f1da6a925569a3da7ea'
 WORKFLOW='ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-feature-deploy.yml@refs/heads/main'
-SCOPES={'sit':'sit-xconnect-referral','uat':'uat'}
+SCOPES={'sit':'sit-xconnect-referral','uat':'uat','platform-ingress':None}
+CALLEES={'feature':('dev-feature-flux.yml','f8a2aaa4252586fd9b56852d8b71ce8bedc48084'),'seed':('dev-web-saas-seed.yml','0e10792d35dd70b9d70eff59eb064c5b84c5a22e'),'ingress':('dev-platform-ingress.yml','f8a2aaa4252586fd9b56852d8b71ce8bedc48084')}
 SHA=re.compile(r'[0-9a-f]{40}')
 # Source repository, immutable image repository, reviewed build workflow.
 COMPONENTS={
@@ -90,7 +91,7 @@ def candidate(reader,number,stage):
  require(pr.get('number')==number and pr.get('base',{}).get('repo',{}).get('full_name')==GITOPS and pr.get('head',{}).get('repo',{}).get('full_name')==GITOPS and pr.get('base',{}).get('ref')=='main','same-repository main-based GitOps PR required')
  main=reader.api(f'repos/{GITOPS}/git/ref/heads/main')['object']['sha']
  head=pr.get('head',{}).get('sha');require(SHA.fullmatch(head or '') and SHA.fullmatch(main),'immutable candidate identity missing')
- if stage=='sit':
+ if stage=='sit' or (stage=='platform-ingress' and not pr.get('merged')):
   require(pr.get('state')=='open' and not pr.get('merged'),'SIT requires unmerged candidate PR')
   comparison=reader.api(f'repos/{GITOPS}/compare/{main}...{head}')
   require(comparison.get('status') in ('ahead','identical'),'candidate must contain current main ancestry')
@@ -100,25 +101,45 @@ def candidate(reader,number,stage):
   comparison=reader.api(f'repos/{GITOPS}/compare/{merged}...{main}')
   require(comparison.get('status') in ('ahead','identical'),'merged PR not reachable from current main');head=main
  checks=check_head(reader,head)
+ if stage=='platform-ingress':
+  return {'schema_version':'dev-feature-candidate/v1','result':'verified','repository':GITOPS,'stage':stage,'candidate_pr':number,'candidate_head':head,'pr_head':pr['head']['sha'],'base_ref':'main','base_sha':main,'checks':'success','check_receipts':checks,'same_repository':True,'main_ancestry_verified':True,'source':{'workflow_ref':WORKFLOW,'run_id':os.environ['GITHUB_RUN_ID']}},None
  path=f'services/distributed-web-saas-fullstack/dev/{SCOPES[stage]}/release.yaml'
  content=reader.api(f'repos/{GITOPS}/contents/{path}?ref={head}')
  require(content.get('path')==path and content.get('type')=='file' and content.get('encoding')=='base64' and 0<content.get('size',0)<100000,'fixed release declaration missing/oversized')
  release=yaml.safe_load(base64.b64decode(content['content']))
  return {'schema_version':'dev-feature-candidate/v1','result':'verified','repository':GITOPS,'stage':stage,'candidate_pr':number,'candidate_head':head,'pr_head':pr['head']['sha'],'base_ref':'main','base_sha':main,'checks':'success','check_receipts':checks,'same_repository':True,'main_ancestry_verified':True,'source':{'workflow_ref':WORKFLOW,'run_id':os.environ['GITHUB_RUN_ID']}},release
 
-def source_gate(reader,repo,sha,workflow):
+FEATURE_TASK_PATH='docs/tasks/xconnect-referral-completion-20261025.md'
+APPROVED_ACCOUNTS_PREVIEW_WORKFLOW_BLOB='dabc81dbddd7ee2ad70f05317b8bd2d256fe6e47'
+def feature_link(reader,repo,pr):
+ body=pr.get('body') or ''
+ direct=re.search(r'https://github\.com/ai-workspace-services/accounts/blob/[^\s)]+/'+re.escape(FEATURE_TASK_PATH),body)
+ if direct:return {'kind':'task_path','path':FEATURE_TASK_PATH}
+ linked=('https://github.com/ai-workspace-services/accounts/pull/277' in body or (repo=='ai-workspace-services/accounts' and re.search(r'(?<![A-Za-z0-9])#277(?![0-9])',body)))
+ require(bool(linked),'preview source PR lacks original referral task link')
+ baseline=reader.api('repos/ai-workspace-services/accounts/pulls/277')
+ require(baseline.get('number')==277 and FEATURE_TASK_PATH in (baseline.get('body') or ''),'original referral task baseline unavailable')
+ return {'kind':'baseline_pr','repository':'ai-workspace-services/accounts','pr':277,'task_path':FEATURE_TASK_PATH}
+
+def source_gate(reader,repo,sha,workflow,stage='sit',run=None):
+ run=run or {};preview=run.get('event')=='workflow_dispatch'
  main=reader.api(f'repos/{repo}/git/ref/heads/main')['object']['sha']
  require(SHA.fullmatch(main),'source main identity missing')
  compared=reader.api(f'repos/{repo}/compare/{sha}...{main}')
- if compared.get('status') in ('ahead','identical'):return {'kind':'reachable_main','main_sha':main}
+ if not preview and compared.get('status') in ('ahead','identical'):return {'kind':'reachable_main','main_sha':main}
+ require(stage=='sit','UAT requires merged main source; preview is SIT only')
+ if preview:require(repo=='ai-workspace-services/accounts' and workflow=='.github/workflows/ci-pipeline.yml','only reviewed Accounts SIT dispatch publisher allowed')
  prs=pages(reader,f'repos/{repo}/commits/{sha}/pulls')
  selected=[p for p in prs if p.get('state')=='open' and p.get('head',{}).get('sha')==sha and p.get('head',{}).get('repo',{}).get('full_name')==repo and p.get('base',{}).get('repo',{}).get('full_name')==repo and p.get('base',{}).get('ref')=='main']
- require(len(selected)==1,'source must be reachable main or one same-repository open PR head')
+ require(len(selected)==1,'source must be one same-repository open PR current head')
+ pr=selected[0]
+ if preview:require(run.get('head_branch')==pr.get('head',{}).get('ref') and run.get('head_sha')==sha,'preview branch/current PR head differs')
  require(reader.api(f'repos/{repo}/compare/{main}...{sha}').get('status') in ('ahead','identical'),'source PR lacks current main ancestry')
  def blob(ref):return reader.api(f'repos/{repo}/contents/{workflow}?ref={ref}').get('sha')
  baseline_blob=blob(main);candidate_blob=blob(sha)
- require(SHA.fullmatch(baseline_blob or '') and baseline_blob==candidate_blob,'candidate modified privileged publisher workflow; separate owner review required')
- return {'kind':'verified_source_pr','pr':selected[0]['number'],'main_sha':main,'checks':check_head(reader,sha,repo)}
+ require(SHA.fullmatch(baseline_blob or '') and (baseline_blob==candidate_blob or (preview and candidate_blob==APPROVED_ACCOUNTS_PREVIEW_WORKFLOW_BLOB)),'candidate modified privileged publisher workflow beyond reviewed owner')
+ task=feature_link(reader,repo,pr)
+ return {'kind':'verified_sit_dispatch_pr' if preview else 'verified_source_pr','pr':pr['number'],'head_branch':pr.get('head',{}).get('ref'),'source_sha':sha,'main_sha':main,'task':task,'checks':check_head(reader,sha,repo)}
 
 PUBLISH={
  'caddy':('Build caddy image with cloudflare dns','Run actions/checkout@v7','Push image'),
@@ -137,7 +158,7 @@ def step_text(log,step):
   if match and start<=datetime.datetime.fromisoformat(match[1].replace('Z','+00:00'))<end+datetime.timedelta(seconds=1):selected.append(match[2])
  require(selected,'publisher step log unavailable');return '\n'.join(selected)
 
-def verify_publish_log(component,job,log,sha,image):
+def verify_publish_log(component,job,log,sha,image,preview=False):
  _,checkout,publish=PUBLISH[component]
  def one(name):
   selected=[s for s in job.get('steps',[]) if s.get('name')==name];require(len(selected)==1,'exact publisher step missing');return selected[0]
@@ -146,6 +167,18 @@ def verify_publish_log(component,job,log,sha,image):
  # argument alone is not proof that this revision became the build workspace.
  require(re.search(r'git log -1 --format=%H[^\n]*\n(?:[^\n]*\n){0,2}'+re.escape(sha)+r'(?:\n|$)',checkout_log),'actual checked-out source not proven')
  publish_log=step_text(log,one(publish));repo,digest=image.split('@')
+ if preview:
+  require(component=='accounts','only Accounts SIT preview publisher allowed')
+  target_step=one('Resolve publish target');tags_step=one('Compute GHCR image tags');vault_step=one('Load Vault Secrets for GHCR')
+  require(target_step['number']<one(checkout)['number']<vault_step['number']<tags_step['number']<one(publish)['number'],'preview publisher step sequence mismatch')
+  target=step_text(log,target_step)
+  for key,value in {'PUBLISH_TARGET':'github','PUSH_IMAGE':'true','EVENT_NAME':'workflow_dispatch','DEPLOY_ENV':'sit','SOURCE_REF':sha,'PUBLISH_ARTIFACT_REGISTRY':'false'}.items():require(re.search(r'(?m)^\s*'+key+': '+re.escape(value)+r'\s*$',target),'SIT preview publisher flag mismatch: '+key)
+  tags=step_text(log,tags_step)
+  require('type=raw,value=latest,enable=false' in tags.replace(' ',''),'preview must disable latest')
+  require(not re.search(r':latest@sha256:|(?m:^latest: digest:)',publish_log),'preview pushed latest')
+  require(any(x.get('name')=='Push Accounts image to Artifact Registry' and x.get('conclusion')=='skipped' for x in job.get('steps',[])),'preview must not publish Artifact Registry')
+  vault=step_text(log,vault_step)
+  require(re.search(r'(?m)^\s*role: github-actions-accounts-sit\s*$',vault),'preview did not use SIT publisher identity')
  # Buildx publisher must finish the immutable source tag's manifest push; plain
  # digest occurrence, unrelated repository, export-only or failed push is rejected.
  buildx=re.search(r'pushing manifest for '+re.escape(repo)+r':sha-'+re.escape(sha)+r'@'+re.escape(digest)+r'[^\n]*done(?:\n|$)',publish_log)
@@ -167,7 +200,7 @@ def job_log_from_archive(archive,job_name):
   require(len(matches)==1 and matches[0].file_size<=2_000_000,'exact publisher job log missing or ambiguous')
   return zipped.read(matches[0])
 
-def publisher_proof(reader,component,repo,rid,sha,image):
+def publisher_proof(reader,component,repo,rid,sha,image,preview=False):
  profile=PUBLISH[component];jobs=pages(reader,f'repos/{repo}/actions/runs/{rid}/jobs','jobs')
  selected=[j for j in jobs if (j.get('name','').startswith(profile[0]) if component=='postgresql' else j.get('name')==profile[0]) and j.get('conclusion')=='success']
  require(len(selected)==1,'unique successful reviewed publisher job missing for '+component)
@@ -180,17 +213,18 @@ def publisher_proof(reader,component,repo,rid,sha,image):
   archive=reader.api(f'repos/{repo}/actions/runs/{rid}/logs',binary=True)
   raw=job_log_from_archive(archive,job['name'])
  require(isinstance(raw,bytes) and len(raw)<=2_000_000,'publisher logs exceed bounded transport')
- return verify_publish_log(component,job,raw.decode(),sha,image)
+ return verify_publish_log(component,job,raw.decode(),sha,image,preview)
 
-def build_matrix(reader,release):
+def build_matrix(reader,release,stage='sit'):
  matrix=[]
  for component,(repo,image_repo,workflow) in COMPONENTS.items():
   row=release[component];annotations=row['podAnnotations'];sha=annotations['release.svc.plus/source_sha'];rid=positive(annotations['release.svc.plus/build_run_id'])
   image=row['singleContainer']['image'] if component=='console' else row['workload']['image'] if component in ('accounts','billing','content') else row['image']
   require(SHA.fullmatch(sha) and annotations['release.svc.plus/source_repository']==repo and re.fullmatch('ghcr.io/'+re.escape(image_repo)+'@sha256:[0-9a-f]{64}',image),'component source/image outside allowlist')
   require(annotations['release.svc.plus/image_digest']==image.split('@')[1],'component digest annotation differs')
-  run=reader.api(f'repos/{repo}/actions/runs/{rid}');run_identity(run,repo,sha,workflow)
-  source_proof=source_gate(reader,repo,sha,workflow)
+  run=reader.api(f'repos/{repo}/actions/runs/{rid}');event=run.get('event');require(event=='push' or (stage=='sit' and component=='accounts' and event=='workflow_dispatch'),'unapproved source build event')
+  run_identity(run,repo,sha,workflow,event)
+  source_proof=source_gate(reader,repo,sha,workflow,stage,run)
   # Prefer the existing source-owned image manifest. No Docker record or bare
   # annotation is promoted to a build proof when that producer manifest is absent.
   artifacts=pages(reader,f'repos/{repo}/actions/runs/{rid}/artifacts','artifacts')
@@ -198,7 +232,7 @@ def build_matrix(reader,release):
   name=f'{prefix}-main-image-{rid}-{run["run_attempt"]}'
   selected=[a for a in artifacts if a.get('name')==name]
   if not selected:
-   proof=publisher_proof(reader,component,repo,rid,sha,image)
+   proof=publisher_proof(reader,component,repo,rid,sha,image,event=='workflow_dispatch')
    matrix.append(dict(proof,component=component,repository=repo,run_id=rid,attempt=run['run_attempt'],source_gate=source_proof))
    continue
   require(len(selected)==1,'ambiguous source-owned main image manifests')
@@ -207,21 +241,80 @@ def build_matrix(reader,release):
   matrix.append({'component':component,'repository':repo,'source_sha':sha,'image':image,'run_id':rid,'attempt':run['run_attempt'],'artifact_id':aid,'document_sha256':hashlib.sha256(payload).hexdigest(),'source_gate':source_proof})
  return matrix
 
+def owner_producer(reader,kind):
+ filename,sha=CALLEES[kind];path='.github/workflows/'+filename
+ data=reader.api(f'repos/ai-workspace-infra/playbooks/contents/{path}?ref={sha}')
+ require(data.get('path')==path and data.get('type')=='file' and data.get('encoding')=='base64' and 0<data.get('size',0)<100000,'fixed callee source unavailable')
+ workflow=yaml.safe_load(base64.b64decode(data['content']));selected=[]
+ for job in workflow.get('jobs',{}).values():
+  for step in job.get('steps',[]):
+   settings=step.get('with',{})
+   if str(step.get('uses','')).startswith('actions/checkout@') and settings.get('repository')=='ai-workspace-infra/playbooks' and SHA.fullmatch(str(settings.get('ref',''))):selected.append(settings['ref'])
+ require(len(selected)==1,'fixed callee must select one immutable Playbooks implementation')
+ return selected[0]
+
+def prior_owner_receipt(reader,kind,run_id,artifact_id,stage,phase,identity,candidate_sha):
+ run_id=positive(run_id);artifact_id=positive(artifact_id)
+ run=reader.api(f'repos/{REPO}/actions/runs/{run_id}');source=run.get('head_sha')
+ require(SHA.fullmatch(source or ''),'owner caller source missing')
+ run_identity(run,REPO,source,'.github/workflows/dev-feature-deploy.yml','workflow_dispatch')
+ require(run.get('head_branch')=='main','owner caller must be protected main')
+ main=reader.api(f'repos/{REPO}/git/ref/heads/main')['object']['sha']
+ require(reader.api(f'repos/{REPO}/compare/{source}...{main}').get('status') in ('ahead','identical'),'owner caller source not reachable from current main')
+ def workflow_blob(ref):
+  row=reader.api(f'repos/{REPO}/contents/.github/workflows/dev-feature-deploy.yml?ref={ref}')
+  require(row.get('type')=='file' and SHA.fullmatch(row.get('sha','')),'owner caller workflow missing')
+  return row['sha']
+ require(workflow_blob(source)==workflow_blob(main),'owner caller workflow policy changed; fresh producer required')
+ meta=reader.api(f'repos/{REPO}/actions/artifacts/{artifact_id}')
+ prefix=f'dev-feature-{stage}-prepare-' if kind=='feature' else f'dev-lane-seed-{stage}-initialize-'
+ matched=re.fullmatch(re.escape(prefix+str(run_id)+'-')+r'([1-9][0-9]*)',meta.get('name',''))
+ require(matched is not None,'unexpected owner receipt artifact name')
+ attempt=int(matched[1]);require(attempt<=positive(run['run_attempt']),'future owner source attempt rejected')
+ jobs=pages(reader,f'repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs','jobs')
+ job_name='deploy / lane' if kind=='feature' else 'seed / seed'
+ selected_jobs=[j for j in jobs if j.get('name')==job_name]
+ require(len(selected_jobs)==1 and selected_jobs[0].get('conclusion')=='success','original owner phase job not uniquely successful')
+ raw=reader.artifact_file(REPO,artifact_id,run_id,run['run_attempt'],meta['name'],'receipt.json',source);receipt=json.loads(raw)
+ require(receipt.get('owner_sha')==owner_producer(reader,kind) and str(receipt.get('run_id'))==str(run_id) and str(receipt.get('run_attempt'))==str(attempt),'original owner source/run/attempt mismatch')
+ namespace='feature-xconnect-referral-sit' if stage=='sit' else 'web-saas-uat'
+ require(receipt.get('instance_id')==identity['instance_id'] and receipt.get('namespace')==namespace and receipt.get('candidate_sha')==candidate_sha and receipt.get('platform_sha')==identity['platform_sha'] and receipt.get('cmdb_sha256')==identity['cmdb_sha256'] and receipt.get('node_uid')==identity['node_uid'] and receipt.get('cluster_uid')==identity['cluster_uid'],'stale owner target/candidate binding')
+ if kind=='feature':
+  require(receipt.get('schema_version')=='dev-feature-flux/v1' and receipt.get('mode')=='prepare' and receipt.get('result')=='prepared','successful prepare owner required')
+  registry=receipt.get('registry',{});mapping=registry.get('oci_mapping',{});binding=mapping.get('binding',{})
+  require(registry.get('result')=='configured' and registry.get('source_path')=='kv/CICD/dev/ghcr' and registry.get('secret_name')=='web-saas-registry' and registry.get('namespace')==namespace and mapping.get('schema_version')=='dev-oci-platform/v1' and set(mapping.get('images',{}))==set(COMPONENTS),'safe prepare OCI mapping missing')
+  require(binding.get('candidate_sha')==candidate_sha and binding.get('namespace')==namespace and binding.get('node_uid')==identity['node_uid'] and binding.get('cluster_uid')==identity['cluster_uid'] and binding.get('instance_id')==identity['instance_id'] and binding.get('manifest_sha256')==receipt.get('manifest_sha256'),'OCI target binding mismatch')
+  require(binding.get('source',{}).get('repository')==REPO and binding.get('source',{}).get('workflow_ref')==WORKFLOW and binding.get('source',{}).get('owner_sha')==receipt['owner_sha'] and binding.get('source',{}).get('workflow_sha')==source and str(binding.get('source',{}).get('run_id'))==str(run_id) and str(binding.get('source',{}).get('run_attempt'))==str(attempt),'OCI original producer binding mismatch')
+ else:
+  require(receipt.get('schema_version')=='dev-lane-seed/v1' and receipt.get('phase')=='initialize' and receipt.get('result')=='verified' and receipt.get('schema_initialized') is True and receipt.get('database_roles')==['xc_accounts_rw','xc_billing_rw'],'real initialized DB owner required')
+ return raw,{'source_run':run_id,'source_attempt':attempt,'artifact_id':artifact_id,'caller_sha':source,'owner_sha':receipt['owner_sha'],'sha256':hashlib.sha256(raw).hexdigest()}
+
 def main():
  require(os.environ.get('GITHUB_WORKFLOW_REF')==WORKFLOW,'protected main caller required')
  reader=load('hardened_shared_reader',Path(os.environ['EVIDENCE_ROOT'])/'.github/scripts/acceptance/migration_matrix.py')
  root=Path(os.environ['DESTINATION']);root.mkdir(parents=True,exist_ok=True)
+ operation=os.environ.get('OPERATION','feature');phase=os.environ['PHASE']
+ require((operation=='feature' and phase in ('plan','prepare','seed-admin','submit','initialize','verify','enable-tls')) or (operation=='ingress' and phase in ('plan','reconcile','verify')),'unsupported fixed owner operation/phase')
+ stage='platform-ingress' if operation=='ingress' else os.environ['STAGE']
  raw,identity=foundation(reader,os.environ['FOUNDATION_RUN'],os.environ['SUMMARY_ARTIFACT'],os.environ['BOOTSTRAP_ARTIFACT'])
- receipt,release=candidate(reader,os.environ['CANDIDATE_PR'],os.environ['STAGE'])
- receipt['builds']=build_matrix(reader,release)
- fresh,_=candidate(reader,os.environ['CANDIDATE_PR'],os.environ['STAGE'])
+ receipt,release=candidate(reader,os.environ['CANDIDATE_PR'],stage)
+ if operation=='feature':receipt['builds']=build_matrix(reader,release,stage)
+ fresh,_=candidate(reader,os.environ['CANDIDATE_PR'],stage)
  require(fresh['candidate_head']==receipt['candidate_head'] and fresh['base_sha']==receipt['base_sha'],'candidate/main moved during resolution')
  (root/'cmdb').mkdir(exist_ok=True);(root/'candidate').mkdir(exist_ok=True)
  (root/'cmdb/cmdb.json').write_text(raw)
  body=json.dumps(receipt,sort_keys=True)+'\n';(root/'candidate/receipt.json').write_text(body)
+ extras={}
+ if operation=='feature' and phase in ('initialize','verify'):
+  requested=[('feature','prepare',os.environ['PREPARE_RUN'],os.environ['PREPARE_ARTIFACT'])]
+  if phase=='verify':requested.append(('seed','seed',os.environ['SEED_RUN'],os.environ['SEED_ARTIFACT']))
+  for kind,label,rid,aid in requested:
+   payload,provenance=prior_owner_receipt(reader,kind,rid,aid,stage,phase,identity,receipt['candidate_head'])
+   directory=root/label;directory.mkdir(exist_ok=True);(directory/'receipt.json').write_bytes(payload)
+   extras[label+'_sha256']=provenance['sha256'];identity[label+'_producer']=provenance
  (root/'foundation.json').write_text(json.dumps(identity,sort_keys=True)+'\n')
  with open(os.environ['GITHUB_OUTPUT'],'a') as output:
-  for key,value in dict(identity,gitops_sha=receipt['candidate_head'],candidate_sha256=hashlib.sha256(body.encode()).hexdigest()).items():output.write(f'{key}={value}\n')
+  for key,value in dict({k:v for k,v in identity.items() if not isinstance(v,dict)},**extras,gitops_sha=receipt['candidate_head'],candidate_sha256=hashlib.sha256(body.encode()).hexdigest()).items():output.write(f'{key}={value}\n')
 if __name__=='__main__':
  try:main()
  except Exception as error:raise SystemExit('Dev candidate resolution blocked: '+(str(error) if type(error) is ValueError else type(error).__name__)) from None

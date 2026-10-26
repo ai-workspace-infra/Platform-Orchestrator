@@ -17,7 +17,9 @@
     ],
     "job_workflow_ref": [
       "ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@e4607530b545ccf09e4045113afeb644b067823e",
-      "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@b2c7b8eb41fe28fa4b66646ba64945bb4317e61f"
+      "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@f8a2aaa4252586fd9b56852d8b71ce8bedc48084",
+      "ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@0e10792d35dd70b9d70eff59eb064c5b84c5a22e",
+      "ai-workspace-infra/playbooks/.github/workflows/dev-platform-ingress.yml@f8a2aaa4252586fd9b56852d8b71ce8bedc48084"
     ]
   },
   "token_policies": [

@@ -1,11 +1,16 @@
 name: Dev XConnect referral deployment
-run-name: 'dev-feature:${{ inputs.phase }} / ${{ inputs.stage }} / GitOps PR${{ inputs.candidate_pr }}'
+run-name: 'dev-${{ inputs.operation }}:${{ inputs.phase }} / ${{ inputs.stage }} / GitOps PR${{ inputs.candidate_pr }}'
 on:
   workflow_dispatch:
     inputs:
+      operation:
+        type: choice
+        options: [feature, ingress]
+        default: feature
+        required: true
       phase:
         type: choice
-        options: [plan, prepare, submit, verify, enable-tls]
+        options: [plan, prepare, seed-admin, submit, initialize, verify, enable-tls, reconcile]
         default: plan
         required: true
       stage:
@@ -17,6 +22,20 @@ on:
         description: Same-repository GitOps PR; actual head resolved through API
         type: number
         required: true
+      prepare_run:
+        description: Successful prepare run locator, required for initialize/verify
+        type: number
+        default: 0
+      prepare_artifact:
+        type: number
+        default: 0
+      seed_run:
+        description: Successful initialize run locator, required for verify
+        type: number
+        default: 0
+      seed_artifact:
+        type: number
+        default: 0
       foundation_run:
         type: number
         default: 40353330431
@@ -49,6 +68,8 @@ jobs:
       cluster_uid: ${{ steps.evidence.outputs.cluster-uid }}
       platform_sha: ${{ steps.evidence.outputs.platform-sha }}
       gitops_sha: ${{ steps.evidence.outputs.gitops-sha }}
+      prepare_sha256: ${{ steps.evidence.outputs.prepare-sha256 }}
+      seed_sha256: ${{ steps.evidence.outputs.seed-sha256 }}
       candidate_sha256: ${{ steps.evidence.outputs.candidate-sha256 }}
     steps:
       - uses: actions/checkout@v4
@@ -70,6 +91,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         with:
+          operation: ${{ inputs.operation }}
+          phase: ${{ inputs.phase }}
+          prepare-run: ${{ inputs.prepare_run }}
+          prepare-artifact: ${{ inputs.prepare_artifact }}
+          seed-run: ${{ inputs.seed_run }}
+          seed-artifact: ${{ inputs.seed_artifact }}
           candidate-pr: ${{ inputs.candidate_pr }}
           stage: ${{ inputs.stage }}
           foundation-run: ${{ inputs.foundation_run }}
@@ -95,14 +122,61 @@ jobs:
           path: ${{ runner.temp }}/dev-feature-evidence/foundation.json
           if-no-files-found: error
           retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: inputs.operation == 'feature' && (inputs.phase == 'initialize' || inputs.phase == 'verify')
+        with:
+          name: dev-feature-prepare-projection-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dev-feature-evidence/prepare/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: inputs.operation == 'feature' && inputs.phase == 'verify'
+        with:
+          name: dev-feature-seed-projection-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dev-feature-evidence/seed/receipt.json
+          if-no-files-found: error
+          retention-days: 7
   deploy:
     needs: resolve
-    # B seed owner is not wired until its exact reviewed interface/callee is ready.
-    # Never accept hand-authored seed JSON or claim verify without that producer.
-    if: inputs.phase != 'verify'
-    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@b2c7b8eb41fe28fa4b66646ba64945bb4317e61f
+    if: inputs.operation == 'feature' && inputs.phase != 'seed-admin' && inputs.phase != 'initialize'
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@f8a2aaa4252586fd9b56852d8b71ce8bedc48084
     with:
       stage: ${{ inputs.stage }}
+      mode: ${{ inputs.phase }}
+      prepare_artifact: dev-feature-prepare-projection-${{ github.run_id }}-${{ github.run_attempt }}
+      prepare_sha256: ${{ needs.resolve.outputs.prepare_sha256 }}
+      seed_artifact: dev-feature-seed-projection-${{ github.run_id }}-${{ github.run_attempt }}
+      seed_sha256: ${{ needs.resolve.outputs.seed_sha256 }}
+      candidate_artifact: dev-feature-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+      candidate_sha256: ${{ needs.resolve.outputs.candidate_sha256 }}
+      cmdb_artifact: dev-feature-cmdb-${{ github.run_id }}-${{ github.run_attempt }}
+      cmdb_sha256: ${{ needs.resolve.outputs.cmdb_sha256 }}
+      instance_id: ${{ needs.resolve.outputs.instance }}
+      gitops_sha: ${{ needs.resolve.outputs.gitops_sha }}
+      platform_sha: ${{ needs.resolve.outputs.platform_sha }}
+      node_uid: ${{ needs.resolve.outputs.node_uid }}
+      cluster_uid: ${{ needs.resolve.outputs.cluster_uid }}
+  seed:
+    needs: resolve
+    if: inputs.operation == 'feature' && (inputs.phase == 'seed-admin' || inputs.phase == 'initialize')
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@0e10792d35dd70b9d70eff59eb064c5b84c5a22e
+    with:
+      stage: ${{ inputs.stage }}
+      phase: ${{ inputs.phase }}
+      candidate_artifact: dev-feature-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+      candidate_sha256: ${{ needs.resolve.outputs.candidate_sha256 }}
+      cmdb_artifact: dev-feature-cmdb-${{ github.run_id }}-${{ github.run_attempt }}
+      cmdb_sha256: ${{ needs.resolve.outputs.cmdb_sha256 }}
+      instance_id: ${{ needs.resolve.outputs.instance }}
+      gitops_sha: ${{ needs.resolve.outputs.gitops_sha }}
+      platform_sha: ${{ needs.resolve.outputs.platform_sha }}
+      node_uid: ${{ needs.resolve.outputs.node_uid }}
+      cluster_uid: ${{ needs.resolve.outputs.cluster_uid }}
+  ingress:
+    needs: resolve
+    if: inputs.operation == 'ingress'
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-platform-ingress.yml@f8a2aaa4252586fd9b56852d8b71ce8bedc48084
+    with:
       mode: ${{ inputs.phase }}
       candidate_artifact: dev-feature-candidate-${{ github.run_id }}-${{ github.run_attempt }}
       candidate_sha256: ${{ needs.resolve.outputs.candidate_sha256 }}
@@ -113,11 +187,36 @@ jobs:
       platform_sha: ${{ needs.resolve.outputs.platform_sha }}
       node_uid: ${{ needs.resolve.outputs.node_uid }}
       cluster_uid: ${{ needs.resolve.outputs.cluster_uid }}
-  seed-owner-required:
-    needs: resolve
-    if: inputs.phase == 'verify'
+  report:
+    needs: [resolve, deploy, seed, ingress]
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - run: |
-          echo '::error::verify requires the reviewed B seed owner producer; no caller-supplied seed JSON is accepted'
-          exit 1
+      - name: Require exactly the selected owner to succeed
+        env:
+          OPERATION: ${{ inputs.operation }}
+          PHASE: ${{ inputs.phase }}
+          RESOLVE_RESULT: ${{ needs.resolve.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          SEED_RESULT: ${{ needs.seed.result }}
+          INGRESS_RESULT: ${{ needs.ingress.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RESOLVE_RESULT" = success
+          case "$OPERATION:$PHASE" in
+            feature:seed-admin|feature:initialize)
+              test "$SEED_RESULT" = success
+              test "$DEPLOY_RESULT" = skipped
+              test "$INGRESS_RESULT" = skipped ;;
+            feature:plan|feature:prepare|feature:submit|feature:verify|feature:enable-tls)
+              test "$DEPLOY_RESULT" = success
+              test "$SEED_RESULT" = skipped
+              test "$INGRESS_RESULT" = skipped ;;
+            ingress:plan|ingress:reconcile|ingress:verify)
+              test "$INGRESS_RESULT" = success
+              test "$DEPLOY_RESULT" = skipped
+              test "$SEED_RESULT" = skipped ;;
+            *) echo '::error::No valid fixed owner route selected'; exit 1 ;;
+          esac
+          echo "Selected owner completed phase $PHASE. Consult its immutable receipt for pending/Ready results. Business acceptance: NOT_RUN." >> "$GITHUB_STEP_SUMMARY"

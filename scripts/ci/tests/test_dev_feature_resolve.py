@@ -90,4 +90,70 @@ class CandidateTests(unittest.TestCase):
    with self.assertRaises(ValueError):R.candidate(api,605,'sit')
    api.fork=False;api.state='diverged'
    with self.assertRaises(ValueError):R.candidate(api,605,'sit')
+
+class PreviewTests(unittest.TestCase):
+ def fixture(self):
+  sha='a'*40;image='ghcr.io/ai-workspace-services/accounts@sha256:'+'b'*64
+  steps=[]
+  for number,name in [(1,'Resolve publish target'),(2,'Check Out Repository'),(3,'Load Vault Secrets for GHCR'),(4,'Compute GHCR image tags'),(5,'Push Accounts image to GHCR')]:
+   steps.append({'name':name,'number':number,'status':'completed','conclusion':'success','started_at':f'2026-10-27T00:00:{number*3:02}Z','completed_at':f'2026-10-27T00:00:{number*3+1:02}Z'})
+  steps.append({'name':'Push Accounts image to Artifact Registry','number':6,'conclusion':'skipped'})
+  target='\n'.join('2026-10-27T00:00:03.100Z   '+k+': '+v for k,v in {'PUBLISH_TARGET':'github','PUSH_IMAGE':'true','EVENT_NAME':'workflow_dispatch','DEPLOY_ENV':'sit','SOURCE_REF':sha,'PUBLISH_ARTIFACT_REGISTRY':'false'}.items())
+  log=target+'\n2026-10-27T00:00:06.100Z [command]/usr/bin/git log -1 --format=%H\n2026-10-27T00:00:06.200Z '+sha+'\n2026-10-27T00:00:09.100Z   role: github-actions-accounts-sit\n2026-10-27T00:00:12.100Z type=raw,value=latest,enable=false\n2026-10-27T00:00:15.100Z The push refers to repository [ghcr.io/ai-workspace-services/accounts]\n2026-10-27T00:00:15.200Z sha-'+sha+': digest: sha256:'+'b'*64+' size: 100\n'
+  return sha,image,{'id':12,'name':'Publish GitHub Container Registry','steps':steps},log
+ def test_sit_dispatch_exact_flags_role_and_push(self):
+  sha,image,job,log=self.fixture();self.assertEqual(R.verify_publish_log('accounts',job,log,sha,image,True)['source_sha'],sha)
+  for key,bad in [('DEPLOY_ENV: sit','DEPLOY_ENV: prod'),('role: github-actions-accounts-sit','role: github-actions-accounts-prod'),('PUBLISH_ARTIFACT_REGISTRY: false','PUBLISH_ARTIFACT_REGISTRY: true'),('latest,enable=false','latest,enable=true')]:
+   with self.assertRaises(ValueError):R.verify_publish_log('accounts',job,log.replace(key,bad),sha,image,True)
+ def test_preview_branch_task_and_open_pr_identity(self):
+  sha='a'*40
+  class API:
+   def __init__(self):self.branch='feature/referral';self.body='Referral baseline #277';self.open=True
+   def api(self,path):
+    if '/git/ref/' in path:return {'object':{'sha':'c'*40}}
+    if '/compare/'+sha in path:return {'status':'behind'}
+    if '/compare/' in path:return {'status':'ahead'}
+    if '/commits/' in path and '/pulls' in path:return [{'number':279,'state':'open' if self.open else 'closed','body':self.body,'head':{'sha':sha,'ref':self.branch,'repo':{'full_name':'ai-workspace-services/accounts'}},'base':{'ref':'main','repo':{'full_name':'ai-workspace-services/accounts'}}}]
+    if '/pulls/277' in path:return {'number':277,'body':R.FEATURE_TASK_PATH}
+    if '/contents/' in path:return {'sha':R.APPROVED_ACCOUNTS_PREVIEW_WORKFLOW_BLOB if sha in path else 'd'*40}
+    if '/check-runs' in path:return {'check_runs':[{'name':'test','status':'completed','conclusion':'success','id':1}]}
+    if path.endswith('/status'):return {'state':'success','total_count':1}
+    raise AssertionError(path)
+  api=API();run={'event':'workflow_dispatch','head_branch':'feature/referral','head_sha':sha}
+  self.assertEqual(R.source_gate(api,'ai-workspace-services/accounts',sha,'.github/workflows/ci-pipeline.yml','sit',run)['pr'],279)
+  for stage,branch,body,opened in [('uat','feature/referral','baseline #277',True),('sit','other','baseline #277',True),('sit','feature/referral','unrelated',True),('sit','feature/referral','baseline #277',False)]:
+   api.branch=branch;api.body=body;api.open=opened
+   with self.assertRaises(ValueError):R.source_gate(api,'ai-workspace-services/accounts',sha,'.github/workflows/ci-pipeline.yml',stage,run)
+
+class PriorOwnerTests(unittest.TestCase):
+ def fixture(self):
+  identity={'instance_id':'109277144','node_uid':'node','cluster_uid':'cluster','platform_sha':R.PLATFORM,'cmdb_sha256':'e'*64}
+  source='a'*40;candidate='b'*40;owner='c'*40
+  binding={'candidate_sha':candidate,'namespace':'feature-xconnect-referral-sit','node_uid':'node','cluster_uid':'cluster','instance_id':'109277144','manifest_sha256':'d'*64,'source':{'repository':R.REPO,'workflow_ref':R.WORKFLOW,'workflow_sha':source,'owner_sha':owner,'run_id':'123','run_attempt':'1'}}
+  receipt={**identity,'candidate_sha':candidate,'namespace':binding['namespace'],'manifest_sha256':'d'*64,'schema_version':'dev-feature-flux/v1','mode':'prepare','result':'prepared','owner_sha':owner,'run_id':'123','run_attempt':'1','registry':{'result':'configured','namespace':binding['namespace'],'secret_name':'web-saas-registry','source_path':'kv/CICD/dev/ghcr','oci_mapping':{'schema_version':'dev-oci-platform/v1','images':{name:{} for name in R.COMPONENTS},'binding':binding}}}
+  class API:
+   def api(self,path):
+    if '/git/ref/' in path:return {'object':{'sha':source}}
+    if '/compare/' in path:return {'status':'identical'}
+    if '/contents/' in path:return {'type':'file','sha':'f'*40}
+    if '/artifacts/' in path:return {'name':'dev-feature-sit-prepare-123-1'}
+    if '/jobs' in path:return {'jobs':[{'name':'deploy / lane','conclusion':'success'}]}
+    return {'repository':{'full_name':R.REPO},'head_repository':{'full_name':R.REPO},'head_sha':source,'head_branch':'main','run_attempt':1,'path':'.github/workflows/dev-feature-deploy.yml','event':'workflow_dispatch','status':'completed','conclusion':'success'}
+   def artifact_file(self,*args):return json.dumps(receipt).encode()
+  return API(),receipt,identity,candidate,owner
+ def test_authenticated_projection_preserves_bytes_and_original_producer(self):
+  api,receipt,identity,candidate,owner=self.fixture()
+  with patch.object(R,'owner_producer',return_value=owner):
+   raw,proof=R.prior_owner_receipt(api,'feature',123,456,'sit','verify',identity,candidate)
+   self.assertEqual(raw,json.dumps(receipt).encode());self.assertEqual(proof['source_attempt'],1)
+   receipt['candidate_sha']='0'*40
+   with self.assertRaises(ValueError):R.prior_owner_receipt(api,'feature',123,456,'sit','verify',identity,candidate)
+ def test_self_declared_owner_or_missing_mapping_is_rejected(self):
+  api,receipt,identity,candidate,owner=self.fixture()
+  with patch.object(R,'owner_producer',return_value=owner):
+   receipt['owner_sha']='f'*40
+   with self.assertRaises(ValueError):R.prior_owner_receipt(api,'feature',123,456,'sit','verify',identity,candidate)
+   receipt['owner_sha']=owner;receipt['registry']['oci_mapping']['images']={}
+   with self.assertRaises(ValueError):R.prior_owner_receipt(api,'feature',123,456,'sit','verify',identity,candidate)
+
 if __name__=='__main__':unittest.main()

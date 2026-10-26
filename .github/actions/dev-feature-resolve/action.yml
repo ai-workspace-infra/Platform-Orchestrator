@@ -1,6 +1,12 @@
 name: Resolve authenticated Dev feature deployment evidence
 description: Read-only PR, build and foundation artifact validation; no host/resource execution.
 inputs:
+  operation: {required: true, description: feature or ingress fixed owner route}
+  phase: {required: true, description: Explicit fixed owner phase}
+  prepare-run: {default: '0', description: Prior successful prepare run locator}
+  prepare-artifact: {default: '0', description: Prior prepare receipt artifact locator}
+  seed-run: {default: '0', description: Prior successful initialize run locator}
+  seed-artifact: {default: '0', description: Prior initialized seed receipt locator}
   candidate-pr: {required: true, description: Same-repository GitOps PR number}
   stage: {required: true, description: sit or uat}
   foundation-run: {required: true, description: Authenticated foundation run ID}
@@ -15,6 +21,8 @@ outputs:
   cluster-uid: {value: '${{ steps.resolve.outputs.cluster_uid }}', description: Authenticated bootstrap cluster UID}
   platform-sha: {value: '${{ steps.resolve.outputs.platform_sha }}', description: Protected platform revision}
   gitops-sha: {value: '${{ steps.resolve.outputs.gitops_sha }}', description: Current immutable candidate revision}
+  prepare-sha256: {value: '${{ steps.resolve.outputs.prepare_sha256 }}', description: Authenticated prepare receipt digest}
+  seed-sha256: {value: '${{ steps.resolve.outputs.seed_sha256 }}', description: Authenticated initialize receipt digest}
   candidate-sha256: {value: '${{ steps.resolve.outputs.candidate_sha256 }}', description: Candidate receipt digest}
 runs:
   using: composite
@@ -22,6 +30,12 @@ runs:
     - id: resolve
       shell: bash
       env:
+        OPERATION: ${{ inputs.operation }}
+        PHASE: ${{ inputs.phase }}
+        PREPARE_RUN: ${{ inputs.prepare-run }}
+        PREPARE_ARTIFACT: ${{ inputs.prepare-artifact }}
+        SEED_RUN: ${{ inputs.seed-run }}
+        SEED_ARTIFACT: ${{ inputs.seed-artifact }}
         CANDIDATE_PR: ${{ inputs.candidate-pr }}
         STAGE: ${{ inputs.stage }}
         FOUNDATION_RUN: ${{ inputs.foundation-run }}
