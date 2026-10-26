@@ -12,11 +12,12 @@ TEMPLATE_DIR="${SCRIPT_DIR}/../../../vault/templates"
 usage() {
   cat <<'EOF'
 Usage:
-  bootstrap_akamai_oidc_roles.sh [--check|--apply] [--env uat|prod|all]
+  bootstrap_akamai_oidc_roles.sh [--check|--apply] [--env dev|uat|prod|all]
 
 Required environment variables:
   VAULT_ADDR            Vault address, for example https://vault.svc.plus
-  VAULT_TOKEN           Vault admin/policy-management token
+  VAULT_TOKEN           Required for UAT/PROD/all; Dev may use an existing CLI helper session
+  AKAMAI_ACCOUNT_DEV    Concrete Dev account, only for explicit --env dev
   AKAMAI_ACCOUNT_UAT    Concrete UAT Akamai account name or ID
   AKAMAI_ACCOUNT_PROD   Concrete PROD Akamai account name or ID
 
@@ -32,6 +33,8 @@ Examples:
   bash scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_oidc_roles.sh --apply --env all
 
 Use --check to verify the generated policy and role already exist.
+Dev is opt-in (--env dev); all intentionally remains UAT + PROD.
+Rendering a template does not authorize applying it to Vault.
 EOF
 }
 
@@ -42,7 +45,7 @@ while (($# > 0)); do
     --check) mode=check ;;
     --apply) mode=apply ;;
     --env)
-      (($# >= 2)) || { echo "--env requires uat, prod, or all" >&2; exit 2; }
+      (($# >= 2)) || { echo "--env requires dev, uat, prod, or all" >&2; exit 2; }
       target_env="$2"
       shift
       ;;
@@ -54,14 +57,16 @@ done
 
 target_env="${target_env,,}"
 case "$target_env" in
-  uat|prod|all) ;;
+  dev|uat|prod|all) ;;
   *) echo "invalid environment: ${target_env}" >&2; exit 2 ;;
 esac
 
 command -v vault >/dev/null 2>&1 || { echo "vault CLI is required" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
 export VAULT_ADDR="${VAULT_ADDR:-https://vault.svc.plus}"
-: "${VAULT_TOKEN:?VAULT_TOKEN must be provided through the environment}"
+if [[ "$target_env" != dev ]]; then
+  : "${VAULT_TOKEN:?VAULT_TOKEN must be provided through the environment}"
+fi
 VAULT_JWT_AUTH_MOUNT="${VAULT_JWT_AUTH_MOUNT:-auth/jwt}"
 VAULT_JWT_AUTH_MOUNT="${VAULT_JWT_AUTH_MOUNT#/}"
 VAULT_JWT_AUTH_MOUNT="${VAULT_JWT_AUTH_MOUNT%/}"
@@ -70,6 +75,7 @@ account_for_env() {
   local env_name="$1"
   local account=""
   case "$env_name" in
+    dev) account="${AKAMAI_ACCOUNT_DEV:-}" ;;
     uat) account="${AKAMAI_ACCOUNT_UAT:-}" ;;
     prod) account="${AKAMAI_ACCOUNT_PROD:-}" ;;
   esac
@@ -87,12 +93,47 @@ account_for_env() {
   printf '%s' "$account"
 }
 
+verify_dev_session() {
+  local role_name="$1"
+  local session_metadata capabilities path
+  # The CLI resolves its own helper. Retain only nonsecret metadata, never id/token.
+  if ! session_metadata="$(vault token lookup -format=json 2>/dev/null |
+    jq -ce '{policies: .data.policies, ttl: .data.ttl}')"; then
+    echo "::error::Dev requires a valid non-root Vault CLI session." >&2
+    return 1
+  fi
+  if ! jq -e '
+    (.policies | type == "array" and length > 0 and all(type == "string") and index("root") == null)
+    and (.ttl | type == "number" and . > 0)
+  ' <<<"$session_metadata" >/dev/null; then
+    echo "::error::Dev refuses a root, invalid or expired Vault session." >&2
+    return 1
+  fi
+  for path in "sys/policies/acl/${role_name}" "${VAULT_JWT_AUTH_MOUNT}/role/${role_name}"; do
+    if ! capabilities="$(vault token capabilities -format=json "$path" 2>/dev/null)"; then
+      echo "::error::Cannot verify Dev session capabilities for the exact managed path." >&2
+      return 1
+    fi
+    if ! jq -e --arg mode "$mode" '
+      type == "array" and index("root") == null and index("deny") == null
+      and index("read") != null
+      and ($mode == "check" or (index("create") != null and index("update") != null))
+    ' <<<"$capabilities" >/dev/null; then
+      echo "::error::Dev session lacks required capabilities on the exact managed path." >&2
+      return 1
+    fi
+  done
+}
+
 publish_env() {
   local env_name="$1"
   local account="$2"
   local policy_name="github-actions-platform-ops-toolkit-${env_name}-akamai-oidc-bootstrap-${account}"
   local role_name="$policy_name"
   local policy_file role_file
+  if [[ "$env_name" == dev ]]; then
+    verify_dev_session "$role_name"
+  fi
   policy_file="${tmp_dir}/${env_name}-${account}.hcl"
   role_file="${tmp_dir}/${env_name}-${account}.json"
 
@@ -124,6 +165,30 @@ verify_role_claims() {
   local role_json
 
   role_json="$(vault read -format=json "${VAULT_JWT_AUTH_MOUNT}/role/${role_name}")"
+  if [[ "$env_name" == dev ]]; then
+    if ! jq -e --arg policy "$role_name" '
+      .data as $role
+      | $role.bound_claims == {
+          repository: "ai-workspace-infra/platform-ops-toolkit",
+          ref: "refs/heads/main",
+          environment: "dev",
+          workflow_ref: "ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-host-lifecycle.yml@refs/heads/main",
+          job_workflow_ref: "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/heads/main"
+        }
+        and $role.bound_claims_type == "string"
+        and $role.role_type == "jwt" and $role.user_claim == "sub"
+        and $role.bound_audiences == ["vault"]
+        and $role.token_policies == [$policy]
+        and $role.token_no_default_policy == true
+        and $role.token_type == "batch"
+        and ([$role.token_ttl] | all(. == 1200 or . == "20m"))
+        and ([$role.token_max_ttl] | all(. == 1200 or . == "20m"))
+    ' <<<"$role_json" >/dev/null; then
+      echo "::error::Dev Akamai role claims or token scope do not match the exact lifecycle caller/stage workflow contract." >&2
+      return 1
+    fi
+    return
+  fi
   if ! jq -e \
     --arg repository "ai-workspace-infra/platform-ops-toolkit" \
     --arg iac_workflow "ai-workspace-infra/platform-ops-toolkit/.github/workflows/akamai-cloud-iac.yml@*" \
