@@ -27,13 +27,62 @@ def identity(candidate):
     return hashlib.sha256(json.dumps(candidate, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
+def configurations(c, policy):
+    rows = c.get('configurations', [])
+    require(isinstance(rows, list) and len(rows) <= 32, 'invalid configuration members')
+    seen = set()
+    for row in rows:
+        require(isinstance(row, dict), 'invalid configuration member')
+        repo, pr = row.get('repository'), row.get('pr')
+        require(repo in policy.get('configuration_paths', {}) and type(pr) is int and pr > 0 and
+                (repo, pr) not in seen, 'foreign or duplicate configuration PR')
+        seen.add((repo, pr))
+        require(sha(row.get('sha')) and sha(row.get('base_sha')) and isinstance(row.get('base_ref'), str),
+                'fixed configuration head/base required')
+        paths = row.get('paths')
+        require(isinstance(paths, dict) and 0 < len(paths) <= 64, 'bounded configuration paths required')
+        for path, digest in paths.items():
+            require(isinstance(path, str) and not path.startswith('/') and '..' not in path.split('/') and
+                    any(path.startswith(prefix) for prefix in policy['configuration_paths'][repo]) and sha(digest, 64),
+                    'configuration path outside reviewed scope or missing hash')
+        if row['base_ref'] == 'main':
+            require(row.get('depends_on_pr') is None, 'main configuration cannot claim stacked dependency')
+        else:
+            parent = next((p for p in rows if isinstance(p, dict) and p.get('repository') == repo and p.get('pr') == row.get('depends_on_pr')), None)
+            require(parent is not None and parent.get('base_ref') == 'main' and parent.get('sha') == row['base_sha'],
+                    'stacked configuration must bind its selected main-target parent head')
+    if len(rows) > 1:
+        entry = c.get('configuration_entrypoint')
+        selected = next((row for row in rows if row['repository']+'#'+str(row['pr']) == entry), None)
+        require(selected is not None and len(rows) == 2 and selected.get('depends_on_pr') is not None,
+                'configuration stack needs one explicit entrypoint and its parent')
+    return rows
+
+
+def verify_configuration(row, snapshot, stage):
+    require(snapshot.get('repository') == row['repository'] and snapshot.get('number') == row['pr'] and
+            snapshot.get('head_repository') == row['repository'] and snapshot.get('head_sha') == row['sha'],
+            'configuration PR source moved or forked')
+    require(snapshot.get('base_ref') == row['base_ref'] and snapshot.get('path_hashes') == row['paths'],
+            'configuration target or path content differs')
+    if stage in ('sit', 'merge'):
+        require(snapshot.get('state') == 'OPEN' and snapshot.get('merged') is False and snapshot.get('base_sha') == row['base_sha'],
+                'configuration SIT requires current unmerged head/base')
+    else:
+        require(row['base_ref'] == 'main' and snapshot.get('merged') is True and sha(snapshot.get('merge_sha')) and
+                snapshot.get('merged_path_hashes') == row['paths'],
+                'configuration UAT requires merged main with identical accepted paths')
+
+
 def validate_candidate(c, policy):
     require(isinstance(c, dict) and isinstance(policy, dict), 'missing candidate or trusted policy')
     require(c.get('schema') == 1, 'unsupported candidate schema')
     feature = c.get('feature_id', '')
     require(isinstance(feature, str) and re.fullmatch(r'[a-z][a-z0-9-]{1,45}', feature) is not None, 'invalid feature id')
-    require(isinstance(c.get('task_url'), str) and re.fullmatch(r'https://github.com/[^/]+/[^/]+/issues/[1-9][0-9]*', c['task_url']),
-            'feature requires a tracked task')
+    task_url = c.get('task_url')
+    issue_task = isinstance(task_url, str) and re.fullmatch(r'https://github.com/[^/]+/[^/]+/issues/[1-9][0-9]*', task_url)
+    file_task = isinstance(task_url, str) and re.fullmatch(r'https://github.com/[^/]+/[^/]+/blob/[0-9a-f]{40}/.+', task_url)
+    require(issue_task or (file_task and sha(c.get('task_sha256'), 64)), 'feature requires a tracked immutable task')
     require(c.get('target') == policy['target'], 'unapproved Dev target')
     require(c.get('environment') == 'dev', 'only a shared Dev host is eligible')
     namespaces = c.get('namespaces')
@@ -73,7 +122,18 @@ def validate_candidate(c, policy):
         else:
             require(source.get('kind') == 'baseline' and source.get('pr') is None,
                     'baseline dependencies cannot masquerade as open feature PRs')
-    require(features > 0, 'already merged baseline alone cannot establish premerge SIT')
+    configs = configurations(c, policy)
+    require(features > 0 or bool(configs), 'already merged baseline alone cannot establish premerge SIT')
+    components = c.get('components')
+    require(not configs or components is not None, 'configuration candidate requires independent runtime components')
+    if components is not None:
+        require(isinstance(components, dict) and bool(components), 'runtime components required')
+        expected = policy.get('runtime_components')
+        require(isinstance(expected, dict) and set(components) == set(expected), 'runtime component set differs from policy')
+        for component, item in components.items():
+            require(isinstance(component, str) and isinstance(item, dict) and item.get('source_repository') == expected[component] and
+                    any(source['repository'] == item.get('source_repository') and source['image'] == item.get('image') for source in sources),
+                    'runtime component lacks verified image source')
     tests = c.get('required_tests')
     require(isinstance(tests, list) and all(isinstance(test, str) for test in tests) and
             set(tests) == set(policy['required_tests']), 'required acceptance contract mismatch')
@@ -109,13 +169,17 @@ def verify_run(run, expected, source_sha, event):
     require(run.get('status') == 'completed' and run.get('conclusion') == 'success', 'evidence run not successful')
 
 
-def _evaluate(c, policy, stage, prs, receipt=None, run=None, authorization=None):
+def _evaluate(c, policy, stage, prs, receipt=None, run=None, authorization=None, config_prs=None):
     fingerprint = validate_candidate(c, policy)
     require(stage in ('sit', 'merge', 'uat'), 'unsupported stage')
     for source in c['sources']:
         if source['kind'] == 'feature':
             require(source['repository'] in prs, 'missing live PR snapshot')
             verify_pr(source, prs[source['repository']], 'sit' if stage in ('sit', 'merge') else 'uat')
+    for row in c.get('configurations', []):
+        key = row['repository']+'#'+str(row['pr'])
+        require(isinstance(config_prs, dict) and key in config_prs, 'missing configuration PR API evidence')
+        verify_configuration(row, config_prs[key], stage)
     if stage in ('merge', 'uat'):
         require(receipt is not None and run is not None, 'missing structured SIT evidence')
         verify_run(run, policy['acceptance_owner'], policy['acceptance_owner']['sha'], 'workflow_dispatch')
@@ -126,7 +190,8 @@ def _evaluate(c, policy, stage, prs, receipt=None, run=None, authorization=None)
         require(receipt.get('target') == c['target'] and receipt.get('namespace') == c['namespaces']['sit'],
                 'wrong SIT target')
         require(receipt.get('domain') == c['domains']['sit'], 'wrong SIT domain')
-        require(receipt.get('image_ids') == {s['repository']: s['image'] for s in c['sources']}, 'runtime image mismatch')
+        images = {name: item['image'] for name, item in c['components'].items()} if c.get('components') else {s['repository']: s['image'] for s in c['sources']}
+        require(receipt.get('image_ids') == images, 'runtime image mismatch')
         results = receipt.get('tests', {})
         require(set(results) == set(policy['required_tests']) and all(v == 'PASS' for v in results.values()),
                 'missing, blocked or failed acceptance')
@@ -170,8 +235,8 @@ def gate(c, policy=None, stage=None, prs=None, receipt=None, run=None, authoriza
     return result
 
 
-def rehearse(c, policy, stage, prs, receipt=None, run=None, authorization=None):
+def rehearse(c, policy, stage, prs, receipt=None, run=None, authorization=None, config_prs=None):
     """Offline contract falsification; deliberately cannot emit live PASS."""
-    result = _evaluate(c, policy, stage, prs, receipt, run, authorization)
+    result = _evaluate(c, policy, stage, prs, receipt, run, authorization, config_prs)
     result.update(status='REHEARSAL', evidence_kind='synthetic')
     return result

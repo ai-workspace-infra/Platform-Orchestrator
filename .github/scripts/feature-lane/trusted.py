@@ -45,14 +45,34 @@ def policy_at(commit):
     return json.loads(base64.b64decode(content['content'], validate=False))
 
 
+def file_at(repo, commit, path):
+    gate.require(gate.sha(commit) and isinstance(path, str) and not path.startswith('/') and
+                 '..' not in path.split('/') and '\\' not in path, 'unsafe fixed content source')
+    from urllib.parse import quote
+    record = reader.api(f'repos/{repo}/contents/{quote(path, safe="/")}?ref={commit}')
+    gate.require(record.get('type') == 'file' and record.get('path') == path and record.get('encoding') == 'base64' and
+                 type(record.get('size')) is int and record['size'] <= 1_000_000, 'missing or oversized fixed content')
+    raw = base64.b64decode(record['content'])
+    gate.require(len(raw) <= 1_000_000, 'oversized fixed content bytes')
+    return hashlib.sha256(raw).hexdigest()
+
+
 def task_at(candidate, policy):
-    match = re.fullmatch(r'https://github.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/([1-9][0-9]*)', candidate.get('task_url', ''))
-    gate.require(match is not None and match[1] in policy['task_repositories'], 'task repository not approved')
-    repo, number = match[1], int(match[2])
-    record = reader.api(f'repos/{repo}/issues/{number}')
-    gate.require(record.get('number') == number and 'pull_request' not in record and
-                 record.get('url') == f'https://api.github.com/repos/{repo}/issues/{number}', 'wrong feature task')
-    return repo, number
+    url = candidate.get('task_url', '')
+    match = re.fullmatch(r'https://github.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/([1-9][0-9]*)', url)
+    if match:
+        gate.require(match[1] in policy['task_repositories'], 'task repository not approved')
+        repo, number = match[1], int(match[2])
+        record = reader.api(f'repos/{repo}/issues/{number}')
+        gate.require(record.get('number') == number and 'pull_request' not in record and
+                     record.get('url') == f'https://api.github.com/repos/{repo}/issues/{number}', 'wrong feature task')
+        return {'kind': 'issue', 'repository': repo, 'issue': number}
+    match = re.fullmatch(r'https://github.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/blob/([0-9a-f]{40})/(.+)', url)
+    gate.require(match is not None and any(match[3].startswith(prefix) for prefix in policy.get('task_paths', {}).get(match[1], [])),
+                 'immutable task file outside approved roots')
+    digest = file_at(match[1], match[2], match[3])
+    gate.require(digest == candidate.get('task_sha256'), 'immutable task content hash differs')
+    return {'kind': 'file', 'repository': match[1], 'commit': match[2], 'path': match[3], 'sha256': digest}
 
 
 def locator(owner, selectors, source_sha):
@@ -66,19 +86,20 @@ def locator(owner, selectors, source_sha):
                 artifact_name=f'{owner["artifact_prefix"]}-{selectors["run_id"]}-{selectors["attempt"]}')
 
 
-def pull(source, stage, task_url):
+def pull(source, stage, task_url, configuration=False, require_task_link=True):
     repo, number = source['repository'], source['pr']
     p = reader.api(f'repos/{repo}/pulls/{number}')
     body = p.get('body') or ''
     linked = re.search(re.escape(task_url)+r'(?![0-9])', body) is not None
-    task_repo, task_number = task_url.split('github.com/',1)[1].split('/issues/')
-    linked = linked or (task_repo == repo and re.search(r'(?<![A-Za-z0-9])#'+task_number+r'(?![0-9])',body) is not None)
-    gate.require(linked, 'source PR is not linked to the selected feature task')
+    if '/issues/' in task_url:
+        task_repo, task_number = task_url.split('github.com/',1)[1].split('/issues/')
+        linked = linked or (task_repo == repo and re.search(r'(?<![A-Za-z0-9])#'+task_number+r'(?![0-9])',body) is not None)
+    gate.require(linked or not require_task_link, 'source PR is not linked to the selected feature task')
     snapshot = {'repository': p.get('base', {}).get('repo', {}).get('full_name'), 'number': p.get('number'),
                 'head_sha': p.get('head', {}).get('sha'), 'head_repository': p.get('head', {}).get('repo', {}).get('full_name'),
-                'base_ref': p.get('base', {}).get('ref'), 'state': str(p.get('state')).upper(),
+                'base_ref': p.get('base', {}).get('ref'), 'base_sha': p.get('base', {}).get('sha'), 'state': str(p.get('state')).upper(),
                 'merged': p.get('merged'), 'merge_sha': p.get('merge_commit_sha')}
-    if stage != 'uat':
+    if stage != 'uat' and not configuration:
         gate.verify_pr(source, snapshot, 'sit')
     return snapshot
 
@@ -105,10 +126,11 @@ def authorization(policy, fingerprint, stage, task, selectors):
     auth = policy.get('authorization')
     gate.require(isinstance(auth, dict) and auth.get('kind') == 'issue_comment',
                  'no supported reviewed human authorization source configured')
-    gate.require(isinstance(selectors, dict) and set(selectors) == {'comment_id'} and
-                 type(selectors['comment_id']) is int and selectors['comment_id'] > 0, 'only a positive comment selector allowed')
-    repo, issue = task
-    comment_id = selectors['comment_id']
+    gate.require(isinstance(selectors, dict) and set(selectors) == {'issue', 'comment_id'} and
+                 all(type(v) is int and v > 0 for v in selectors.values()), 'only positive issue/comment selectors allowed')
+    repo = auth['repository']
+    gate.require(isinstance(repo, str) and re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo), 'invalid authorization repository')
+    issue, comment_id = selectors['issue'], selectors['comment_id']
     record = reader.api(f'repos/{repo}/issues/{issue}')
     gate.require(record.get('number') == issue and 'pull_request' not in record and
                  record.get('url') == f'https://api.github.com/repos/{repo}/issues/{issue}', 'wrong authorization issue')
@@ -154,6 +176,15 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
         gate.require(isinstance(evidence_selectors['builds'], dict) and set(evidence_selectors['builds']) == sources, 'build selector source set differs')
         fingerprint = gate.validate_candidate(candidate, policy)
         prs = {}
+        config_prs = {}
+        for row in candidate.get('configurations', []):
+            key = row['repository']+'#'+str(row['pr'])
+            primary = len(candidate['configurations']) == 1 or candidate.get('configuration_entrypoint') == key
+            snapshot = pull(row, stage, candidate['task_url'], configuration=True, require_task_link=primary)
+            snapshot['path_hashes'] = {path: file_at(row['repository'], row['sha'], path) for path in row['paths']}
+            if stage == 'uat':
+                snapshot['merged_path_hashes'] = {path: file_at(row['repository'], snapshot['merge_sha'], path) for path in row['paths']}
+            config_prs[row['repository']+'#'+str(row['pr'])] = snapshot
         for source in candidate['sources']:
             if source['kind'] == 'feature':
                 prs[source['repository']] = pull(source, stage, candidate['task_url'])
@@ -181,8 +212,9 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
                 merged_tree = reader.api(f'repos/{source["repository"]}/git/commits/{p["merge_sha"]}')
                 p['merge_artifact'] = dict(proof, manifest_sha256=producer['document_sha256'], source_tree_sha=source_tree['tree']['sha'],
                                            merge_tree_sha=merged_tree['tree']['sha'])
-        evaluation_policy = dict(policy, authorization_url_prefix=candidate['task_url']+'#')
-        result = gate._evaluate(candidate, evaluation_policy, stage, prs, receipt, run, auth)
+        prefix = auth['evidence_url'].split('#', 1)[0]+'#' if auth else ''
+        evaluation_policy = dict(policy, authorization_url_prefix=prefix)
+        result = gate._evaluate(candidate, evaluation_policy, stage, prs, receipt, run, auth, config_prs)
         result.update(status='VERIFIED_GATE', evidence_kind='github_retrieved', policy_sha=policy_commit)
         return result
     except gate.Blocked:

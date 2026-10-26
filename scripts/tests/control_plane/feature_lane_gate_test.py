@@ -2,6 +2,7 @@
 """Synthetic contract falsification only; not live referral/Sandbox acceptance."""
 import copy
 import importlib.util
+import json
 from pathlib import Path
 import unittest
 
@@ -185,6 +186,84 @@ class GateTest(unittest.TestCase):
         self.mark_merged(values)
         values[0]['sources'][0]['image'] = 'registry.invalid/accounts@sha256:' + 'f' * 64
         with self.assertRaises(gate.Blocked): self.decide(values, 'uat')
+
+    def configuration_fixture(self):
+        values=fixture();c,policy,prs,receipt,run,auth=values
+        c['sources'][0].update(kind='baseline',pr=None)
+        c['components']={'accounts':{'source_repository':'example/accounts','image':c['sources'][0]['image']}}
+        row={'repository':'example/config','pr':7,'sha':'7'*40,'base_ref':'main','base_sha':'6'*40,
+             'paths':{'services/referral/values.yaml':'a'*64}}
+        c['configurations']=[row];policy['runtime_components']={'accounts':'example/accounts'};policy['configuration_paths']={'example/config':['services/referral/']}
+        snapshot={'repository':'example/config','number':7,'head_repository':'example/config','head_sha':row['sha'],
+                  'base_ref':'main','base_sha':row['base_sha'],'state':'OPEN','merged':False,'path_hashes':row['paths'].copy()}
+        receipt.update(candidate_sha256=gate.identity(c),image_ids={'accounts':c['sources'][0]['image']})
+        auth['candidate_sha256']=gate.identity(c)
+        return values,{'example/config#7':snapshot}
+
+    def test_configuration_pr_can_test_merged_image_baselines_without_fake_app_pr(self):
+        values,configs=self.configuration_fixture()
+        c,policy,prs,receipt,run,auth=values
+        result=gate.rehearse(c,policy,'merge',{},receipt,run,auth,config_prs=configs)
+        self.assertEqual(result['status'],'REHEARSAL')
+        self.assertEqual(c['sources'][0]['kind'],'baseline')
+        receipt['image_ids']={'example/accounts':c['sources'][0]['image']}
+        with self.assertRaisesRegex(gate.Blocked,'runtime image mismatch'):
+            gate.rehearse(c,policy,'merge',{},receipt,run,auth,config_prs=configs)
+
+    def test_configuration_paths_source_and_runtime_producer_are_not_weakened(self):
+        for mutate in (lambda c,p:p['example/config#7'].update(head_sha='8'*40),
+                       lambda c,p:p['example/config#7'].update(path_hashes={}),
+                       lambda c,p:c['configurations'][0]['paths'].update({'other/file.yaml':'a'*64}),
+                       lambda c,p:c['components'].update(postgresql={'source_repository':'missing/postgresql','image':'db@sha256:'+'a'*64})):
+            values,configs=self.configuration_fixture();mutate(values[0],configs)
+            with self.assertRaises(gate.Blocked):
+                gate.rehearse(values[0],values[1],'sit',{},config_prs=configs)
+
+    def test_configuration_uat_requires_identical_paths_on_merged_main(self):
+        values,configs=self.configuration_fixture();snapshot=configs['example/config#7']
+        snapshot.update(state='CLOSED',merged=True,merge_sha='9'*40,merged_path_hashes=snapshot['path_hashes'].copy())
+        c,policy,prs,receipt,run,auth=values
+        self.assertEqual(gate.rehearse(c,policy,'uat',{},receipt,run,auth,config_prs=configs)['namespace'],'web-saas-uat')
+        snapshot['merged_path_hashes']={}
+        with self.assertRaises(gate.Blocked):gate.rehearse(c,policy,'uat',{},receipt,run,auth,config_prs=configs)
+
+    def test_configuration_stack_requires_exact_parent_and_cannot_claim_uat(self):
+        values,configs=self.configuration_fixture();c,policy=values[:2]
+        child=dict(c['configurations'][0],pr=8,sha='8'*40,base_ref='feature/parent',base_sha='7'*40,depends_on_pr=7)
+        c['configurations'].append(child);c['configuration_entrypoint']='example/config#8'
+        self.assertEqual(len(gate.configurations(c,policy)),2)
+        child['base_sha']='9'*40
+        with self.assertRaises(gate.Blocked):gate.configurations(c,policy)
+
+    def test_real_referral_configuration_facts_are_expressible_unknowns_stay_blocked(self):
+        real=json.loads((ROOT/'scripts/tests/control_plane/fixtures/xconnect-referral-declarations.json').read_text())
+        policy={'configuration_paths':{'ai-workspace-infra/gitops':['services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/']}}
+        self.assertEqual(len(gate.configurations({'configurations':real['configurations'],'configuration_entrypoint':'ai-workspace-infra/gitops#602'},policy)),2)
+        for row in real['configurations']:
+            gate.verify_configuration(row,real['config_pr_snapshots'][row['repository']+'#'+str(row['pr'])],'sit')
+        self.assertEqual(real['baseline_prs']['accounts']['pr'],277)
+        self.assertFalse(real['external_router']['in_lane'])
+        self.assertTrue(real['blockers'])
+        self.assertEqual(real['evidence_kind'],'declaration_snapshot_not_live_acceptance')
+        c,full_policy,*_=fixture()
+        c.update(task_url=real['task']['url'],task_sha256=real['task']['sha256'],
+                 configurations=real['configurations'],configuration_entrypoint=real['configuration_entrypoint'],
+                 data_baseline_sha256=None)
+        pairs=[('accounts','ai-workspace-services/accounts','accounts'),
+               ('portal','ai-workspace-services/portal','console'),
+               ('postgresql','ai-workspace-services/postgresql','postgresql')]
+        c['sources']=[{'repository':repo,'kind':'baseline','pr':None,
+                       'sha':real['baseline_prs'][name]['sha'] if name!='postgresql' else None,
+                       'image':real['runtime_images'][component]} for name,repo,component in pairs]
+        c['components']={component:{'source_repository':repo,'image':real['runtime_images'][component]} for name,repo,component in pairs}
+        full_policy.update(configuration_paths=policy['configuration_paths'],repositories=[p[1] for p in pairs],
+                           runtime_components={p[2]:p[1] for p in pairs})
+        with self.assertRaisesRegex(gate.Blocked,'data_baseline_sha256'):gate.validate_candidate(c,full_policy)
+        # A synthetic baseline only exposes the next real missing producer; it is not real evidence.
+        c['data_baseline_sha256']='d'*64
+        with self.assertRaisesRegex(gate.Blocked,'source must be full SHA'):gate.validate_candidate(c,full_policy)
+        self.assertIsNone(real['postgresql_package']['producer_source_sha'])
+
 
     def test_any_config_change_invalidates_receipt(self):
         values = fixture(); values[0]['config_sha256'] = 'f' * 64

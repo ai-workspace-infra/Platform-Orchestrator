@@ -1,0 +1,127 @@
+{
+  "observed_at_utc": "2026-10-26T14:49:29.498635+00:00",
+  "evidence_kind": "declaration_snapshot_not_live_acceptance",
+  "task": {
+    "url": "https://github.com/ai-workspace-services/accounts/blob/8d1b09a6f2022af221b2a817d516952af41ced0e/docs/tasks/xconnect-referral-completion-20261025.md",
+    "sha256": "57306ccabdc360d6a9e76798a558c0be02b91e1d9e9a41e0b89943903f42c681"
+  },
+  "baseline_prs": {
+    "accounts": {
+      "pr": 277,
+      "sha": "8d1b09a6f2022af221b2a817d516952af41ced0e",
+      "state": "MERGED"
+    },
+    "portal": {
+      "pr": 472,
+      "sha": "2a272f295235efdd39f469245ad74177d1a5ff5d",
+      "state": "MERGED"
+    },
+    "frontend_router": {
+      "pr": 35,
+      "sha": "ab3f9e81223f19290b03a6b8d2dfefffb3309e55",
+      "state": "MERGED",
+      "in_lane": false
+    },
+    "gitops": {
+      "pr": 599,
+      "sha": "3aae1f740349117c70f1fa02abeac829c057a879",
+      "state": "OPEN"
+    }
+  },
+  "runtime_images": {
+    "accounts": "ghcr.io/ai-workspace-services/accounts@sha256:6edd156ce6974dfd0cd7486beebbb446091e4019eacf3c272e05aba4a609737d",
+    "console": "ghcr.io/ai-workspace-services/console@sha256:03ffaf0174c64aede7602b5d566ff27921f760e134028afabb62b646324228f9",
+    "postgresql": "ghcr.io/ai-workspace-services/postgresql@sha256:56f4179bafafa52061ac21003dc80c1a0b7ceb63fffb2c7bd05f29237b62b85e"
+  },
+  "configurations": [
+    {
+      "repository": "ai-workspace-infra/gitops",
+      "pr": 599,
+      "sha": "3aae1f740349117c70f1fa02abeac829c057a879",
+      "base_ref": "main",
+      "base_sha": "6ee2b35e12aa902829755873849ad021c9b01d4b",
+      "paths": {
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/README.md": "1b33eeca390c55f60921419d8b669e40513f564761ac420ba5c937b1feac2854",
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/helmrelease.yaml": "6e681b5be0154d75239b834155555b2f319d828c99fcea5bc099f173fd6ef7f3",
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/kustomization.yaml": "cf6a6982639088d128beff09b24d9fc433c77cc9aaf84e568e9e11997266e95d",
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/namespace.yaml": "f2d5beaa3c4bb2cca23e34ca7973f7dd75209caf937c82583d8bd39623abc026",
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/network-policy.yaml": "4ace857fa7b27f261c99953b6632cd0e858e6f6d3d0a2919d3f8d4d4579cf1cd",
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/oci-repository.yaml": "89837e8780bea97190b1c598b8c83b1cae81146cf5482b242de9c0e0c2d78060",
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/values.yaml": "8c2915a6d8f94df0365033f3d1fb9cf17096dcacde2e5fe917703f0c2285604e"
+      }
+    },
+    {
+      "repository": "ai-workspace-infra/gitops",
+      "pr": 602,
+      "sha": "f6391103896a2fa08ec0c8acd60fd36620b2093e",
+      "base_ref": "feature/xconnect-referral-lane-sit-20261026",
+      "base_sha": "3aae1f740349117c70f1fa02abeac829c057a879",
+      "paths": {
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/README.md": "28a77d9f1d92340022416f99277ffe801e577690f88c83ad21554fdccab49508",
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/candidate.yaml": "3d02d21bddefd518912eba413d924490efb17f717a432141d1fd5d682a10b6c8",
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/namespace.yaml": "77b0be5585884920570f4cf47c1a4cf1fc9a7e119e50e041e9d3c70f7ae374f7"
+      },
+      "depends_on_pr": 599
+    }
+  ],
+  "config_pr_snapshots": {
+    "ai-workspace-infra/gitops#599": {
+      "repository": "ai-workspace-infra/gitops",
+      "number": 599,
+      "head_repository": "ai-workspace-infra/gitops",
+      "head_sha": "3aae1f740349117c70f1fa02abeac829c057a879",
+      "base_ref": "main",
+      "base_sha": "6ee2b35e12aa902829755873849ad021c9b01d4b",
+      "state": "OPEN",
+      "merged": false,
+      "merge_sha": "5a83fc47c5a0a68036a01f6edd1152b65d6871fc",
+      "path_hashes": {
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/README.md": "1b33eeca390c55f60921419d8b669e40513f564761ac420ba5c937b1feac2854",
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/helmrelease.yaml": "6e681b5be0154d75239b834155555b2f319d828c99fcea5bc099f173fd6ef7f3",
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/kustomization.yaml": "cf6a6982639088d128beff09b24d9fc433c77cc9aaf84e568e9e11997266e95d",
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/namespace.yaml": "f2d5beaa3c4bb2cca23e34ca7973f7dd75209caf937c82583d8bd39623abc026",
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/network-policy.yaml": "4ace857fa7b27f261c99953b6632cd0e858e6f6d3d0a2919d3f8d4d4579cf1cd",
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/oci-repository.yaml": "89837e8780bea97190b1c598b8c83b1cae81146cf5482b242de9c0e0c2d78060",
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/values.yaml": "8c2915a6d8f94df0365033f3d1fb9cf17096dcacde2e5fe917703f0c2285604e"
+      }
+    },
+    "ai-workspace-infra/gitops#602": {
+      "repository": "ai-workspace-infra/gitops",
+      "number": 602,
+      "head_repository": "ai-workspace-infra/gitops",
+      "head_sha": "f6391103896a2fa08ec0c8acd60fd36620b2093e",
+      "base_ref": "feature/xconnect-referral-lane-sit-20261026",
+      "base_sha": "3aae1f740349117c70f1fa02abeac829c057a879",
+      "state": "OPEN",
+      "merged": false,
+      "merge_sha": "280f84ccf55c605173bab9ed8cf24ad4bce7f014",
+      "path_hashes": {
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/README.md": "28a77d9f1d92340022416f99277ffe801e577690f88c83ad21554fdccab49508",
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/candidate.yaml": "3d02d21bddefd518912eba413d924490efb17f717a432141d1fd5d682a10b6c8",
+        "services/distributed-web-saas-fullstack/feature-xconnect-referral-sit/namespace.yaml": "77b0be5585884920570f4cf47c1a4cf1fc9a7e119e50e041e9d3c70f7ae374f7"
+      }
+    }
+  },
+  "blockers": [
+    "PostgreSQL producer source SHA/build provenance not present in handoff",
+    "isolated data baseline unknown",
+    "stable UAT target and feature domain policy not yet declared",
+    "trusted policy/real owner receipt/run missing"
+  ],
+  "external_router": {
+    "sha": "ab3f9e81223f19290b03a6b8d2dfefffb3309e55",
+    "in_lane": false,
+    "status": "NOT_RUN"
+  },
+  "configuration_entrypoint": "ai-workspace-infra/gitops#602",
+  "postgresql_package": {
+    "status": "PASS_package_exists_only",
+    "id": 1434061252,
+    "digest": "sha256:56f4179bafafa52061ac21003dc80c1a0b7ceb63fffb2c7bd05f29237b62b85e",
+    "tag": "daily-build-2026.10.23-r101",
+    "created_at": "2026-10-23T10:28:58Z",
+    "producer_source_sha": null,
+    "producer_run_id": null,
+    "provenance_status": "UNKNOWN_not_proven_by_other_digest_runs"
+  }
+}

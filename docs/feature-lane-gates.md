@@ -46,11 +46,17 @@ PR head, run/artifact/attempt IDs or authorization comment ID.
 The caller may provide an untrusted candidate task URL and `evidence_selectors`:
 `builds` and (for UAT) `merge_builds` map each participating repository to exactly
 `{run_id, attempt, artifact_id}` positive integers; `acceptance` has the same three
-IDs; `authorization` contains exactly `{comment_id}`. No selector may override a
+IDs; `authorization` contains exactly `{issue, comment_id}` positive integers. The
+authorization repository comes from the allowed source in policy; it may differ
+from the task-file repository. No selector may override a
 repository, workflow, event, filename, source SHA, environment or approving user.
 The adapter derives service SHA from the candidate/current PR API, merge SHA from
 the merged PR API, and artifact name from the policy prefix plus run and attempt.
-The task must be a real Issue in an allowed repository, linked by the source PR.
+The task may be a real Issue in an allowed repository, or a fixed-40-SHA
+`/blob/<sha>/<path>` file URL with `task_sha256`. File roots are controlled by
+stable `task_paths` policy; authenticated contents API verifies repository, path,
+commit and SHA256. Mutable branch URLs are refused. A source PR links the selected
+authority; a repository with Issues disabled need not invent an Issue.
 Thus a second task/head/run candidate uses the same policy blob without merging
 runtime facts to main. Missing/extra selectors or foreign task/source are BLOCKED.
 
@@ -66,8 +72,10 @@ claim. Producer source/image manifests and current PR heads must match.
 
 `authorization` is an optional configured evidence-source contract, not a new
 universal approval policy. The implemented `kind: issue_comment` source permits
-allowlisted human authors; the task repository/issue and comment ID are untrusted
-selectors resolved and checked through current API data. Current
+allowlisted human authors; the approval issue/comment IDs are untrusted selectors in its policy-selected
+repository, resolved and checked through current API data. The task need not be
+that Issue: the approval binds the entire candidate fingerprint, including its
+immutable task source. Current
 API data must show a User with OWNER/MEMBER/COLLABORATOR association, the correct
 issue and canonical comment URL, unchanged created/updated timestamps, and exact
 body `APPROVE feature-candidate <candidate_sha256> action=merge` (or `action=uat`).
@@ -81,6 +89,34 @@ The repository policy has no real owner receipt/run configured in this branch.
 A real read-only policy probe is BLOCKED because the active policy file is
 unavailable. Tests use explicitly synthetic API/ZIP fixtures and never count as
 live referral/Sandbox acceptance.
+
+## Configuration changes and independent runtime components
+
+A real unmerged application-image PR is not mandatory when the selected change is
+configuration-only. `configurations` is a separate member list: repository, PR,
+full head/base SHA, base ref and a bounded path-to-SHA256 map. Policy
+`configuration_paths` limits readable roots. The adapter fetches the actual PR and
+contents at the fixed head and verifies all hashes; no image is invented for a
+GitOps PR. A stacked configuration member explicitly selects its main-target
+parent PR/head and one configuration_entrypoint; only that selected change needs
+the direct authority link, while its parent is a fixed verified dependency. Such a stack may enter SIT, but cannot directly claim main/UAT:
+the accepted paths must be verified on an actual merged-main configuration.
+
+Configuration candidates require `components`, independent of PR membership.
+Stable policy `runtime_components` fixes the complete component-to-source mapping;
+each component's digest must match a verified image source, and the receipt's
+imageID map must match exactly. Accounts/console/PostgreSQL cannot be dropped or
+replaced just because their source PRs are already merged. Existing build
+provenance and acceptance checks remain in place.
+
+`fixtures/xconnect-referral-declarations.json` records the real authority task-file
+hash, original merged baseline SHAs, #599/#602 current heads/bases and configuration
+path hashes. It is a declaration snapshot, not a live candidate or acceptance.
+PostgreSQL producer SHA/build evidence, isolated data baseline, approved target
+policy and real owner receipts remain explicitly missing. The external Router
+Worker is not an in-lane container and remains NOT_RUN for routed-flow acceptance.
+Tests prove a configuration PR with merged image baselines is expressible; they do
+not retrofit premerge SIT onto historical Accounts #277/Portal #472/Router #35.
 
 ## Remaining live owner integration
 
@@ -107,7 +143,7 @@ not meet those requirements.
 
 Run `python3 scripts/tests/control_plane/feature_lane_gate_test.py -v` and
 `python3 scripts/tests/control_plane/feature_lane_trusted_test.py -v`.
-Seventeen test groups include a valid attempt-3 rerun and reject mismatched attempts,
+Twenty-two gate groups and twenty-one adapter groups include a valid attempt-3 rerun and reject mismatched attempts,
 null/unknown baseline fields, undeclared UAT targets, missing/changed merge-artifact
 mappings, merged-baseline-as-SIT, changed heads, forks, mutable or
 missing artifacts/baselines, namespace/domain drift, wrong producer run, mock or

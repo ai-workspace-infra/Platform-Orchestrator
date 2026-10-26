@@ -31,14 +31,14 @@ class TrustedTest(unittest.TestCase):
         self.policy['builds']={'example/accounts':dict(repository='example/accounts',workflow='build.yml',sha='a'*40,
             event='pull_request',run_id=11,attempt=1,artifact_id=102,artifact_name='build-11-1',filename='manifest.json')}
         self.documents={101:self.receipt,102:{'repository':'example/accounts','source_sha':'a'*40,'image':self.c['sources'][0]['image']}}
-        self.metadata={};self.archives={};self.rawruns={}
+        self.metadata={};self.archives={};self.rawruns={};self.files={};self.config_rawpr=None
         for loc in [self.policy['acceptance_owner'],*self.policy['builds'].values()]:
             self.rawruns[loc['run_id']]=dict(repository={'full_name':loc['repository']},head_repository={'full_name':loc['repository']},
                 path=loc['workflow'],head_sha=loc['sha'],event=loc['event'],id=loc['run_id'],run_attempt=loc['attempt'],status='completed',conclusion='success')
             self.archive(loc['artifact_id'],loc['filename'],json.dumps(self.documents[loc['artifact_id']]))
             self.metadata[loc['artifact_id']].update(name=loc['artifact_name'],workflow_run={'id':loc['run_id']})
         self.selectors={'builds':{'example/accounts':{'run_id':11,'attempt':1,'artifact_id':102}},
-                        'acceptance':{'run_id':42,'attempt':1,'artifact_id':101},'authorization':{'comment_id':9}}
+                        'acceptance':{'run_id':42,'attempt':1,'artifact_id':101},'authorization':{'issue':1,'comment_id':9}}
         for key in ('run_id','attempt','artifact_id','artifact_name'):
             self.policy['acceptance_owner'].pop(key)
         self.policy['acceptance_owner']['artifact_prefix']='acceptance'
@@ -46,7 +46,7 @@ class TrustedTest(unittest.TestCase):
                                     'event':'pull_request','artifact_prefix':'build','filename':'manifest.json'}}
         self.policy.pop('builds');self.policy.pop('task_url');self.policy.pop('authorization_url_prefix')
         self.policy['task_repositories']=['example/accounts']
-        self.policy['authorization']={'kind':'issue_comment'}
+        self.policy['authorization']={'kind':'issue_comment','repository':'example/accounts'}
         self.comment={'id':9,'user':{'login':'human','type':'User'},'author_association':'MEMBER',
             'issue_url':'https://api.github.com/repos/example/accounts/issues/1',
             'html_url':self.c['task_url']+'#issuecomment-9',
@@ -70,7 +70,9 @@ class TrustedTest(unittest.TestCase):
             return self.archives[int(path.split('/')[-2])]
         if path.endswith('/git/ref/heads/main'):return {'object':{'sha':'d'*40}}
         if '/compare/' in path:return {'status':self.main_status}
+        if '/contents/' in path and T.POLICY_PATH not in path:return self.files[path]
         if '/contents/' in path:return {'type':'file','path':T.POLICY_PATH,'size':1000,'sha':('c' if self.policy_drift and path.endswith('d'*40) else 'b')*40,'content':base64.b64encode(json.dumps(self.policy).encode()).decode()}
+        if path.startswith('repos/example/config/pulls/'):return self.config_rawpr
         if '/pulls/' in path:return self.rawpr
         if '/git/commits/' in path:return {'tree':{'sha':'b'*40}}
         if '/actions/runs/' in path:return self.rawruns[int(path.split('/')[-1])]
@@ -217,7 +219,7 @@ class TrustedTest(unittest.TestCase):
         self.selectors['acceptance'].update(run_id=43,artifact_id=105)
         self.comment.update(id=10,issue_url='https://api.github.com/repos/example/accounts/issues/2',
                             html_url=self.c['task_url']+'#issuecomment-10',body='APPROVE feature-candidate '+T.gate.identity(self.c)+' action=merge')
-        self.selectors['authorization']['comment_id']=10
+        self.selectors['authorization'].update(issue=2,comment_id=10)
         self.assertEqual(self.decide()['status'],'VERIFIED_GATE')
         self.assertEqual(json.dumps(self.policy,sort_keys=True),policy_before)
         self.rawruns[13]['head_sha']='9'*40
@@ -237,6 +239,48 @@ class TrustedTest(unittest.TestCase):
         with self.assertRaises(T.gate.Blocked):self.decide()
         self.setUp();self.rawpr['body']='unrelated requirement'
         with self.assertRaises(T.gate.Blocked):self.decide()
+
+    def file_record(self,endpoint,path,content):
+        self.files[endpoint]={'type':'file','encoding':'base64','path':path,'size':len(content),
+                              'content':base64.b64encode(content).decode()}
+        return hashlib.sha256(content).hexdigest()
+
+    def refresh_candidate_evidence(self):
+        self.receipt['candidate_sha256']=T.gate.identity(self.c)
+        self.archive(101,'receipt.json',json.dumps(self.receipt))
+        self.comment['body']='APPROVE feature-candidate '+T.gate.identity(self.c)+' action=merge'
+
+    def test_immutable_task_file_works_with_independent_authorization_issue(self):
+        path='docs/tasks/referral.md';commit='8'*40
+        self.c['task_url']='https://github.com/example/accounts/blob/'+commit+'/'+path
+        self.c['task_sha256']=self.file_record('repos/example/accounts/contents/'+path+'?ref='+commit,path,b'original referral requirement')
+        self.policy['task_paths']={'example/accounts':['docs/tasks/']}
+        self.rawpr['body']=self.c['task_url'];self.refresh_candidate_evidence()
+        self.assertEqual(self.decide()['status'],'VERIFIED_GATE')
+        self.c['task_sha256']='0'*64
+        with self.assertRaises(T.gate.Blocked):self.decide()
+        self.c['task_url']=self.c['task_url'].replace(commit,'main')
+        with self.assertRaises(T.gate.Blocked):self.decide()
+
+    def test_configuration_only_fix_reuses_verified_baseline_images(self):
+        self.c['sources'][0].update(kind='baseline',pr=None)
+        self.c['components']={'accounts':{'source_repository':'example/accounts','image':self.c['sources'][0]['image']}}
+        self.policy['runtime_components']={'accounts':'example/accounts'}
+        self.policy['configuration_paths']={'example/config':['services/referral/']}
+        path='services/referral/values.yaml';head='7'*40;base='6'*40
+        digest=self.file_record('repos/example/config/contents/'+path+'?ref='+head,path,b'accounts: pinned')
+        self.c['configurations']=[{'repository':'example/config','pr':7,'sha':head,'base_ref':'main','base_sha':base,'paths':{path:digest}}]
+        self.config_rawpr={'number':7,'head':{'repo':{'full_name':'example/config'},'sha':head},
+                           'base':{'repo':{'full_name':'example/config'},'ref':'main','sha':base},
+                           'body':self.c['task_url'],'state':'open','merged':False}
+        self.receipt['image_ids']={'accounts':self.c['sources'][0]['image']};self.refresh_candidate_evidence()
+        self.assertEqual(self.decide()['status'],'VERIFIED_GATE')
+        self.config_rawpr.update(state='closed',merged=True,merge_commit_sha='9'*40)
+        self.file_record('repos/example/config/contents/'+path+'?ref='+'9'*40,path,b'accounts: pinned')
+        self.selectors['merge_builds']={};self.comment['body']=self.comment['body'].replace('action=merge','action=uat')
+        self.assertEqual(self.decide('uat')['status'],'VERIFIED_GATE')
+        self.file_record('repos/example/config/contents/'+path+'?ref='+'9'*40,path,b'changed config')
+        with self.assertRaises(T.gate.Blocked):self.decide('uat')
 
     def test_wrong_pr_head_or_fork_rejected(self):
         self.rawpr['head']['repo']['full_name']='fork/accounts'
