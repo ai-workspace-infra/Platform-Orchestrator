@@ -14,10 +14,11 @@ run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action
           - apply
           - destroy
       environment:
-        description: sit/uat/prod/shared
+        description: dev/sit/uat/prod/shared
         type: choice
         required: true
         options:
+          - dev
           - sit
           - uat
           - prod
