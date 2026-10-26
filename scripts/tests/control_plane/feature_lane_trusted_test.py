@@ -79,7 +79,7 @@ class TrustedTest(unittest.TestCase):
         if '/actions/artifacts/' in path:return self.metadata[int(path.split('/')[-1])]
         if '/comments?' in path:return self.comments
         if '/issues/' in path:
-            issue=int(path.split('/')[-1]);return {'number':issue,'url':f'https://api.github.com/repos/example/accounts/issues/{issue}'}
+            issue=int(path.split('/')[-1]);repo='/'.join(path.split('/')[1:3]);return {'number':issue,'url':f'https://api.github.com/repos/{repo}/issues/{issue}'}
         raise AssertionError('unexpected API route')
 
     def decide(self,stage='merge'):
@@ -255,6 +255,10 @@ class TrustedTest(unittest.TestCase):
         self.c['task_url']='https://github.com/example/accounts/blob/'+commit+'/'+path
         self.c['task_sha256']=self.file_record('repos/example/accounts/contents/'+path+'?ref='+commit,path,b'original referral requirement')
         self.policy['task_paths']={'example/accounts':['docs/tasks/']}
+        self.policy['authorization']['repository']='example/control'
+        self.selectors['authorization']['issue']=5
+        self.comment.update(issue_url='https://api.github.com/repos/example/control/issues/5',
+                            html_url='https://github.com/example/control/issues/5#issuecomment-9')
         self.rawpr['body']=self.c['task_url'];self.refresh_candidate_evidence()
         self.assertEqual(self.decide()['status'],'VERIFIED_GATE')
         self.c['task_sha256']='0'*64
