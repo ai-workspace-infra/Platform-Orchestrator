@@ -20,41 +20,61 @@ new environment, credentials, resource executor, or second dispatch path.
    status alone is insufficient. Select the trusted stable UAT namespace/host on
    the same Dev target. This is post-merge UAT.
 
-The public `gate()` accepts SIT snapshots only as `PLAN_VALID`, explicitly
-unverified. Live merge/UAT always raise BLOCKED because no trusted GitHub/owner
-artifact retrieval adapter is connected. Caller JSON, including a field-perfect
-receipt or `approved=true`, can never authorize them. `rehearse()` performs
-synthetic contract checks and always emits `REHEARSAL`, never live PASS.
-Every result keeps `execution=NOT_RUN` and `dispatch_authorized=false`. This is a
-library contract, not a deployment controller or a complete live workflow.
+The public `gate(candidate, stage="merge", policy_commit=<full SHA>)` retrieves
+trusted evidence. It rejects simultaneous caller policy/PR/receipt/run/approval
+objects. A successful check emits `VERIFIED_GATE`, `execution=NOT_RUN` and
+`dispatch_authorized=false`; it neither merges nor dispatches. The legacy raw
+snapshot path remains unverified for SIT and BLOCKED for merge/UAT. `rehearse()`
+always emits `REHEARSAL` and cannot authenticate evidence.
 
-## Evidence trust boundary
+## Trusted policy and authenticated retrieval
 
-Candidate data, GitHub snapshots and policy are separate inputs. A future caller
-must load policy from its reviewed pinned Toolkit source, resolve PR/run/review
-snapshots itself through the existing authenticated GitHub adapter, and download
-receipts from the verified owner run. Never let PR code submit its own trusted
-snapshots or a caller-provided `approved` boolean. Successful reruns may use any
-positive integer attempt, but receipt/run IDs and attempts must match exactly.
-Null/unknown digest and baseline fields fail with explicit BLOCKED diagnostics. Snapshot validation is not
-cryptographic provenance and must not be exposed as a standalone authorization
-endpoint. Offline fixtures use invented IDs/domains and do not prove real tests.
+The repository is fixed to `ai-workspace-infra/platform-ops-toolkit` and policy
+path to `.github/policies/feature-lane.json`. An explicit full commit must be on
+current main ancestry, and its policy blob must equal the current-main policy
+blob. This uses the repository's normal main governance; it adds no independent
+review/approval ceremony. A feature PR cannot substitute local policy JSON,
+change the policy repository/path, or select a superseded policy. No active
+policy is created by this PR. A missing policy is BLOCKED.
 
-Before enabling live dispatch, existing owner integration must additionally:
+Policy supplies the approved target, SIT suffix, stable UAT target, repositories,
+required tests, exact build/acceptance/merge owner workflow paths and SHAs,
+run IDs/attempts, artifact IDs, names and expected document names. Each artifact
+name must end in `-<run_id>-<attempt>`. The adapter fetches authenticated GitHub
+API metadata through the existing migration-matrix artifact reader. It validates
+owner workflow/event/SHA/repository, successful run and exact attempt, rejects
+fork producers and expired/mixed-run artifacts, and verifies GitHub's archive
+SHA256 before reading the expected document. Both actual download and expanded
+ZIP contents have size/count limits; traversal, symlinks, encryption and duplicate
+receipt entries are rejected without extracting an archive. The merge mapping's
+manifest checksum is computed from retrieved bytes, not trusted as a payload
+claim. Producer source/image manifests and current PR heads must match.
 
-- verify each image's build manifest and immutable source-SHA provenance;
-- verify the retained artifact checksum and exact producer run/attempt;
-- retrieve independent human authorization bound to the candidate;
-- resolve the approved current Dev IaC/CMDB identity, check the active writer,
-  and serialize by feature + target;
-- pass the candidate to pinned existing IaC DNS and Playbooks/Flux deployment
-  owners, verify actual domain/namespace/database isolation and business probes;
-- map merged main commits back to the already accepted PR artifacts without
-  rebuilding silently; changed artifact/config/data creates a new candidate;
-- independently verify UAT runtime and emit its own receipt.
+`authorization` is an optional configured evidence-source contract, not a new
+universal approval policy. The implemented `kind: issue_comment` source selects
+an exact task repository/issue/comment ID and allowlisted human authors. Current
+API data must show a User with OWNER/MEMBER/COLLABORATOR association, the correct
+issue and canonical comment URL, unchanged created/updated timestamps, and exact
+body `APPROVE feature-candidate <candidate_sha256> action=merge` (or `action=uat`).
+A deleted/edited comment or subsequent same-author REVOKE/REJECT for the candidate
+blocks the decision. Comments remain mutable and deletable; this is a current
+retrieval check, not a signature or immutable approval. No configured supported
+source means BLOCKED; this adapter does not invalidate authorization already
+given in chat or manufacture a substitute GitHub record.
 
-No live adapter is enabled here: unresolved Dev identity, credentials, owner
-workflow or fixed owner SHA is BLOCKED, never a successful no-op.
+The repository policy has no real owner receipt/run configured in this branch.
+A real read-only policy probe is BLOCKED because the active policy file is
+unavailable. Tests use explicitly synthetic API/ZIP fixtures and never count as
+live referral/Sandbox acceptance.
+
+## Remaining live owner integration
+
+The adapter verifies evidence and returns a decision only. Existing owners still
+must create the reviewed declaration/policy, build manifests and real SIT receipt,
+resolve the current Dev IaC/CMDB identity, check the active writer, and serialize
+by feature + target. Then the reviewed existing IaC DNS and Playbooks/Flux owners
+must perform the resource operations and emit real probes. No cloud, host, state,
+SSH, database, DNS, Vault or Stripe operation is implemented here.
 
 ## Referral scope
 
@@ -70,7 +90,8 @@ not meet those requirements.
 
 ## Verification
 
-Run `python3 scripts/tests/control_plane/feature_lane_gate_test.py -v`.
+Run `python3 scripts/tests/control_plane/feature_lane_gate_test.py -v` and
+`python3 scripts/tests/control_plane/feature_lane_trusted_test.py -v`.
 Seventeen test groups include a valid attempt-3 rerun and reject mismatched attempts,
 null/unknown baseline fields, undeclared UAT targets, missing/changed merge-artifact
 mappings, merged-baseline-as-SIT, changed heads, forks, mutable or

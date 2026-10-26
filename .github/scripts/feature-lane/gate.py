@@ -145,14 +145,26 @@ def _evaluate(c, policy, stage, prs, receipt=None, run=None, authorization=None)
             'execution': 'NOT_RUN', 'dispatch_authorized': False}
 
 
-def gate(c, policy, stage, prs, receipt=None, run=None, authorization=None):
+def gate(c, policy=None, stage=None, prs=None, receipt=None, run=None, authorization=None, *, policy_commit=None):
     """Live preflight never authenticates caller-provided JSON as evidence.
 
-    No trusted retrieval adapter is wired yet. In particular, a structurally
-    valid receipt, successful run JSON or human-approved boolean is insufficient.
+    The verified path requires an explicit fixed policy_commit and retrieves all
+    evidence itself. Raw receipt/run JSON or an approved boolean is insufficient.
     """
+    if policy_commit is not None:
+        require(all(value is None for value in (policy, prs, receipt, run, authorization)),
+                'verified gate forbids caller evidence or policy JSON')
+        import importlib.util
+        from pathlib import Path
+        spec = importlib.util.spec_from_file_location('trusted_feature_evidence', Path(__file__).with_name('trusted.py'))
+        adapter = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(adapter)
+        try:
+            return adapter.verified(c, stage, policy_commit)
+        except adapter.gate.Blocked as exc:
+            raise Blocked(str(exc)) from None
     if stage in ('merge', 'uat'):
-        raise Blocked('Trusted GitHub/owner artifact retrieval adapter is not connected')
+        raise Blocked('Trusted GitHub/owner artifact retrieval adapter requires reviewed policy_commit')
     result = _evaluate(c, policy, stage, prs, receipt, run, authorization)
     result.update(status='PLAN_VALID', evidence_kind='unverified_snapshot')
     return result
