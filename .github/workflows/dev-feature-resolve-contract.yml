@@ -10,6 +10,7 @@ on:
       - 'scripts/vault/roles/github-actions-playbooks-dev-k3s-bootstrap.json'
       - 'scripts/vault/policies/github-actions-playbooks-dev-k3s-bootstrap.hcl'
       - 'scripts/tests/test_akamai_dev_oidc_contract.py'
+      - 'docs/dev-feature-vault-delta.json'
 permissions:
   contents: read
   actions: read

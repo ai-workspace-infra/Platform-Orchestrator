@@ -11,7 +11,7 @@ PLATFORM='60bf8621c5a0d1dfd3f7ce38758a48740f9f14e7'
 PLAYBOOKS='4a5dbb8e1240a096e7818f1da6a925569a3da7ea'
 WORKFLOW='ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-feature-deploy.yml@refs/heads/main'
 SCOPES={'sit':'sit-xconnect-referral','uat':'uat','platform-ingress':None}
-CALLEES={'feature':('dev-feature-flux.yml','d8291186626c69a928301f76e99137069d078002'),'seed':('dev-web-saas-seed.yml','af0504a4b937a39ab96fb90d00f156ce01c7880b'),'ingress':('dev-platform-ingress.yml','d8291186626c69a928301f76e99137069d078002')}
+CALLEES={'feature':('dev-feature-flux.yml','41c00edbf14c77fe164df18e2a87c48244387901'),'seed':('dev-web-saas-seed.yml','6949b3f202114a135ab8db0e645286bb44bbdc64'),'ingress':('dev-platform-ingress.yml','41c00edbf14c77fe164df18e2a87c48244387901')}
 SHA=re.compile(r'[0-9a-f]{40}')
 # Source repository, immutable image repository, reviewed build workflow.
 COMPONENTS={
@@ -294,15 +294,18 @@ def prior_owner_receipt(reader,kind,run_id,artifact_id,stage,phase,identity,cand
  require(receipt.get('owner_sha')==owner_producer(reader,kind) and str(receipt.get('run_id'))==str(run_id) and str(receipt.get('run_attempt'))==str(attempt),'original owner source/run/attempt mismatch')
  namespace='feature-xconnect-referral-sit' if stage=='sit' else 'web-saas-uat'
  require(receipt.get('instance_id')==identity['instance_id'] and receipt.get('namespace')==namespace and receipt.get('candidate_sha')==candidate_sha and receipt.get('platform_sha')==identity['platform_sha'] and receipt.get('cmdb_sha256')==identity['cmdb_sha256'] and receipt.get('node_uid')==identity['node_uid'] and receipt.get('cluster_uid')==identity['cluster_uid'],'stale owner target/candidate binding')
+ namespace_uid=receipt.get('namespace_uid')
+ require(isinstance(namespace_uid,str) and re.fullmatch('[0-9a-f-]{36}',namespace_uid),'original owner namespace UID missing')
  if kind=='feature':
   require(receipt.get('schema_version')=='dev-feature-flux/v1' and receipt.get('mode')=='prepare' and receipt.get('result')=='prepared','successful prepare owner required')
   registry=receipt.get('registry',{});mapping=registry.get('oci_mapping',{});binding=mapping.get('binding',{})
   require(registry.get('result')=='configured' and registry.get('source_path')=='kv/CICD/dev/ghcr' and registry.get('secret_name')=='web-saas-registry' and registry.get('namespace')==namespace and mapping.get('schema_version')=='dev-oci-platform/v1' and set(mapping.get('images',{}))==set(COMPONENTS),'safe prepare OCI mapping missing')
-  require(binding.get('candidate_sha')==candidate_sha and binding.get('namespace')==namespace and binding.get('node_uid')==identity['node_uid'] and binding.get('cluster_uid')==identity['cluster_uid'] and binding.get('instance_id')==identity['instance_id'] and binding.get('manifest_sha256')==receipt.get('manifest_sha256'),'OCI target binding mismatch')
+  require(binding.get('candidate_sha')==candidate_sha and binding.get('namespace')==namespace and binding.get('namespace_uid')==namespace_uid and binding.get('node_uid')==identity['node_uid'] and binding.get('cluster_uid')==identity['cluster_uid'] and binding.get('instance_id')==identity['instance_id'] and binding.get('manifest_sha256')==receipt.get('manifest_sha256'),'OCI target binding mismatch')
   require(binding.get('source',{}).get('repository')==REPO and binding.get('source',{}).get('workflow_ref')==WORKFLOW and binding.get('source',{}).get('owner_sha')==receipt['owner_sha'] and binding.get('source',{}).get('workflow_sha')==source and str(binding.get('source',{}).get('run_id'))==str(run_id) and str(binding.get('source',{}).get('run_attempt'))==str(attempt),'OCI original producer binding mismatch')
  else:
+  require(identity.get('namespace_uid')==namespace_uid,'seed/prepare namespace incarnation differs')
   require(receipt.get('schema_version')=='dev-lane-seed/v1' and receipt.get('phase')=='initialize' and receipt.get('result')=='verified' and receipt.get('schema_initialized') is True and receipt.get('database_roles')==['xc_accounts_rw','xc_billing_rw'],'real initialized DB owner required')
- return raw,{'source_run':run_id,'source_attempt':attempt,'artifact_id':artifact_id,'caller_sha':source,'owner_sha':receipt['owner_sha'],'sha256':hashlib.sha256(raw).hexdigest()}
+ return raw,{'source_run':run_id,'source_attempt':attempt,'artifact_id':artifact_id,'caller_sha':source,'owner_sha':receipt['owner_sha'],'namespace_uid':namespace_uid,'sha256':hashlib.sha256(raw).hexdigest()}
 
 def main():
  require(os.environ.get('GITHUB_WORKFLOW_REF')==WORKFLOW,'protected main caller required')
@@ -320,13 +323,14 @@ def main():
  (root/'cmdb/cmdb.json').write_text(raw)
  body=json.dumps(receipt,sort_keys=True)+'\n';(root/'candidate/receipt.json').write_text(body)
  extras={}
- if operation=='feature' and phase in ('initialize','verify'):
+ if operation=='feature' and phase in ('seed-admin','initialize','verify'):
   requested=[('feature','prepare',os.environ['PREPARE_RUN'],os.environ['PREPARE_ARTIFACT'])]
   if phase=='verify':requested.append(('seed','seed',os.environ['SEED_RUN'],os.environ['SEED_ARTIFACT']))
   for kind,label,rid,aid in requested:
    payload,provenance=prior_owner_receipt(reader,kind,rid,aid,stage,phase,identity,receipt['candidate_head'])
    directory=root/label;directory.mkdir(exist_ok=True);(directory/'receipt.json').write_bytes(payload)
    extras[label+'_sha256']=provenance['sha256'];identity[label+'_producer']=provenance
+   if kind=='feature':identity['namespace_uid']=provenance['namespace_uid']
  (root/'foundation.json').write_text(json.dumps(identity,sort_keys=True)+'\n')
  with open(os.environ['GITHUB_OUTPUT'],'a') as output:
   for key,value in dict({k:v for k,v in identity.items() if not isinstance(v,dict)},**extras,gitops_sha=receipt['candidate_head'],candidate_sha256=hashlib.sha256(body.encode()).hexdigest()).items():output.write(f'{key}={value}\n')

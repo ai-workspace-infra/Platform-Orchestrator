@@ -140,8 +140,8 @@ class PriorOwnerTests(unittest.TestCase):
  def fixture(self):
   identity={'instance_id':'109277144','node_uid':'node','cluster_uid':'cluster','platform_sha':R.PLATFORM,'cmdb_sha256':'e'*64}
   source='a'*40;candidate='b'*40;owner='c'*40
-  binding={'candidate_sha':candidate,'namespace':'feature-xconnect-referral-sit','node_uid':'node','cluster_uid':'cluster','instance_id':'109277144','manifest_sha256':'d'*64,'source':{'repository':R.REPO,'workflow_ref':R.WORKFLOW,'workflow_sha':source,'owner_sha':owner,'run_id':'123','run_attempt':'1'}}
-  receipt={**identity,'candidate_sha':candidate,'namespace':binding['namespace'],'manifest_sha256':'d'*64,'schema_version':'dev-feature-flux/v1','mode':'prepare','result':'prepared','owner_sha':owner,'run_id':'123','run_attempt':'1','registry':{'result':'configured','namespace':binding['namespace'],'secret_name':'web-saas-registry','source_path':'kv/CICD/dev/ghcr','oci_mapping':{'schema_version':'dev-oci-platform/v1','images':{name:{} for name in R.COMPONENTS},'binding':binding}}}
+  binding={'namespace_uid':'1'*36,'candidate_sha':candidate,'namespace':'feature-xconnect-referral-sit','node_uid':'node','cluster_uid':'cluster','instance_id':'109277144','manifest_sha256':'d'*64,'source':{'repository':R.REPO,'workflow_ref':R.WORKFLOW,'workflow_sha':source,'owner_sha':owner,'run_id':'123','run_attempt':'1'}}
+  receipt={**identity,'namespace_uid':'1'*36,'candidate_sha':candidate,'namespace':binding['namespace'],'manifest_sha256':'d'*64,'schema_version':'dev-feature-flux/v1','mode':'prepare','result':'prepared','owner_sha':owner,'run_id':'123','run_attempt':'1','registry':{'result':'configured','namespace':binding['namespace'],'secret_name':'web-saas-registry','source_path':'kv/CICD/dev/ghcr','oci_mapping':{'schema_version':'dev-oci-platform/v1','images':{name:{} for name in R.COMPONENTS},'binding':binding}}}
   class API:
    def api(self,path):
     if '/git/ref/' in path:return {'object':{'sha':source}}
@@ -164,7 +164,37 @@ class PriorOwnerTests(unittest.TestCase):
   with patch.object(R,'owner_producer',return_value=owner):
    receipt['owner_sha']='f'*40
    with self.assertRaises(ValueError):R.prior_owner_receipt(api,'feature',123,456,'sit','verify',identity,candidate)
-   receipt['owner_sha']=owner;receipt['registry']['oci_mapping']['images']={}
+   receipt['owner_sha']=owner;receipt['registry']['oci_mapping']['binding']['namespace_uid']='2'*36
    with self.assertRaises(ValueError):R.prior_owner_receipt(api,'feature',123,456,'sit','verify',identity,candidate)
+   receipt['registry']['oci_mapping']['binding']['namespace_uid']='1'*36;receipt['registry']['oci_mapping']['images']={}
+   with self.assertRaises(ValueError):R.prior_owner_receipt(api,'feature',123,456,'sit','verify',identity,candidate)
+
+
+class FinalUidAndDeltaTests(unittest.TestCase):
+ def test_old_seed_same_namespace_name_cannot_reuse_new_prepare_uid(self):
+  api,receipt,identity,candidate,owner=PriorOwnerTests().fixture()
+  identity['namespace_uid']='1'*36
+  receipt.update(schema_version='dev-lane-seed/v1',phase='initialize',result='verified',schema_initialized=True,database_roles=['xc_accounts_rw','xc_billing_rw'],namespace_uid='2'*36)
+  original=api.api
+  def call(path):
+   if '/artifacts/' in path:return {'name':'dev-lane-seed-sit-initialize-123-1'}
+   if '/jobs' in path:return {'jobs':[{'name':'seed / seed','conclusion':'success'}]}
+   return original(path)
+  api.api=call
+  with patch.object(R,'owner_producer',return_value=owner):
+   with self.assertRaises(ValueError):R.prior_owner_receipt(api,'seed',123,456,'sit','verify',identity,candidate)
+   receipt['namespace_uid']='1'*36
+   self.assertEqual(R.prior_owner_receipt(api,'seed',123,456,'sit','verify',identity,candidate)[1]['namespace_uid'],'1'*36)
+ def test_vault_field_delta_is_only_two_claim_fields_and_one_exact_read(self):
+  delta=json.loads((ROOT/'docs/dev-feature-vault-delta.json').read_text())
+  role=json.loads((ROOT/'scripts/vault/roles/github-actions-playbooks-dev-k3s-bootstrap.json').read_text())
+  self.assertEqual({c['path'] for c in delta['role_field_changes']},{'/bound_claims/workflow_ref','/bound_claims/job_workflow_ref'})
+  for change in delta['role_field_changes']:
+   key=change['path'].split('/')[-1]
+   self.assertEqual(change['after'],role['bound_claims'][key]);self.assertIn(change['before'],change['after'])
+   self.assertFalse(any('*' in value for value in change['after']))
+  self.assertEqual(delta['policy_change']['after'],(ROOT/'scripts/vault/policies/github-actions-playbooks-dev-k3s-bootstrap.hcl').read_text())
+  self.assertEqual(delta['policy_change']['only_added_path'],'kv/data/CICD/dev/ghcr')
+  self.assertTrue(delta['preserve_every_other_data_key']);self.assertFalse(delta['applied'])
 
 if __name__=='__main__':unittest.main()

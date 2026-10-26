@@ -17,6 +17,7 @@ inputs:
 outputs:
   instance-id: {value: '${{ steps.resolve.outputs.instance_id }}', description: Verified Dev instance ID}
   cmdb-sha256: {value: '${{ steps.resolve.outputs.cmdb_sha256 }}', description: Selected owner CMDB digest}
+  namespace-uid: {value: '${{ steps.resolve.outputs.namespace_uid }}', description: Authenticated prepared namespace incarnation}
   node-uid: {value: '${{ steps.resolve.outputs.node_uid }}', description: Authenticated bootstrap node UID}
   cluster-uid: {value: '${{ steps.resolve.outputs.cluster_uid }}', description: Authenticated bootstrap cluster UID}
   platform-sha: {value: '${{ steps.resolve.outputs.platform_sha }}', description: Protected platform revision}
