@@ -3,6 +3,7 @@ on:
   workflow_call:
     inputs:
       environment: {required: true, type: string}
+      catalog: {required: false, type: string, default: iac/catalog.yaml}
       account: {required: true, type: string}
       gitops_ref: {required: true, type: string}
       correlation_id: {required: true, type: string}
@@ -34,7 +35,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
+          ref: c68c50fcc74aa805efa3065138befcc1238c817c
           path: iac_modules
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -54,6 +55,7 @@ jobs:
       - name: Validate fixed owner, declaration and parent caller before Vault
         uses: ./iac_modules/.github/actions/akamai-state-preflight
         with:
+          catalog: ${{ inputs.catalog }}
           phase: validate
           environment: ${{ inputs.environment }}
           account: ${{ inputs.account }}
@@ -81,6 +83,7 @@ jobs:
       - name: Query the fixed IaC preflight owner
         uses: ./iac_modules/.github/actions/akamai-state-preflight
         with:
+          catalog: ${{ inputs.catalog }}
           environment: ${{ inputs.environment }}
           account: ${{ inputs.account }}
           correlation-id: ${{ inputs.correlation_id }}

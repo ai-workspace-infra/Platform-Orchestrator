@@ -161,6 +161,7 @@ jobs:
     uses: ./.github/workflows/iac-akamai-state-preflight.yaml
     with:
       environment: ${{ inputs.environment }}
+      catalog: iac/catalog.yaml
       account: ${{ needs.request_gate.outputs.account }}
       gitops_ref: main
       correlation_id: ${{ inputs.correlation_id || github.run_id }}

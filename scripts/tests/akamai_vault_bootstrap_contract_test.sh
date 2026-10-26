@@ -11,5 +11,7 @@ grep -Fq 'VAULT_JWT_AUTH_MOUNT="${VAULT_JWT_AUTH_MOUNT:-auth/jwt}"' "${bootstrap
 grep -Fq 'VAULT_JWT_AUTH_MOUNT="${VAULT_JWT_AUTH_MOUNT:-auth/jwt}"' "${consolidated}"
 grep -Fq 'vault write "${VAULT_JWT_AUTH_MOUNT}/role/${role_name}" -' "${consolidated}"
 
+test -f "${repo_root}/scripts/vault/templates/akamai-oidc-policy.hcl.tmpl"
+grep -Fq 'TEMPLATE_DIR="${SCRIPT_DIR}/../../../vault/templates"' "${bootstrap}"
 bash -n "${bootstrap}" "${consolidated}"
 echo "akamai_vault_bootstrap_contract: PASS"
