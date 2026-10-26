@@ -1,0 +1,37 @@
+name: Dev bootstrap handoff contract
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/dev-host-lifecycle.yml'
+      - '.github/workflows/dev-bootstrap-handoff-contract.yml'
+      - '.github/actions/dev-bootstrap-handoff/**'
+      - 'scripts/ci/tests/test_dev_bootstrap_handoff.py'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: 20e0b9828e9b078dad85fd470ad3df53c8ebfeda
+          path: iac_modules
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: e4607530b545ccf09e4045113afeb644b067823e
+          path: playbooks
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install PyYAML==6.0.2 Jinja2==3.1.6
+      - name: Test actual owner summary and bootstrap input compatibility
+        env:
+          IAC_TEST_ROOT: ${{ github.workspace }}/iac_modules
+          PLAYBOOKS_TEST_ROOT: ${{ github.workspace }}/playbooks
+        run: python -m unittest discover -s scripts/ci/tests -p test_dev_bootstrap_handoff.py
+      - run: python scripts/ci/workflow_stage_depth_verify.py

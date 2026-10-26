@@ -61,10 +61,21 @@ jobs:
       account: manbuzhe2026
       target_manifest: iac/targets/dev-akamai-dev-k3s-v5.yaml
       gitops_ref: ${{ inputs.gitops_ref }}
-      # iac_modules PR 476 (on-demand dev lifecycle); repin to its merge SHA before merge.
-      iac_ref: f5d410595b93aef8ce5dac4e510583c110da12a1
+      # Depends on IaC #476/#477; preserve public Dev bootstrap fields.
+      iac_ref: 20e0b9828e9b078dad85fd470ad3df53c8ebfeda
+      dev_bootstrap_handoff: ${{ inputs.operation == 'create' }}
       stage_scope: resources
       bootstrap_mode: verify
       correlation_id: dev-host-${{ github.run_id }}
       selectors: '{"environment":"dev","namespace":"dev-k3s-v5"}'
     secrets: inherit
+
+  bootstrap:
+    needs: [gate, iac]
+    if: ${{ !cancelled() && inputs.operation == 'create' && needs.gate.result == 'success' && needs.iac.result == 'success' }}
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@e4607530b545ccf09e4045113afeb644b067823e
+    with:
+      cmdb_artifact: ${{ needs.iac.outputs.bootstrap_cmdb_artifact }}
+      cmdb_sha256: ${{ needs.iac.outputs.bootstrap_cmdb_sha256 }}
+      instance_id: ${{ needs.iac.outputs.bootstrap_instance_id }}
+      gitops_sha: ${{ needs.iac.outputs.gitops_sha }}
