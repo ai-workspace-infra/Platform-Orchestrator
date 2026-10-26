@@ -66,3 +66,42 @@ bash docs/akamai-cloud/init-vault-kv.sh --check --env all
 - state 凭据只从 `kv/CICD/<env>/iac_state` 注入 workflow。
 - state key 由 environment/project/cloud/account/workspace 五级参数生成。
 - 当前 workflow 仍需要 `TF_STATE_ACCESS_KEY` 和 `TF_STATE_SECRET_KEY`；切换到 AWS OIDC → STS 后，需同步移除对应 KV 字段读取和 policy 权限。
+
+### Dev identity template (review before apply)
+
+`bootstrap_akamai_oidc_roles.sh --env dev` is an explicit opt-in using
+`AKAMAI_ACCOUNT_DEV`; `--env all` continues to mean UAT + PROD. The Dev role
+uses exact string claims for this repository, `refs/heads/main`, environment
+`dev`, caller `dev-host-lifecycle.yml@refs/heads/main`, and reusable job
+`iac-pipeline-multi-cloud-stages.yaml@refs/heads/main`. The caller follows the
+reviewed #1453 chain: lifecycle → iac-orchestrator → multi-cloud stages.
+It does not copy UAT wildcard claims. Changing that caller requires reviewing
+this identity contract, rather than widening its workflow allowlist.
+
+The existing policy template is reused without changing capabilities: four
+read-only provider/account and state paths under the selected Dev environment.
+This change adds no KV values, provider credentials, root token or dispatch
+input. Fake-CLI tests prove rendering and fail-closed claim validation, not
+actual Vault login or provider access. This change does **not apply** the role/policy; a reviewed template is only
+the identity configuration. Applying it uses the task-specific authorization
+and the preflight below. A policy-management operator with the separately authorized
+scope would apply it through the existing bootstrap entrypoint.
+
+The separate managed role `github-actions-playbooks-dev-k3s-bootstrap`
+uses the same main-only lifecycle caller and the fixed Playbooks
+`dev-k3s-bootstrap.yml@e4607530b545ccf09e4045113afeb644b067823e` job from
+Playbooks #805. Its policy reads only `kv/data/CICD/dev/k3s-bootstrap`, with no
+metadata/list/write access. It can be selected by the existing managed-role
+entrypoint's `--role` path; no new administrator CLI is introduced. A feature
+branch lifecycle dispatch is deliberately outside these proposed main-only
+claims and cannot be used to validate them. Role publication, actual workload
+login and bootstrap remain unrun and require their existing authorization.
+
+For explicit Dev operations, the Akamai bootstrap accepts the existing Vault
+CLI helper session without copying its token into `VAULT_TOKEN`. Before any
+Dev policy/role read or write, it retains only self-lookup policy names and TTL,
+rejects root/invalid/expired sessions, and checks capabilities on the two exact
+managed paths. Check mode requires read; apply also requires create/update.
+Missing permissions stop the operation without expanding them. UAT/PROD/all
+retain the existing environment-token behavior. The managed bootstrap role's
+existing targeted entrypoint already supports a CLI helper and is unchanged.

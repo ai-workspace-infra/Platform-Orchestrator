@@ -62,7 +62,7 @@ jobs:
       target_manifest: iac/targets/dev-akamai-dev-k3s-v5.yaml
       gitops_ref: ${{ inputs.gitops_ref }}
       # Depends on IaC #476/#478; preserve public Dev bootstrap fields.
-      iac_ref: c341ee69abab437769850151aeca4da8408cc16b
+      iac_ref: 1d3bc5b54a49b946b98e48bf9f73606369b77d02
       dev_bootstrap_handoff: ${{ inputs.operation == 'create' }}
       stage_scope: resources
       bootstrap_mode: verify

@@ -24,7 +24,7 @@ claimed as executed Dev-create acceptance.
 
 ## Immutable dependencies
 
-- IaC #476/#478 source: `c341ee69abab437769850151aeca4da8408cc16b`. The #478 follow-up fix
+- IaC #476/#478 source: `1d3bc5b54a49b946b98e48bf9f73606369b77d02`. The #478 follow-up fix
   preserves only four explicit public Dev bootstrap role inputs in the sanitized
   runtime bundle; without it the real bundle lacks required node/version/mode
   inputs and bootstrap must fail, not fabricate defaults.

@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: c341ee69abab437769850151aeca4da8408cc16b
+          ref: 1d3bc5b54a49b946b98e48bf9f73606369b77d02
           path: iac_modules
           persist-credentials: false
       - uses: actions/checkout@v4
