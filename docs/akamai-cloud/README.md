@@ -82,9 +82,9 @@ The existing policy template is reused without changing capabilities: four
 read-only provider/account and state paths under the selected Dev environment.
 This change adds no KV values, provider credentials, root token or dispatch
 input. Fake-CLI tests prove rendering and fail-closed claim validation, not
-actual Vault login or provider access. Applying the role/policy has **not been
-authorized or performed**; a reviewed template is only the proposed identity
-configuration. A policy-management operator with the separately authorized
+actual Vault login or provider access. This change does **not apply** the role/policy; a reviewed template is only
+the identity configuration. Applying it uses the task-specific authorization
+and the preflight below. A policy-management operator with the separately authorized
 scope would apply it through the existing bootstrap entrypoint.
 
 The separate managed role `github-actions-playbooks-dev-k3s-bootstrap`
@@ -96,3 +96,12 @@ entrypoint's `--role` path; no new administrator CLI is introduced. A feature
 branch lifecycle dispatch is deliberately outside these proposed main-only
 claims and cannot be used to validate them. Role publication, actual workload
 login and bootstrap remain unrun and require their existing authorization.
+
+For explicit Dev operations, the Akamai bootstrap accepts the existing Vault
+CLI helper session without copying its token into `VAULT_TOKEN`. Before any
+Dev policy/role read or write, it retains only self-lookup policy names and TTL,
+rejects root/invalid/expired sessions, and checks capabilities on the two exact
+managed paths. Check mode requires read; apply also requires create/update.
+Missing permissions stop the operation without expanding them. UAT/PROD/all
+retain the existing environment-token behavior. The managed bootstrap role's
+existing targeted entrypoint already supports a CLI helper and is unchanged.

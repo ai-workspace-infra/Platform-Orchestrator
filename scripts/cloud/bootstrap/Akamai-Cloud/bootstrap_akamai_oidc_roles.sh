@@ -16,7 +16,7 @@ Usage:
 
 Required environment variables:
   VAULT_ADDR            Vault address, for example https://vault.svc.plus
-  VAULT_TOKEN           Vault admin/policy-management token
+  VAULT_TOKEN           Required for UAT/PROD/all; Dev may use an existing CLI helper session
   AKAMAI_ACCOUNT_DEV    Concrete Dev account, only for explicit --env dev
   AKAMAI_ACCOUNT_UAT    Concrete UAT Akamai account name or ID
   AKAMAI_ACCOUNT_PROD   Concrete PROD Akamai account name or ID
@@ -64,7 +64,9 @@ esac
 command -v vault >/dev/null 2>&1 || { echo "vault CLI is required" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
 export VAULT_ADDR="${VAULT_ADDR:-https://vault.svc.plus}"
-: "${VAULT_TOKEN:?VAULT_TOKEN must be provided through the environment}"
+if [[ "$target_env" != dev ]]; then
+  : "${VAULT_TOKEN:?VAULT_TOKEN must be provided through the environment}"
+fi
 VAULT_JWT_AUTH_MOUNT="${VAULT_JWT_AUTH_MOUNT:-auth/jwt}"
 VAULT_JWT_AUTH_MOUNT="${VAULT_JWT_AUTH_MOUNT#/}"
 VAULT_JWT_AUTH_MOUNT="${VAULT_JWT_AUTH_MOUNT%/}"
@@ -91,12 +93,47 @@ account_for_env() {
   printf '%s' "$account"
 }
 
+verify_dev_session() {
+  local role_name="$1"
+  local session_metadata capabilities path
+  # The CLI resolves its own helper. Retain only nonsecret metadata, never id/token.
+  if ! session_metadata="$(vault token lookup -format=json 2>/dev/null |
+    jq -ce '{policies: .data.policies, ttl: .data.ttl}')"; then
+    echo "::error::Dev requires a valid non-root Vault CLI session." >&2
+    return 1
+  fi
+  if ! jq -e '
+    (.policies | type == "array" and length > 0 and all(type == "string") and index("root") == null)
+    and (.ttl | type == "number" and . > 0)
+  ' <<<"$session_metadata" >/dev/null; then
+    echo "::error::Dev refuses a root, invalid or expired Vault session." >&2
+    return 1
+  fi
+  for path in "sys/policies/acl/${role_name}" "${VAULT_JWT_AUTH_MOUNT}/role/${role_name}"; do
+    if ! capabilities="$(vault token capabilities -format=json "$path" 2>/dev/null)"; then
+      echo "::error::Cannot verify Dev session capabilities for the exact managed path." >&2
+      return 1
+    fi
+    if ! jq -e --arg mode "$mode" '
+      type == "array" and index("root") == null and index("deny") == null
+      and index("read") != null
+      and ($mode == "check" or (index("create") != null and index("update") != null))
+    ' <<<"$capabilities" >/dev/null; then
+      echo "::error::Dev session lacks required capabilities on the exact managed path." >&2
+      return 1
+    fi
+  done
+}
+
 publish_env() {
   local env_name="$1"
   local account="$2"
   local policy_name="github-actions-platform-ops-toolkit-${env_name}-akamai-oidc-bootstrap-${account}"
   local role_name="$policy_name"
   local policy_file role_file
+  if [[ "$env_name" == dev ]]; then
+    verify_dev_session "$role_name"
+  fi
   policy_file="${tmp_dir}/${env_name}-${account}.hcl"
   role_file="${tmp_dir}/${env_name}-${account}.json"
 

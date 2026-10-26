@@ -14,7 +14,13 @@ import json, os, pathlib, sys
 root=pathlib.Path(os.environ['FAKE_VAULT_DIR'])
 a=sys.argv[1:]
 with (root/'calls').open('a') as f: f.write(json.dumps(a)+'\n')
-if a[:2] == ['policy','write']:
+if a[:2] == ['token','lookup']:
+ session=os.environ.get('FAKE_SESSION','valid')
+ if session=='invalid': sys.exit(2)
+ print(json.dumps({'data':{'id':'DO-NOT-EXPOSE-FAKE-TOKEN','policies':['root'] if session=='root' else ['dev-policy-manager'],'ttl':0 if session=='expired' else 1200}}))
+elif a[:2] == ['token','capabilities']:
+ print(json.dumps(['read'] if os.environ.get('FAKE_SESSION')=='insufficient' else ['read','create','update']))
+elif a[:2] == ['policy','write']:
  (root/(a[2]+'.hcl')).write_text(pathlib.Path(a[3]).read_text())
 elif a[0] == 'write':
  (root/'role.json').write_text(sys.stdin.read())
@@ -35,7 +41,7 @@ elif a[0] == 'read' and '-format=json' in a:
 '''
 
 class DevOIDCContract(unittest.TestCase):
-    def run_bootstrap(self, target='dev', mutation='', mode='--apply'):
+    def run_bootstrap(self, target='dev', mutation='', mode='--apply', helper=False, session='valid'):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); binary=root/'vault';binary.write_text(FAKE);binary.chmod(0o755)
             role=json.loads((TEMPLATES/'akamai-oidc-role-dev.json.tmpl').read_text().replace('__ACCOUNT__','test-account'))
@@ -44,7 +50,8 @@ class DevOIDCContract(unittest.TestCase):
             env={'PATH':str(root)+os.pathsep+os.environ['PATH'],'VAULT_ADDR':'http://vault.invalid',
                  'VAULT_TOKEN':'fake-contract-only','AKAMAI_ACCOUNT_DEV':'test-account',
                  'AKAMAI_ACCOUNT_UAT':'test-uat','AKAMAI_ACCOUNT_PROD':'test-prod',
-                 'FAKE_VAULT_DIR':tmp,'FAKE_MUTATION':mutation}
+                 'FAKE_VAULT_DIR':tmp,'FAKE_MUTATION':mutation,'FAKE_SESSION':session}
+            if helper: env.pop('VAULT_TOKEN')
             result=subprocess.run(['bash',str(SCRIPT),mode,'--env',target],env=env,text=True,capture_output=True)
             calls=[json.loads(x) for x in (root/'calls').read_text().splitlines()] if (root/'calls').exists() else []
             files={p.name:p.read_text() for p in root.glob('*.hcl')}
@@ -107,11 +114,27 @@ class DevOIDCContract(unittest.TestCase):
             self.assertEqual(calls[0][:3],['policy','write',name])
             self.assertEqual(calls[1],['write','auth/jwt/role/'+name,'-'])
 
+    def test_dev_uses_helper_without_copying_token(self):
+        result,calls,_,_=self.run_bootstrap(helper=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn(['token','lookup','-format=json'],calls)
+        self.assertNotIn('DO-NOT-EXPOSE',result.stdout+result.stderr)
+
+    def test_root_invalid_expired_or_insufficient_helper_never_reads_or_writes_roles(self):
+        for session in ('root','invalid','expired','insufficient'):
+            with self.subTest(session=session):
+                result,calls,files,_=self.run_bootstrap(helper=True,session=session)
+                self.assertNotEqual(result.returncode,0)
+                self.assertFalse(files)
+                self.assertTrue(all(x[0]=='token' for x in calls),calls)
+                self.assertNotIn('DO-NOT-EXPOSE',result.stdout+result.stderr)
+
     def test_all_preserves_existing_uat_prod_set(self):
         result,calls,files,_=self.run_bootstrap(target='all')
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertEqual(len(files),2)
         self.assertTrue(any('-uat-' in x for x in files));self.assertTrue(any('-prod-' in x for x in files))
         self.assertFalse(any('-dev-' in x for x in files))
+        self.assertFalse(any(x[0]=='token' for x in calls))
 
 if __name__=='__main__': unittest.main()
