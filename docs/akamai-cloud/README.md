@@ -66,3 +66,23 @@ bash docs/akamai-cloud/init-vault-kv.sh --check --env all
 - state 凭据只从 `kv/CICD/<env>/iac_state` 注入 workflow。
 - state key 由 environment/project/cloud/account/workspace 五级参数生成。
 - 当前 workflow 仍需要 `TF_STATE_ACCESS_KEY` 和 `TF_STATE_SECRET_KEY`；切换到 AWS OIDC → STS 后，需同步移除对应 KV 字段读取和 policy 权限。
+
+### Dev identity template (review before apply)
+
+`bootstrap_akamai_oidc_roles.sh --env dev` is an explicit opt-in using
+`AKAMAI_ACCOUNT_DEV`; `--env all` continues to mean UAT + PROD. The Dev role
+uses exact string claims for this repository, `refs/heads/main`, environment
+`dev`, caller `dev-host-lifecycle.yml@refs/heads/main`, and reusable job
+`iac-pipeline-multi-cloud-stages.yaml@refs/heads/main`. The caller follows the
+reviewed #1453 chain: lifecycle → iac-orchestrator → multi-cloud stages.
+It does not copy UAT wildcard claims. Changing that caller requires reviewing
+this identity contract, rather than widening its workflow allowlist.
+
+The existing policy template is reused without changing capabilities: four
+read-only provider/account and state paths under the selected Dev environment.
+This change adds no KV values, provider credentials, root token or dispatch
+input. Fake-CLI tests prove rendering and fail-closed claim validation, not
+actual Vault login or provider access. Applying the role/policy has **not been
+authorized or performed**; a reviewed template is only the proposed identity
+configuration. A policy-management operator with the separately authorized
+scope would apply it through the existing bootstrap entrypoint.
