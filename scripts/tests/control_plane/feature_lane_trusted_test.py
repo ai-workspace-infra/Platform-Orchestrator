@@ -37,14 +37,24 @@ class TrustedTest(unittest.TestCase):
                 path=loc['workflow'],head_sha=loc['sha'],event=loc['event'],id=loc['run_id'],run_attempt=loc['attempt'],status='completed',conclusion='success')
             self.archive(loc['artifact_id'],loc['filename'],json.dumps(self.documents[loc['artifact_id']]))
             self.metadata[loc['artifact_id']].update(name=loc['artifact_name'],workflow_run={'id':loc['run_id']})
+        self.selectors={'builds':{'example/accounts':{'run_id':11,'attempt':1,'artifact_id':102}},
+                        'acceptance':{'run_id':42,'attempt':1,'artifact_id':101},'authorization':{'comment_id':9}}
+        for key in ('run_id','attempt','artifact_id','artifact_name'):
+            self.policy['acceptance_owner'].pop(key)
+        self.policy['acceptance_owner']['artifact_prefix']='acceptance'
+        self.policy['build_owners']={'example/accounts':{'repository':'example/accounts','workflow':'build.yml',
+                                    'event':'pull_request','artifact_prefix':'build','filename':'manifest.json'}}
+        self.policy.pop('builds');self.policy.pop('task_url');self.policy.pop('authorization_url_prefix')
+        self.policy['task_repositories']=['example/accounts']
+        self.policy['authorization']={'kind':'issue_comment'}
         self.comment={'id':9,'user':{'login':'human','type':'User'},'author_association':'MEMBER',
             'issue_url':'https://api.github.com/repos/example/accounts/issues/1',
-            'html_url':self.policy['authorization_url_prefix']+'issuecomment-9',
+            'html_url':self.c['task_url']+'#issuecomment-9',
             'body':'APPROVE feature-candidate '+T.gate.identity(self.c)+' action=merge',
             'created_at':'2026-10-26T01:00:00Z','updated_at':'2026-10-26T01:00:00Z'}
         self.comments=[self.comment];self.policy_drift=False;self.main_status='ahead'
         self.rawpr={'base':{'repo':{'full_name':'example/accounts'},'ref':'main'},'head':{'repo':{'full_name':'example/accounts'},'sha':'a'*40},
-            'number':2,'state':'open','merged':False,'merge_commit_sha':None}
+            'body':self.c['task_url'],'number':2,'state':'open','merged':False,'merge_commit_sha':None}
 
     def archive(self,aid,name,body,extra=None):
         stream=io.BytesIO()
@@ -61,16 +71,17 @@ class TrustedTest(unittest.TestCase):
         if path.endswith('/git/ref/heads/main'):return {'object':{'sha':'d'*40}}
         if '/compare/' in path:return {'status':self.main_status}
         if '/contents/' in path:return {'type':'file','path':T.POLICY_PATH,'size':1000,'sha':('c' if self.policy_drift and path.endswith('d'*40) else 'b')*40,'content':base64.b64encode(json.dumps(self.policy).encode()).decode()}
-        if '/pulls/2' in path:return self.rawpr
+        if '/pulls/' in path:return self.rawpr
         if '/git/commits/' in path:return {'tree':{'sha':'b'*40}}
         if '/actions/runs/' in path:return self.rawruns[int(path.split('/')[-1])]
         if '/actions/artifacts/' in path:return self.metadata[int(path.split('/')[-1])]
         if '/comments?' in path:return self.comments
-        if path.endswith('/issues/1'):return {'number':1,'url':'https://api.github.com/repos/example/accounts/issues/1'}
+        if '/issues/' in path:
+            issue=int(path.split('/')[-1]);return {'number':issue,'url':f'https://api.github.com/repos/example/accounts/issues/{issue}'}
         raise AssertionError('unexpected API route')
 
     def decide(self,stage='merge'):
-        with patch.object(T.reader,'api',side_effect=self.api):return T.verified(self.c,stage,'f'*40)
+        with patch.object(T.reader,'api',side_effect=self.api):return T.verified(self.c,stage,'f'*40,self.selectors)
 
     def test_verified_retrieval_never_executes(self):
         r=self.decide();self.assertEqual(r['status'],'VERIFIED_GATE');self.assertFalse(r['dispatch_authorized']);self.assertEqual(r['execution'],'NOT_RUN')
@@ -133,8 +144,8 @@ class TrustedTest(unittest.TestCase):
         with self.assertRaises(T.gate.Blocked):self.decide()
 
     def test_attempt_two_artifact_and_receipt_are_bound_together(self):
-        loc=self.policy['acceptance_owner'];loc['attempt']=2;loc['artifact_name']='acceptance-42-2'
-        self.rawruns[42]['run_attempt']=2;self.metadata[101]['name']=loc['artifact_name']
+        loc=self.selectors['acceptance'];loc['attempt']=2
+        self.rawruns[42]['run_attempt']=2;self.metadata[101]['name']='acceptance-42-2'
         self.receipt['run_attempt']=2;self.archive(101,'receipt.json',json.dumps(self.receipt))
         self.assertEqual(self.decide()['status'],'VERIFIED_GATE')
         self.receipt['run_attempt']=1;self.archive(101,'receipt.json',json.dumps(self.receipt))
@@ -156,7 +167,7 @@ class TrustedTest(unittest.TestCase):
             # The public loader imports its own reader; patch the adapter load
             # boundary only, not the evaluator or authenticated retrieval code.
             with patch('importlib.util.module_from_spec', return_value=T), patch('importlib.machinery.SourceFileLoader.exec_module'):
-                result=F.gate.gate(self.c,stage='merge',policy_commit='f'*40)
+                result=F.gate.gate(self.c,stage='merge',policy_commit='f'*40,evidence_selectors=self.selectors)
         self.assertEqual(result['status'],'VERIFIED_GATE')
 
     def test_download_uses_only_authenticated_github_artifact_id_endpoint(self):
@@ -178,7 +189,9 @@ class TrustedTest(unittest.TestCase):
         self.rawpr.update(state='closed',merged=True,merge_commit_sha='e'*40)
         loc=dict(repository='example/accounts',workflow='build.yml',sha='e'*40,event='push',run_id=12,
                  attempt=1,artifact_id=103,artifact_name='merge-12-1',filename='manifest.json')
-        self.policy['merge_builds']={'example/accounts':loc}
+        self.policy['merge_build_owners']={'example/accounts':{k:loc[k] for k in ('repository','workflow','event','filename')}}
+        self.policy['merge_build_owners']['example/accounts']['artifact_prefix']='merge'
+        self.selectors['merge_builds']={'example/accounts':{k:loc[k] for k in ('run_id','attempt','artifact_id')}}
         self.rawruns[12]=dict(self.rawruns[11],id=12,head_sha='e'*40,event='push')
         proof={'repository':'example/accounts','merge_sha':'e'*40,'source_sha':'a'*40,
                'image':self.c['sources'][0]['image'],'manifest_sha256':'c'*64}
@@ -187,6 +200,43 @@ class TrustedTest(unittest.TestCase):
         result=self.decide('uat');self.assertEqual(result['namespace'],'web-saas-uat')
         proof['image']='other@sha256:'+'d'*64;self.archive(103,'manifest.json',json.dumps(proof))
         with self.assertRaises(T.gate.Blocked):self.decide('uat')
+
+    def test_second_candidate_new_task_head_and_runs_do_not_change_policy(self):
+        policy_before=json.dumps(self.policy,sort_keys=True)
+        self.assertEqual(self.decide()['status'],'VERIFIED_GATE')
+        source=self.c['sources'][0];source.update(sha='8'*40,pr=3,image='registry.invalid/accounts@sha256:'+'d'*64)
+        self.c['task_url']='https://github.com/example/accounts/issues/2'
+        self.rawpr['number']=3;self.rawpr['head']['sha']='8'*40;self.rawpr['body']=self.c['task_url']
+        self.rawruns[13]=dict(self.rawruns[11],id=13,head_sha='8'*40)
+        self.archive(104,'manifest.json',json.dumps({'repository':'example/accounts','source_sha':'8'*40,'image':source['image']}))
+        self.metadata[104].update(name='build-13-1',workflow_run={'id':13})
+        self.selectors['builds']['example/accounts'].update(run_id=13,artifact_id=104)
+        self.rawruns[43]=dict(self.rawruns[42],id=43)
+        self.receipt.update(run_id=43,candidate_sha256=T.gate.identity(self.c),image_ids={'example/accounts':source['image']})
+        self.archive(105,'receipt.json',json.dumps(self.receipt));self.metadata[105].update(name='acceptance-43-1',workflow_run={'id':43})
+        self.selectors['acceptance'].update(run_id=43,artifact_id=105)
+        self.comment.update(id=10,issue_url='https://api.github.com/repos/example/accounts/issues/2',
+                            html_url=self.c['task_url']+'#issuecomment-10',body='APPROVE feature-candidate '+T.gate.identity(self.c)+' action=merge')
+        self.selectors['authorization']['comment_id']=10
+        self.assertEqual(self.decide()['status'],'VERIFIED_GATE')
+        self.assertEqual(json.dumps(self.policy,sort_keys=True),policy_before)
+        self.rawruns[13]['head_sha']='9'*40
+        with self.assertRaises(T.gate.Blocked):self.decide()
+
+    def test_selectors_cannot_override_owner_or_embed_evidence(self):
+        for name,bad in [('repository','foreign/repo'),('workflow','other.yml'),('filename','other.json'),
+                         ('event','push'),('sha','a'*40),('approved',True),('artifact_name','fake')]:
+            self.selectors['builds']['example/accounts'][name]=bad
+            with self.subTest(name=name),self.assertRaises(T.gate.Blocked):self.decide()
+            self.selectors['builds']['example/accounts'].pop(name)
+        self.selectors['authorization']['actor']='human'
+        with self.assertRaises(T.gate.Blocked):self.decide()
+
+    def test_unapproved_task_repo_and_unlinked_pr_are_rejected(self):
+        self.c['task_url']='https://github.com/foreign/repo/issues/2'
+        with self.assertRaises(T.gate.Blocked):self.decide()
+        self.setUp();self.rawpr['body']='unrelated requirement'
+        with self.assertRaises(T.gate.Blocked):self.decide()
 
     def test_wrong_pr_head_or_fork_rejected(self):
         self.rawpr['head']['repo']['full_name']='fork/accounts'

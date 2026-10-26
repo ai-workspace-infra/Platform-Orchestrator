@@ -20,7 +20,7 @@ new environment, credentials, resource executor, or second dispatch path.
    status alone is insufficient. Select the trusted stable UAT namespace/host on
    the same Dev target. This is post-merge UAT.
 
-The public `gate(candidate, stage="merge", policy_commit=<full SHA>)` retrieves
+The public `gate(candidate, stage="merge", policy_commit=<full SHA>, evidence_selectors=selectors)` retrieves
 trusted evidence. It rejects simultaneous caller policy/PR/receipt/run/approval
 objects. A successful check emits `VERIFIED_GATE`, `execution=NOT_RUN` and
 `dispatch_authorized=false`; it neither merges nor dispatches. The legacy raw
@@ -37,10 +37,24 @@ review/approval ceremony. A feature PR cannot substitute local policy JSON,
 change the policy repository/path, or select a superseded policy. No active
 policy is created by this PR. A missing policy is BLOCKED.
 
-Policy supplies the approved target, SIT suffix, stable UAT target, repositories,
-required tests, exact build/acceptance/merge owner workflow paths and SHAs,
-run IDs/attempts, artifact IDs, names and expected document names. Each artifact
-name must end in `-<run_id>-<attempt>`. The adapter fetches authenticated GitHub
+Policy supplies only stable allowlists and execution identities: approved Dev
+and stable UAT targets, SIT domain suffix, task/source repositories, required tests,
+`build_owners`/`merge_build_owners` workflow/event/filename/artifact-prefix identities,
+and the reviewed acceptance-owner code SHA. It does **not** contain a feature task,
+PR head, run/artifact/attempt IDs or authorization comment ID.
+
+The caller may provide an untrusted candidate task URL and `evidence_selectors`:
+`builds` and (for UAT) `merge_builds` map each participating repository to exactly
+`{run_id, attempt, artifact_id}` positive integers; `acceptance` has the same three
+IDs; `authorization` contains exactly `{comment_id}`. No selector may override a
+repository, workflow, event, filename, source SHA, environment or approving user.
+The adapter derives service SHA from the candidate/current PR API, merge SHA from
+the merged PR API, and artifact name from the policy prefix plus run and attempt.
+The task must be a real Issue in an allowed repository, linked by the source PR.
+Thus a second task/head/run candidate uses the same policy blob without merging
+runtime facts to main. Missing/extra selectors or foreign task/source are BLOCKED.
+
+The adapter fetches authenticated GitHub
 API metadata through the existing migration-matrix artifact reader. It validates
 owner workflow/event/SHA/repository, successful run and exact attempt, rejects
 fork producers and expired/mixed-run artifacts, and verifies GitHub's archive
@@ -51,8 +65,9 @@ manifest checksum is computed from retrieved bytes, not trusted as a payload
 claim. Producer source/image manifests and current PR heads must match.
 
 `authorization` is an optional configured evidence-source contract, not a new
-universal approval policy. The implemented `kind: issue_comment` source selects
-an exact task repository/issue/comment ID and allowlisted human authors. Current
+universal approval policy. The implemented `kind: issue_comment` source permits
+allowlisted human authors; the task repository/issue and comment ID are untrusted
+selectors resolved and checked through current API data. Current
 API data must show a User with OWNER/MEMBER/COLLABORATOR association, the correct
 issue and canonical comment URL, unchanged created/updated timestamps, and exact
 body `APPROVE feature-candidate <candidate_sha256> action=merge` (or `action=uat`).

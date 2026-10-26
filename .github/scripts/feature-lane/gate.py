@@ -145,7 +145,7 @@ def _evaluate(c, policy, stage, prs, receipt=None, run=None, authorization=None)
             'execution': 'NOT_RUN', 'dispatch_authorized': False}
 
 
-def gate(c, policy=None, stage=None, prs=None, receipt=None, run=None, authorization=None, *, policy_commit=None):
+def gate(c, policy=None, stage=None, prs=None, receipt=None, run=None, authorization=None, *, policy_commit=None, evidence_selectors=None):
     """Live preflight never authenticates caller-provided JSON as evidence.
 
     The verified path requires an explicit fixed policy_commit and retrieves all
@@ -160,7 +160,7 @@ def gate(c, policy=None, stage=None, prs=None, receipt=None, run=None, authoriza
         adapter = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(adapter)
         try:
-            return adapter.verified(c, stage, policy_commit)
+            return adapter.verified(c, stage, policy_commit, evidence_selectors)
         except adapter.gate.Blocked as exc:
             raise Blocked(str(exc)) from None
     if stage in ('merge', 'uat'):
