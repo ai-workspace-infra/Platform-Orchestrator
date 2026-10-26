@@ -135,11 +135,20 @@ def source_gate(reader,repo,sha,workflow,stage='sit',run=None):
  pr=selected[0]
  if preview:require(run.get('head_branch')==pr.get('head',{}).get('ref') and run.get('head_sha')==sha,'preview branch/current PR head differs')
  require(reader.api(f'repos/{repo}/compare/{main}...{sha}').get('status') in ('ahead','identical'),'source PR lacks current main ancestry')
- def blob(ref):return reader.api(f'repos/{repo}/contents/{workflow}?ref={ref}').get('sha')
+ def blob(ref,path=workflow):
+  row=reader.api(f'repos/{repo}/contents/{path}?ref={ref}')
+  require(row.get('type')=='file' and row.get('path')==path and SHA.fullmatch(row.get('sha','')),'privileged publisher dependency missing')
+  return row['sha']
  baseline_blob=blob(main);candidate_blob=blob(sha)
  require(SHA.fullmatch(baseline_blob or '') and (baseline_blob==candidate_blob or (preview and candidate_blob==APPROVED_ACCOUNTS_PREVIEW_WORKFLOW_BLOB)),'candidate modified privileged publisher workflow beyond reviewed owner')
+ privileged_blobs={workflow:candidate_blob}
+ if repo=='ai-workspace-services/accounts':
+  helper='scripts/github-actions/resolve-pipeline-flags.sh'
+  baseline_helper=blob(main,helper);candidate_helper=blob(sha,helper)
+  require(baseline_helper==candidate_helper,'source PR modified privileged flags helper beyond reviewed owner')
+  privileged_blobs[helper]=candidate_helper
  task=feature_link(reader,repo,pr)
- return {'kind':'verified_sit_dispatch_pr' if preview else 'verified_source_pr','pr':pr['number'],'head_branch':pr.get('head',{}).get('ref'),'source_sha':sha,'main_sha':main,'task':task,'checks':check_head(reader,sha,repo)}
+ return {'kind':'verified_sit_dispatch_pr' if preview else 'verified_source_pr','pr':pr['number'],'head_branch':pr.get('head',{}).get('ref'),'source_sha':sha,'main_sha':main,'task':task,'privileged_blobs':privileged_blobs,'checks':check_head(reader,sha,repo)}
 
 PUBLISH={
  'caddy':('Build caddy image with cloudflare dns','Run actions/checkout@v7','Push image'),
@@ -186,13 +195,19 @@ def verify_publish_log(component,job,log,sha,image,preview=False):
  if component=='caddy':
   docker=any(re.search(r'(?m)^'+re.escape(sha[:length])+r': digest: '+re.escape(digest)+r' size: [0-9]+\s*$',publish_log) for length in range(7,41))
  require(bool(buildx) or (bool(docker) and 'The push refers to repository ['+repo+']' in publish_log),'exact image/source-tag successful push not proven')
- return {'kind':'authenticated_publisher_job_log','job_id':job['id'],'job_name':job['name'],'checkout_step':checkout,'publish_step':publish,'log_sha256':hashlib.sha256(log.encode()).hexdigest(),'source_sha':sha,'image':image}
+ result={'kind':'authenticated_publisher_job_log','job_id':job['id'],'job_name':job['name'],'checkout_step':checkout,'publish_step':publish,'log_sha256':hashlib.sha256(log.encode()).hexdigest(),'source_sha':sha,'image':image}
+ if preview:result['preview_flags']={'deploy_env':'sit','push_image':True,'push_latest':False,'publish_artifact_registry':False,'vault_role':'github-actions-accounts-sit'}
+ return result
 
 def job_log_from_archive(archive,job_name):
  require(isinstance(archive,bytes) and len(archive)<=2_000_000,'oversized run logs archive')
  with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
   entries=zipped.infolist()
-  require(len(entries)<=100 and sum(x.file_size for x in entries)<=4_000_000,'oversized run logs content')
+  require(len(entries)<=256 and sum(len(x.filename.encode()) for x in entries)<=65_536,'oversized run log directory')
+  # The real Accounts preview has 141 job/system entries. Archive bytes and
+  # the sole decompressed publisher text remain capped at 2 MB each.
+  # Only the exact selected job is decompressed, capped below. Irrelevant
+  # precheck logs may advertise larger sizes without allocating their content.
   for item in entries:
    path=Path(item.filename)
    require(not path.is_absolute() and '..' not in path.parts and '\\' not in item.filename and (item.external_attr>>16)&0o170000!=0o120000 and not item.flag_bits&1,'unsafe run logs archive')

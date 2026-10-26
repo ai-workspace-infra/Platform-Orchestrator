@@ -189,7 +189,7 @@ jobs:
       cluster_uid: ${{ needs.resolve.outputs.cluster_uid }}
   report:
     needs: [resolve, deploy, seed, ingress]
-    if: always()
+    if: always() && !failure() && !cancelled()
     runs-on: ubuntu-latest
     steps:
       - name: Require exactly the selected owner to succeed

@@ -53,6 +53,13 @@ class PublisherTests(unittest.TestCase):
    self.assertEqual(R.verify_publish_log('billing',job,changed,source*40,image.replace('b'*64,digest*64))['source_sha'],source*40)
 
 class ArchiveTests(unittest.TestCase):
+ def test_large_unread_precheck_does_not_expand_beyond_selected_job_bound(self):
+  import io,zipfile
+  stream=io.BytesIO()
+  with zipfile.ZipFile(stream,'w',compression=zipfile.ZIP_DEFLATED) as z:
+   z.writestr('0_Precheck.txt','synthetic-noise' * 400000)
+   z.writestr('1_Build.txt','selected-public-log')
+  self.assertEqual(R.job_log_from_archive(stream.getvalue(),'Build'),b'selected-public-log')
  def test_exact_job_archive_and_traversal_rejection(self):
   import io,zipfile
   def archive(entries):
@@ -108,14 +115,16 @@ class PreviewTests(unittest.TestCase):
  def test_preview_branch_task_and_open_pr_identity(self):
   sha='a'*40
   class API:
-   def __init__(self):self.branch='feature/referral';self.body='Referral baseline #277';self.open=True
+   def __init__(self):self.branch='feature/referral';self.body='Referral baseline #277';self.open=True;self.helper_mismatch=False
    def api(self,path):
     if '/git/ref/' in path:return {'object':{'sha':'c'*40}}
     if '/compare/'+sha in path:return {'status':'behind'}
     if '/compare/' in path:return {'status':'ahead'}
     if '/commits/' in path and '/pulls' in path:return [{'number':279,'state':'open' if self.open else 'closed','body':self.body,'head':{'sha':sha,'ref':self.branch,'repo':{'full_name':'ai-workspace-services/accounts'}},'base':{'ref':'main','repo':{'full_name':'ai-workspace-services/accounts'}}}]
     if '/pulls/277' in path:return {'number':277,'body':R.FEATURE_TASK_PATH}
-    if '/contents/' in path:return {'sha':R.APPROVED_ACCOUNTS_PREVIEW_WORKFLOW_BLOB if sha in path else 'd'*40}
+    if '/contents/' in path:
+     fixed=path.split('/contents/')[1].split('?')[0]
+     return {'type':'file','path':fixed,'sha':(('f'*40 if self.helper_mismatch and sha in path else 'e'*40) if 'resolve-pipeline-flags.sh' in path else R.APPROVED_ACCOUNTS_PREVIEW_WORKFLOW_BLOB if sha in path else 'd'*40)}
     if '/check-runs' in path:return {'check_runs':[{'name':'test','status':'completed','conclusion':'success','id':1}]}
     if path.endswith('/status'):return {'state':'success','total_count':1}
     raise AssertionError(path)
@@ -124,6 +133,8 @@ class PreviewTests(unittest.TestCase):
   for stage,branch,body,opened in [('uat','feature/referral','baseline #277',True),('sit','other','baseline #277',True),('sit','feature/referral','unrelated',True),('sit','feature/referral','baseline #277',False)]:
    api.branch=branch;api.body=body;api.open=opened
    with self.assertRaises(ValueError):R.source_gate(api,'ai-workspace-services/accounts',sha,'.github/workflows/ci-pipeline.yml',stage,run)
+  api.branch='feature/referral';api.body='baseline #277';api.open=True;api.helper_mismatch=True
+  with self.assertRaises(ValueError):R.source_gate(api,'ai-workspace-services/accounts',sha,'.github/workflows/ci-pipeline.yml','sit',run)
 
 class PriorOwnerTests(unittest.TestCase):
  def fixture(self):

@@ -33,12 +33,13 @@ def main():
  require(isinstance(checks,list),'GitOps checks API unavailable')
  _,identity=module.foundation(reader,40353330431,12664517641,12668512699)
  rows=[('accounts','ai-workspace-services/accounts',40222728214,'8d1b09a6f2022af221b2a817d516952af41ced0e','ghcr.io/ai-workspace-services/accounts@sha256:6edd156ce6974dfd0cd7486beebbb446091e4019eacf3c272e05aba4a609737d'),('console','ai-workspace-services/portal',40256113380,'2a272f295235efdd39f469245ad74177d1a5ff5d','ghcr.io/ai-workspace-services/console@sha256:03ffaf0174c64aede7602b5d566ff27921f760e134028afabb62b646324228f9'),('caddy','ai-workspace-infra/artifacts',30419099530,'959d6c8ec8dfdf1224fe3b976ae4548d38947332','ghcr.io/ai-workspace-infra/caddy-cloudflare@sha256:9895385033fea2bdb445841b45f37e6cd58b9e071a16e4c147e483abb74a0acf')]
+ rows.append(('accounts','ai-workspace-services/accounts',40378515318,'450ab9940071883139d4a73e6cfd2f4b77d193ba','ghcr.io/ai-workspace-services/accounts@sha256:97a58ebe7fab56432777591604491c2dea7fc7cc57cd35820fedef78fa328572'))
  proofs=[]
  for component,repo,rid,sha,image in rows:
-  run=reader.api(f'repos/{repo}/actions/runs/{rid}');module.run_identity(run,repo,sha,module.COMPONENTS[component][2])
+  run=reader.api(f'repos/{repo}/actions/runs/{rid}');module.run_identity(run,repo,sha,module.COMPONENTS[component][2],'workflow_dispatch' if rid==40378515318 else 'push')
   module.source_gate(reader,repo,sha,module.COMPONENTS[component][2],'sit',run)
-  proof=module.publisher_proof(reader,component,repo,rid,sha,image)
-  proofs.append({'component':component,'job_id':proof['job_id'],'source_sha':sha,'image':image,'log_sha256':proof['log_sha256'],'matched_checkout_and_push':True})
+  proof=module.publisher_proof(reader,component,repo,rid,sha,image,rid==40378515318)
+  proofs.append({'component':component,'preview_dispatch':rid==40378515318,'job_id':proof['job_id'],'source_sha':sha,'image':image,'log_sha256':proof['log_sha256'],'matched_checkout_and_push':True,'preview_flags':proof.get('preview_flags')})
  reader.api('repos/ai-workspace-services/accounts/commits/450ab9940071883139d4a73e6cfd2f4b77d193ba/pulls?per_page=100')
  reader.api('repos/ai-workspace-services/accounts/contents/.github/workflows/ci-pipeline.yml?ref=450ab9940071883139d4a73e6cfd2f4b77d193ba')
  require(not denied,'integration token denied cross-repository API: '+json.dumps(denied,sort_keys=True))
