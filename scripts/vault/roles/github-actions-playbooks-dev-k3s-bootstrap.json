@@ -1,0 +1,24 @@
+{
+  "role_name": "github-actions-playbooks-dev-k3s-bootstrap",
+  "description": "Dev K3s bootstrap credential read for exact protected-main caller and fixed Playbooks callee; proposed configuration, not apply authorization.",
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": [
+    "vault"
+  ],
+  "bound_claims_type": "string",
+  "bound_claims": {
+    "repository": "ai-workspace-infra/platform-ops-toolkit",
+    "ref": "refs/heads/main",
+    "environment": "dev",
+    "workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-host-lifecycle.yml@refs/heads/main",
+    "job_workflow_ref": "ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@e4607530b545ccf09e4045113afeb644b067823e"
+  },
+  "token_policies": [
+    "github-actions-playbooks-dev-k3s-bootstrap"
+  ],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "20m",
+  "token_max_ttl": "20m"
+}

@@ -79,6 +79,34 @@ class DevOIDCContract(unittest.TestCase):
                 self.assertIn('Dev Akamai role claims',result.stderr)
                 self.assertFalse(any(x[0]=='write' or x[:2]==['policy','write'] for x in calls))
 
+    def test_managed_bootstrap_role_uses_fixed_callee_and_one_read_path(self):
+        name='github-actions-playbooks-dev-k3s-bootstrap'
+        declared=json.loads((ROOT/'scripts/vault/roles'/f'{name}.json').read_text())
+        self.assertEqual(declared['bound_claims_type'],'string')
+        self.assertEqual(declared['bound_claims'],{
+            'repository':'ai-workspace-infra/platform-ops-toolkit',
+            'ref':'refs/heads/main','environment':'dev',
+            'workflow_ref':'ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-host-lifecycle.yml@refs/heads/main',
+            'job_workflow_ref':'ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@e4607530b545ccf09e4045113afeb644b067823e'})
+        self.assertEqual(declared['token_policies'],[name])
+        self.assertTrue(declared['token_no_default_policy'])
+        self.assertEqual(declared['token_type'],'batch')
+        self.assertEqual(declared['token_ttl'],'20m');self.assertEqual(declared['token_max_ttl'],'20m')
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);binary=root/'vault';binary.write_text(FAKE);binary.chmod(0o755)
+            env={'PATH':str(root)+os.pathsep+os.environ['PATH'],'VAULT_ADDR':'http://vault.invalid',
+                 'VAULT_TOKEN':'fake-contract-only','FAKE_VAULT_DIR':tmp}
+            result=subprocess.run(['bash',str(ROOT/'scripts/create_vault_service_repo_roles.sh'),'--apply','--role',name],env=env,text=True,capture_output=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+            role=json.loads((root/'role.json').read_text())
+            self.assertEqual(role,{k:v for k,v in declared.items() if k not in ('role_name','description')})
+            self.assertEqual(list(root.glob('*.hcl')),[root/f'{name}.hcl'])
+            self.assertEqual((root/f'{name}.hcl').read_text(),'path "kv/data/CICD/dev/k3s-bootstrap" {\n  capabilities = ["read"]\n}\n')
+            calls=[json.loads(x) for x in (root/'calls').read_text().splitlines()]
+            self.assertEqual(len(calls),2)
+            self.assertEqual(calls[0][:3],['policy','write',name])
+            self.assertEqual(calls[1],['write','auth/jwt/role/'+name,'-'])
+
     def test_all_preserves_existing_uat_prod_set(self):
         result,calls,files,_=self.run_bootstrap(target='all')
         self.assertEqual(result.returncode,0,result.stderr)

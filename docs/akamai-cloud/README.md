@@ -86,3 +86,13 @@ actual Vault login or provider access. Applying the role/policy has **not been
 authorized or performed**; a reviewed template is only the proposed identity
 configuration. A policy-management operator with the separately authorized
 scope would apply it through the existing bootstrap entrypoint.
+
+The separate managed role `github-actions-playbooks-dev-k3s-bootstrap`
+uses the same main-only lifecycle caller and the fixed Playbooks
+`dev-k3s-bootstrap.yml@e4607530b545ccf09e4045113afeb644b067823e` job from
+Playbooks #805. Its policy reads only `kv/data/CICD/dev/k3s-bootstrap`, with no
+metadata/list/write access. It can be selected by the existing managed-role
+entrypoint's `--role` path; no new administrator CLI is introduced. A feature
+branch lifecycle dispatch is deliberately outside these proposed main-only
+claims and cannot be used to validate them. Role publication, actual workload
+login and bootstrap remain unrun and require their existing authorization.
