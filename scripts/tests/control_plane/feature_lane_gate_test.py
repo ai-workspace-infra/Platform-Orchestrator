@@ -13,13 +13,14 @@ spec.loader.exec_module(gate)
 
 def fixture():
     policy = {'target': 'dev-fixture', 'domain_suffix': 'test.invalid',
+              'uat_target': {'namespace': 'web-saas-uat', 'domain': 'console-uat.test.invalid'},
               'repositories': ['example/accounts'], 'required_tests': ['rootless', 'ddl_refused', 'stripe_real'],
               'acceptance_owner': {'repository': 'example/playbooks', 'workflow': 'acceptance.yml', 'sha': 'c' * 40},
               'approvers': ['human'], 'authorization_url_prefix': 'https://github.com/example/control/issues/1#'}
     c = {'schema': 1, 'feature_id': 'xconnect-referral', 'environment': 'dev', 'target': 'dev-fixture',
          'task_url': 'https://github.com/example/accounts/issues/1',
-         'namespaces': {'sit': 'feature-xconnect-referral-sit', 'uat': 'feature-xconnect-referral-uat'},
-         'domains': {'sit': 'xconnect-referral-sit.test.invalid', 'uat': 'xconnect-referral-uat.test.invalid'},
+         'namespaces': {'sit': 'feature-xconnect-referral-sit', 'uat': 'web-saas-uat'},
+         'domains': {'sit': 'xconnect-referral-sit.test.invalid', 'uat': 'console-uat.test.invalid'},
          'chart_digest': 'sha256:' + 'a' * 64, 'config_sha256': 'b' * 64, 'data_baseline_sha256': 'd' * 64,
          'required_tests': policy['required_tests'],
          'sources': [{'repository': 'example/accounts', 'kind': 'feature', 'pr': 2,
@@ -44,11 +45,17 @@ class GateTest(unittest.TestCase):
         c, policy, prs, receipt, run, auth = values
         return gate.rehearse(c, policy, stage, prs, receipt, run, auth)
 
+    def mark_merged(self, values):
+        source = values[0]['sources'][0]
+        values[2]['example/accounts'].update(merged=True, state='CLOSED', merge_sha='e' * 40,
+            merge_artifact={'merge_sha': 'e' * 40, 'source_sha': source['sha'], 'image': source['image'],
+                            'manifest_sha256': 'f' * 64, 'source_tree_sha': 'b' * 40, 'merge_tree_sha': 'b' * 40})
+
     def test_event_chain_keeps_execution_disabled_and_separate_namespaces(self):
         values = fixture()
         sit = self.decide(values, 'sit')
         merged = self.decide(values)
-        values[2]['example/accounts'].update(merged=True, state='CLOSED', merge_sha='e' * 40)
+        self.mark_merged(values)
         uat = self.decide(values, 'uat')
         self.assertNotEqual(sit['namespace'], uat['namespace'])
         self.assertEqual(sit['candidate_sha256'], uat['candidate_sha256'])
@@ -58,7 +65,7 @@ class GateTest(unittest.TestCase):
 
     def test_merged_referral_cannot_pretend_to_be_premerge_sit(self):
         values = fixture()
-        values[2]['example/accounts'].update(merged=True, state='CLOSED', merge_sha='e' * 40)
+        self.mark_merged(values)
         with self.assertRaises(gate.Blocked): self.decide(values, 'sit')
         values = fixture()
         values[0]['sources'][0].update(kind='baseline', pr=None)
@@ -106,11 +113,48 @@ class GateTest(unittest.TestCase):
             values = fixture(); mutation(values[3])
             with self.subTest(mutation=mutation), self.assertRaises(gate.Blocked): self.decide(values)
 
-    def test_foreign_failed_or_retried_evidence_run_rejected(self):
+    def test_foreign_failed_or_mismatched_attempt_evidence_run_rejected(self):
         for change in ({'path': 'other.yml'}, {'head_sha': 'f' * 40}, {'event': 'pull_request'},
                        {'repository': 'foreign/playbooks'}, {'conclusion': 'failure'}, {'attempt': 2}):
             values = fixture(); values[4].update(change)
             with self.subTest(change=change), self.assertRaises(gate.Blocked): self.decide(values)
+
+    def test_legitimate_rerun_with_exact_receipt_attempt_is_valid(self):
+        values = fixture()
+        values[4]['attempt'] = 3
+        values[3]['run_attempt'] = 3
+        self.assertEqual(self.decide(values)['status'], 'REHEARSAL')
+        for bad in (None, 0, -1, True, '3'):
+            values[4]['attempt'] = bad
+            with self.subTest(attempt=bad), self.assertRaises(gate.Blocked): self.decide(values)
+
+    def test_null_unknown_or_malformed_baseline_fields_are_blocked(self):
+        for field in ('chart_digest', 'config_sha256', 'data_baseline_sha256'):
+            for bad in (None, 'unknown', {}, 42):
+                values = fixture(); values[0][field] = bad
+                with self.subTest(field=field, value=bad), self.assertRaisesRegex(gate.Blocked, field):
+                    self.decide(values, 'sit')
+
+    def test_uat_uses_trusted_stable_target_not_feature_temporary_target(self):
+        values = fixture(); self.mark_merged(values)
+        result = self.decide(values, 'uat')
+        self.assertEqual(result['namespace'], 'web-saas-uat')
+        self.assertEqual(result['domain'], 'console-uat.test.invalid')
+        for field, bad in (('namespaces', 'feature-xconnect-referral-uat'),
+                           ('domains', 'xconnect-referral-uat.test.invalid')):
+            changed = copy.deepcopy(values); changed[0][field]['uat'] = bad
+            with self.subTest(field=field), self.assertRaisesRegex(gate.Blocked, 'trusted declared'):
+                self.decide(changed, 'uat')
+
+    def test_uat_requires_explicit_merge_artifact_and_tree_equivalence(self):
+        values = fixture(); self.mark_merged(values)
+        del values[2]['example/accounts']['merge_artifact']
+        with self.assertRaisesRegex(gate.Blocked, 'merge SHA to artifact'): self.decide(values, 'uat')
+        for change in ({'merge_sha': 'd' * 40}, {'source_sha': 'd' * 40}, {'image': 'other@sha256:' + 'f' * 64},
+                       {'manifest_sha256': None}, {'source_tree_sha': None}, {'merge_tree_sha': 'd' * 40}):
+            values = fixture(); self.mark_merged(values)
+            values[2]['example/accounts']['merge_artifact'].update(change)
+            with self.subTest(change=change), self.assertRaises(gate.Blocked): self.decide(values, 'uat')
 
     def test_human_authorization_required(self):
         for change in ({'actor': 'bot'}, {'decision': 'pending'}, {'candidate_sha256': 'f' * 64},
@@ -133,7 +177,7 @@ class GateTest(unittest.TestCase):
 
     def test_postmerge_artifact_change_invalidates_old_sit(self):
         values = fixture()
-        values[2]['example/accounts'].update(merged=True, state='CLOSED', merge_sha='e' * 40)
+        self.mark_merged(values)
         values[0]['sources'][0]['image'] = 'registry.invalid/accounts@sha256:' + 'f' * 64
         with self.assertRaises(gate.Blocked): self.decide(values, 'uat')
 

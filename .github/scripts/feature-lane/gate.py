@@ -30,21 +30,31 @@ def identity(candidate):
 def validate_candidate(c, policy):
     require(c.get('schema') == 1, 'unsupported candidate schema')
     feature = c.get('feature_id', '')
-    require(re.fullmatch(r'[a-z][a-z0-9-]{1,45}', feature) is not None, 'invalid feature id')
-    require(re.fullmatch(r'https://github.com/[^/]+/[^/]+/issues/[1-9][0-9]*', c.get('task_url', '')),
+    require(isinstance(feature, str) and re.fullmatch(r'[a-z][a-z0-9-]{1,45}', feature) is not None, 'invalid feature id')
+    require(isinstance(c.get('task_url'), str) and re.fullmatch(r'https://github.com/[^/]+/[^/]+/issues/[1-9][0-9]*', c['task_url']),
             'feature requires a tracked task')
     require(c.get('target') == policy['target'], 'unapproved Dev target')
     require(c.get('environment') == 'dev', 'only a shared Dev host is eligible')
-    require(c.get('namespaces') == {'sit': 'feature-' + feature + '-sit', 'uat': 'feature-' + feature + '-uat'},
-            'SIT/UAT require distinct feature namespaces')
-    domains = c.get('domains', {})
-    for stage in ('sit', 'uat'):
-        require(domains.get(stage) == feature + '-' + stage + '.' + policy['domain_suffix'],
-                'unapproved temporary feature domain')
+    namespaces = c.get('namespaces')
+    domains = c.get('domains')
+    stable = policy.get('uat_target')
+    require(isinstance(namespaces, dict) and isinstance(domains, dict) and isinstance(stable, dict),
+            'missing declared SIT/UAT targets')
+    require(namespaces.get('sit') == 'feature-' + feature + '-sit', 'invalid temporary SIT namespace')
+    require(domains.get('sit') == feature + '-sit.' + policy['domain_suffix'], 'unapproved temporary SIT domain')
+    require(isinstance(stable.get('namespace'), str) and bool(stable['namespace']) and
+            isinstance(stable.get('domain'), str) and bool(stable['domain']), 'missing trusted stable UAT target')
+    require(namespaces.get('uat') == stable['namespace'] and domains.get('uat') == stable['domain'],
+            'UAT must match trusted declared stable target')
+    require(namespaces['sit'] != namespaces['uat'] and domains['sit'] != domains['uat'],
+            'SIT and stable UAT must be distinct')
     for field in ('chart_digest', 'config_sha256', 'data_baseline_sha256'):
-        value = c.get(field, '')
-        require(sha(value.removeprefix('sha256:') if field == 'chart_digest' else value, 64),
-                'missing immutable ' + field)
+        value = c.get(field)
+        if field == 'chart_digest':
+            require(isinstance(value, str) and value.startswith('sha256:') and sha(value[7:], 64),
+                    'missing immutable ' + field)
+        else:
+            require(sha(value, 64), 'missing immutable ' + field)
     sources = c.get('sources', [])
     require(bool(sources), 'missing participating sources')
     seen = set()
@@ -54,7 +64,7 @@ def validate_candidate(c, policy):
         require(repo in policy['repositories'] and repo not in seen, 'foreign or duplicate repository')
         seen.add(repo)
         require(sha(source.get('sha')), 'source must be full SHA')
-        require(re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}', source.get('image', '')), 'image must use digest')
+        require(isinstance(source.get('image'), str) and re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}', source['image']), 'image must use digest')
         if source.get('kind') == 'feature':
             require(type(source.get('pr')) is int and source['pr'] > 0, 'feature source requires real PR')
             features += 1
@@ -75,13 +85,22 @@ def verify_pr(source, snapshot, stage):
         require(snapshot.get('state') == 'OPEN' and snapshot.get('merged') is False, 'SIT needs a real unmerged PR')
     else:
         require(snapshot.get('merged') is True and sha(snapshot.get('merge_sha')), 'UAT needs merged main evidence')
+        mapping = snapshot.get('merge_artifact')
+        require(isinstance(mapping, dict), 'missing merge SHA to artifact mapping')
+        require(mapping.get('merge_sha') == snapshot['merge_sha'] and mapping.get('source_sha') == source['sha'],
+                'merge artifact source mismatch')
+        require(mapping.get('image') == source['image'] and sha(mapping.get('manifest_sha256'), 64),
+                'merge artifact differs from accepted SIT; require new candidate')
+        require(sha(mapping.get('source_tree_sha')) and mapping.get('source_tree_sha') == mapping.get('merge_tree_sha'),
+                'merged tree differs from accepted source; require new candidate')
 
 
 def verify_run(run, expected, source_sha, event):
     require(run.get('repository') == expected['repository'] and run.get('path') == expected['workflow'],
             'foreign evidence owner')
     require(run.get('head_sha') == source_sha and run.get('event') == event, 'evidence source/event mismatch')
-    require(type(run.get('id')) is int and run['id'] > 0 and run.get('attempt') == 1,
+    require(type(run.get('id')) is int and run['id'] > 0 and
+            type(run.get('attempt')) is int and run['attempt'] > 0,
             'missing or ambiguous evidence run')
     require(run.get('status') == 'completed' and run.get('conclusion') == 'success', 'evidence run not successful')
 
@@ -97,7 +116,8 @@ def _evaluate(c, policy, stage, prs, receipt=None, run=None, authorization=None)
         require(receipt is not None and run is not None, 'missing structured SIT evidence')
         verify_run(run, policy['acceptance_owner'], policy['acceptance_owner']['sha'], 'workflow_dispatch')
         require(receipt.get('schema') == 1 and receipt.get('evidence_kind') == 'live', 'synthetic evidence cannot pass')
-        require(receipt.get('run_id') == run['id'] and receipt.get('run_attempt') == run['attempt'], 'receipt/run mismatch')
+        require(type(receipt.get('run_id')) is int and type(receipt.get('run_attempt')) is int and
+                receipt['run_id'] == run['id'] and receipt['run_attempt'] == run['attempt'], 'receipt/run mismatch')
         require(receipt.get('candidate_sha256') == fingerprint and receipt.get('stage') == 'sit', 'stale SIT candidate')
         require(receipt.get('target') == c['target'] and receipt.get('namespace') == c['namespaces']['sit'],
                 'wrong SIT target')

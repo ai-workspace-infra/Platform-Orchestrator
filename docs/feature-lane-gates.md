@@ -8,13 +8,17 @@ new environment, credentials, resource executor, or second dispatch path.
 
 1. `sit`: task-linked, genuinely open PR heads target main; full source SHA,
    digest images/chart, config and data baseline; same approved Dev target with
-   separate feature SIT/UAT namespaces and temporary domains.
+   a temporary feature SIT namespace/domain and the independently declared stable
+   UAT namespace/host from trusted policy. Both pairs must differ.
 2. `merge`: the current open heads still match, and structured live SIT evidence
    matches the exact candidate, owner workflow/SHA/run, Flux config revision,
    runtime images, data baseline, required tests and human approval evidence.
 3. `uat`: all required feature PRs are merged into main with recorded merge SHAs;
-   the accepted source artifacts remain unchanged; select the distinct UAT
-   namespace/domain on the same Dev target. This is post-merge UAT.
+   an explicit merge-SHA-to-artifact mapping binds the merge SHA, accepted PR head,
+   image digest, manifest checksum and equal source/merge tree SHAs. A changed
+   merged tree or artifact requires a new candidate and re-testing; API merge
+   status alone is insufficient. Select the trusted stable UAT namespace/host on
+   the same Dev target. This is post-merge UAT.
 
 The public `gate()` accepts SIT snapshots only as `PLAN_VALID`, explicitly
 unverified. Live merge/UAT always raise BLOCKED because no trusted GitHub/owner
@@ -30,7 +34,9 @@ Candidate data, GitHub snapshots and policy are separate inputs. A future caller
 must load policy from its reviewed pinned Toolkit source, resolve PR/run/review
 snapshots itself through the existing authenticated GitHub adapter, and download
 receipts from the verified owner run. Never let PR code submit its own trusted
-snapshots or a caller-provided `approved` boolean. Snapshot validation is not
+snapshots or a caller-provided `approved` boolean. Successful reruns may use any
+positive integer attempt, but receipt/run IDs and attempts must match exactly.
+Null/unknown digest and baseline fields fail with explicit BLOCKED diagnostics. Snapshot validation is not
 cryptographic provenance and must not be exposed as a standalone authorization
 endpoint. Offline fixtures use invented IDs/domains and do not prove real tests.
 
@@ -65,7 +71,9 @@ not meet those requirements.
 ## Verification
 
 Run `python3 scripts/tests/control_plane/feature_lane_gate_test.py -v`.
-Negative cases reject merged-baseline-as-SIT, changed heads, forks, mutable or
+Sixteen test groups include a valid attempt-3 rerun and reject mismatched attempts,
+null/unknown baseline fields, undeclared UAT targets, missing/changed merge-artifact
+mappings, merged-baseline-as-SIT, changed heads, forks, mutable or
 missing artifacts/baselines, namespace/domain drift, wrong producer run, mock or
 incomplete receipts, changed configuration, missing human authority and premerge
 UAT. No cloud, host, database, Stripe or Vault access is performed.
