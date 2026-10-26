@@ -24,7 +24,7 @@ claimed as executed Dev-create acceptance.
 
 ## Immutable dependencies
 
-- IaC #476/#477 source: `20e0b9828e9b078dad85fd470ad3df53c8ebfeda`. The #477 fix
+- IaC #476/#478 source: `c341ee69abab437769850151aeca4da8408cc16b`. The #478 follow-up fix
   preserves only four explicit public Dev bootstrap role inputs in the sanitized
   runtime bundle; without it the real bundle lacks required node/version/mode
   inputs and bootstrap must fail, not fabricate defaults.
@@ -32,6 +32,10 @@ claimed as executed Dev-create acceptance.
 - Playbooks #803/#805 reusable wrapper:
   `e4607530b545ccf09e4045113afeb644b067823e`, internally pinning its validated
   execution source to `4a5dbb8e1240a096e7818f1da6a925569a3da7ea`.
+
+PR #477 has merged into #476; its later sanitizer delta was not part of that
+merge. PR #478 is a focused follow-up based on the current #476 head and is the
+reviewable producer dependency used here.
 
 These are pending infrastructure control-plane dependencies, not merged main
 implementations. Review and merge the producer/owner/caller changes in dependency

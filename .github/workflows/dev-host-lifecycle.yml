@@ -61,8 +61,8 @@ jobs:
       account: manbuzhe2026
       target_manifest: iac/targets/dev-akamai-dev-k3s-v5.yaml
       gitops_ref: ${{ inputs.gitops_ref }}
-      # Depends on IaC #476/#477; preserve public Dev bootstrap fields.
-      iac_ref: 20e0b9828e9b078dad85fd470ad3df53c8ebfeda
+      # Depends on IaC #476/#478; preserve public Dev bootstrap fields.
+      iac_ref: c341ee69abab437769850151aeca4da8408cc16b
       dev_bootstrap_handoff: ${{ inputs.operation == 'create' }}
       stage_scope: resources
       bootstrap_mode: verify
