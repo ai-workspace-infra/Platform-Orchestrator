@@ -100,8 +100,8 @@ def test_download_rejects_wrong_artifact_provenance(monkeypatch,change):
     with zipfile.ZipFile(stream,'w') as archive:
         archive.writestr('other.json' if change=='missing' else 'cmdb.json','{}')
     raw=stream.getvalue()
-    meta=dict(expired=False,name='cmdb',workflow_run=dict(id=3),digest='sha256:'+hashlib.sha256(raw).hexdigest())
-    run=dict(run_attempt=1,head_sha='a'*40,status='completed',conclusion='success')
+    meta=dict(id=2,size_in_bytes=len(raw),expired=False,name='cmdb',workflow_run=dict(id=3),digest='sha256:'+hashlib.sha256(raw).hexdigest())
+    run=dict(repository={'full_name':'org/repo'},run_attempt=1,head_sha='a'*40,status='completed',conclusion='success')
     if change=='expired':meta['expired']=True
     if change=='run':meta['workflow_run']['id']=4
     if change=='attempt':run['run_attempt']=2
