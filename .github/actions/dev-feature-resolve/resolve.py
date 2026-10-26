@@ -11,7 +11,7 @@ PLATFORM='60bf8621c5a0d1dfd3f7ce38758a48740f9f14e7'
 PLAYBOOKS='4a5dbb8e1240a096e7818f1da6a925569a3da7ea'
 WORKFLOW='ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-feature-deploy.yml@refs/heads/main'
 SCOPES={'sit':'sit-xconnect-referral','uat':'uat','platform-ingress':None}
-CALLEES={'feature':('dev-feature-flux.yml','f8a2aaa4252586fd9b56852d8b71ce8bedc48084'),'seed':('dev-web-saas-seed.yml','0e10792d35dd70b9d70eff59eb064c5b84c5a22e'),'ingress':('dev-platform-ingress.yml','f8a2aaa4252586fd9b56852d8b71ce8bedc48084')}
+CALLEES={'feature':('dev-feature-flux.yml','d8291186626c69a928301f76e99137069d078002'),'seed':('dev-web-saas-seed.yml','af0504a4b937a39ab96fb90d00f156ce01c7880b'),'ingress':('dev-platform-ingress.yml','d8291186626c69a928301f76e99137069d078002')}
 SHA=re.compile(r'[0-9a-f]{40}')
 # Source repository, immutable image repository, reviewed build workflow.
 COMPONENTS={

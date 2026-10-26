@@ -94,7 +94,7 @@ class DevOIDCContract(unittest.TestCase):
             'repository':'ai-workspace-infra/platform-ops-toolkit',
             'ref':'refs/heads/main','environment':'dev',
             'workflow_ref':['ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-host-lifecycle.yml@refs/heads/main','ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-feature-deploy.yml@refs/heads/main'],
-            'job_workflow_ref':['ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@e4607530b545ccf09e4045113afeb644b067823e','ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@f8a2aaa4252586fd9b56852d8b71ce8bedc48084','ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@0e10792d35dd70b9d70eff59eb064c5b84c5a22e','ai-workspace-infra/playbooks/.github/workflows/dev-platform-ingress.yml@f8a2aaa4252586fd9b56852d8b71ce8bedc48084']})
+            'job_workflow_ref':['ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@e4607530b545ccf09e4045113afeb644b067823e','ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@d8291186626c69a928301f76e99137069d078002','ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@af0504a4b937a39ab96fb90d00f156ce01c7880b','ai-workspace-infra/playbooks/.github/workflows/dev-platform-ingress.yml@d8291186626c69a928301f76e99137069d078002']})
         self.assertEqual(declared['token_policies'],[name])
         self.assertTrue(declared['token_no_default_policy'])
         self.assertEqual(declared['token_type'],'batch')

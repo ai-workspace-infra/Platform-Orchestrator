@@ -139,7 +139,7 @@ jobs:
   deploy:
     needs: resolve
     if: inputs.operation == 'feature' && inputs.phase != 'seed-admin' && inputs.phase != 'initialize'
-    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@f8a2aaa4252586fd9b56852d8b71ce8bedc48084
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@d8291186626c69a928301f76e99137069d078002
     with:
       stage: ${{ inputs.stage }}
       mode: ${{ inputs.phase }}
@@ -159,7 +159,7 @@ jobs:
   seed:
     needs: resolve
     if: inputs.operation == 'feature' && (inputs.phase == 'seed-admin' || inputs.phase == 'initialize')
-    uses: ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@0e10792d35dd70b9d70eff59eb064c5b84c5a22e
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@af0504a4b937a39ab96fb90d00f156ce01c7880b
     with:
       stage: ${{ inputs.stage }}
       phase: ${{ inputs.phase }}
@@ -175,7 +175,7 @@ jobs:
   ingress:
     needs: resolve
     if: inputs.operation == 'ingress'
-    uses: ai-workspace-infra/playbooks/.github/workflows/dev-platform-ingress.yml@f8a2aaa4252586fd9b56852d8b71ce8bedc48084
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-platform-ingress.yml@d8291186626c69a928301f76e99137069d078002
     with:
       mode: ${{ inputs.phase }}
       candidate_artifact: dev-feature-candidate-${{ github.run_id }}-${{ github.run_attempt }}
