@@ -1,0 +1,70 @@
+name: Dev Host Lifecycle (dev-k3s-v5)
+run-name: 'dev-host:${{ inputs.operation }} / dev-k3s-v5'
+# Create, resize (re-apply the declared plan) or destroy the disposable Dev K3s host.
+# The target is hard-coded; no input can select another target, environment or account.
+# Execution is owned by the IaC orchestrator/iac_modules; this caller only selects and gates.
+'on':
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: plan | create | resize | destroy
+        type: choice
+        required: true
+        default: plan
+        options: [plan, create, resize, destroy]
+      confirm_target:
+        description: Type dev-k3s-v5 to confirm create/resize/destroy
+        type: string
+        required: false
+        default: ''
+      gitops_ref:
+        description: GitOps declaration ref (resolved to a full SHA by the orchestrator)
+        type: string
+        required: false
+        default: main
+permissions:
+  contents: read
+  id-token: write
+  actions: read
+concurrency:
+  group: dev-host-lifecycle-dev-k3s-v5
+  cancel-in-progress: false
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      action: ${{ steps.map.outputs.action }}
+    steps:
+      - id: map
+        env:
+          OPERATION: ${{ inputs.operation }}
+          CONFIRM: ${{ inputs.confirm_target }}
+        run: |
+          set -euo pipefail
+          case "$OPERATION" in
+            plan) action=plan ;;
+            create|resize) action=apply ;;
+            destroy) action=destroy ;;
+            *) echo "::error::unsupported operation"; exit 1 ;;
+          esac
+          if [ "$action" != plan ] && [ "$CONFIRM" != "dev-k3s-v5" ]; then
+            echo "::error::confirm_target must equal dev-k3s-v5 for $OPERATION"; exit 1
+          fi
+          echo "action=$action" >> "$GITHUB_OUTPUT"
+  iac:
+    needs: gate
+    uses: ./.github/workflows/iac-orchestrator.yml
+    with:
+      action: ${{ needs.gate.outputs.action }}
+      environment: dev
+      cloud_provider: akamai-cloud
+      account: manbuzhe2026
+      target_manifest: iac/targets/dev-akamai-dev-k3s-v5.yaml
+      gitops_ref: ${{ inputs.gitops_ref }}
+      # iac_modules PR 476 (on-demand dev lifecycle); repin to its merge SHA before merge.
+      iac_ref: f5d410595b93aef8ce5dac4e510583c110da12a1
+      stage_scope: resources
+      bootstrap_mode: verify
+      correlation_id: dev-host-${{ github.run_id }}
+      selectors: '{"environment":"dev","namespace":"dev-k3s-v5"}'
+    secrets: inherit
