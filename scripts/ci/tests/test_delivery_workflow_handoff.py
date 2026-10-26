@@ -37,6 +37,26 @@ class WorkflowHandoff(unittest.TestCase):
             document = self.load(filename)
             self.assertEqual(document['jobs'][job]['uses'], './.github/workflows/'+wrapper)
 
+    def test_preflight_catalog_is_validated_before_authorization_and_reused(self):
+        doc = self.load('iac-akamai-state-preflight.yaml')
+        steps = doc['jobs']['inspect']['steps']
+        owners = [s for s in steps if s.get('uses') == './iac_modules/.github/actions/akamai-state-preflight']
+        self.assertEqual(len(owners), 2)
+        self.assertTrue(all(s['with']['catalog'] == '${{ inputs.catalog }}' for s in owners))
+        self.assertLess(steps.index(owners[0]), next(i for i,s in enumerate(steps) if s.get('uses') == 'hashicorp/vault-action@v4'))
+        parent = self.load('environment-data-operations.yml')
+        self.assertEqual(parent['jobs']['akamai_preflight']['with']['catalog'], 'iac/catalog.yaml')
+
+    def test_delivery_and_preflight_share_owner_and_preserve_normalized_constraints(self):
+        preflight = self.load('iac-akamai-state-preflight.yaml')
+        owner = next(s['with']['ref'] for s in preflight['jobs']['inspect']['steps'] if s.get('with', {}).get('repository') == 'ai-workspace-infra/iac_modules')
+        deploy = self.load('iac-orchestrator.yml')
+        for trigger in ('workflow_call', 'workflow_dispatch'):
+            self.assertEqual(deploy['on'][trigger]['inputs']['iac_ref']['default'], owner)
+            self.assertEqual(deploy['on'][trigger]['inputs']['gitops_ref']['default'], 'main')
+        step = next(s for s in deploy['jobs']['prepare']['steps'] if s.get('uses') == './iac_modules/.github/actions/iac-targets')
+        self.assertIn('steps.normalize.outputs.selectors', step['with']['normalized-selectors'])
+
     def test_new_workflow_claims_are_exact_and_preserve_rollback(self):
         import json
         for environment in ['sit', 'uat', 'prod']:

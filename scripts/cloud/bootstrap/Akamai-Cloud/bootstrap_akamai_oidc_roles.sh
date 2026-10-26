@@ -7,7 +7,7 @@ set -Eeuo pipefail
 umask 077
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-TEMPLATE_DIR="${SCRIPT_DIR}/templates"
+TEMPLATE_DIR="${SCRIPT_DIR}/../../../vault/templates"
 
 usage() {
   cat <<'EOF'

@@ -5,11 +5,11 @@ name: CI / Multi-cloud IaC Contracts
       gitops_ref:
         description: Reviewed declarations for static checks
         type: string
-        default: 4e052f34675a218df0179677088266c6e7f57f6c
+        default: main
       iac_ref:
         description: Fixed IaC owner version for static checks
         type: string
-        default: fbb3100f40ee40d2ac276bffc7b3b6c1a7440b20
+        default: 0b2a6b6b23d458f04b247f62f97ee16cb0f322a9
       cloud_providers:
         description: Providers to check; empty selects all six
         type: string
@@ -62,13 +62,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: ${{ inputs.iac_ref || 'fbb3100f40ee40d2ac276bffc7b3b6c1a7440b20' }}
+          ref: ${{ inputs.iac_ref || '0b2a6b6b23d458f04b247f62f97ee16cb0f322a9' }}
           path: iac_modules
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/gitops
-          ref: ${{ inputs.gitops_ref || '4e052f34675a218df0179677088266c6e7f57f6c' }}
+          ref: ${{ inputs.gitops_ref || 'main' }}
           path: gitops
           persist-credentials: false
       - id: check

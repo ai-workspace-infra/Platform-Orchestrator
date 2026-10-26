@@ -29,7 +29,7 @@ run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action
         default: auto
         options: [auto, aws-cloud, azure-cloud, gcp-cloud, vultr-vps, akamai-cloud, ucloud]
       target_manifest:
-        description: Reviewed IaCPipelineTargets path; required unless resource_manifest resolves a unique target
+        description: Reviewed IaCTargetCatalog or IaCPipelineTargets path; required unless resource_manifest resolves a unique target
         type: string
         required: false
         default: ''
@@ -46,12 +46,12 @@ run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action
       gitops_ref:
         description: Resolved once to a full declaration SHA
         type: string
-        default: 4e052f34675a218df0179677088266c6e7f57f6c
+        default: main
         required: false
       iac_ref:
         description: Owner actions and modules from one resolved SHA
         type: string
-        default: f889d68cb91434f7d18a72731e496d5e71a6f571
+        default: 0b2a6b6b23d458f04b247f62f97ee16cb0f322a9
         required: false
       stage_scope:
         description: all/bootstrap/account/resources
@@ -93,7 +93,7 @@ run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action
         type: string
         required: true
       target_manifest:
-        description: Reviewed IaCPipelineTargets path or a unique resource_manifest selection
+        description: Reviewed IaCTargetCatalog or IaCPipelineTargets path or a unique resource_manifest selection
         type: string
         required: false
         default: ''
@@ -112,12 +112,12 @@ run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action
       gitops_ref:
         description: Resolved once to a full declaration SHA
         type: string
-        default: 4e052f34675a218df0179677088266c6e7f57f6c
+        default: main
         required: false
       iac_ref:
         description: Owner actions and modules from one resolved SHA
         type: string
-        default: f889d68cb91434f7d18a72731e496d5e71a6f571
+        default: 0b2a6b6b23d458f04b247f62f97ee16cb0f322a9
         required: false
       stage_scope:
         description: all/bootstrap/account/resources
@@ -233,6 +233,7 @@ jobs:
           iac-ref: ${{ inputs.iac_ref }}
           correlation-id: ${{ inputs.correlation_id }}
           selectors: ${{ inputs.selectors }}
+          normalized-selectors: ${{ steps.normalize.outputs.selectors || '{}' }}
           contract-file: ${{ runner.temp }}/iac-contract/context.json
       - uses: ./iac_modules/.github/actions/iac-self-check
         with:

@@ -1,8 +1,9 @@
 # Akamai UAT migration preflight
 
 Entry updated: dispatch Toolkit `environment-data-operations.yml`, mode `akamai_preflight`,
-environment `uat`, config_json.account set explicitly. The executor now belongs to
-IaC `akamai-state-preflight.yml` at a fixed merge SHA; the old Toolkit workflow is retired.
+environment `uat`, config_json.account set explicitly. The query executor is the IaC `akamai-state-preflight` composite action at a fixed
+owner SHA; Toolkit owns the workflow and authorization. Historical workflow versions
+remain retrievable at immutable SHAs for rollback.
 Account `manbuzhe2026` below is an example, not a hardcoded runtime default.
 
 This manual workflow inventories the six UAT Akamai namespaces, the historical
@@ -13,36 +14,25 @@ and projected to allowlisted identity fields; the raw output is never printed or
 uploaded. It never
 runs a Terraform plan/apply, state import/move/remove/push, or resource deletion.
 
-## Scope and state keys
+## Scope and state identities
 
-For the concrete UAT account `manbuzhe2026`, it reads provider
-credentials from `kv/data/CICD/uat/akamai-cloud/manbuzhe2026`, and reads the S3
-compatible backend fields from `kv/data/CICD/uat/iac_state`.
+The workflow passes `iac/catalog.yaml` from the selected GitOps SHA to the IaC owner.
+The same target loader and canonical identity generator are used by deployment and
+preflight. Target references declare environment, project, provider, concrete account,
+namespace, lifecycle and a resource manifest. Deployment selects active targets;
+preflight includes read-only migration/retired targets for the selected UAT account.
+No namespace list or lifecycle registry is maintained in the provider implementation.
 
-It checks these six current state keys:
+Historical shared-state sources live separately in the catalog with exact keys,
+read-only lifecycle and immutable source provenance. The existing retirement report
+supports one historical shared source per selected account/scope and fails closed
+if multiple shared origins are selected. This does not limit the number of target
+namespaces. The old Kubernetes UAT target is inspected as a migration target, without
+returning it to the active deployment set.
 
-```text
-terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/web-saas/terraform.tfstate
-terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/open-platform/terraform.tfstate
-terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/ai-workspace/terraform.tfstate
-terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/agent-proxy-jp/terraform.tfstate
-terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/agent-proxy-us/terraform.tfstate
-terraform/uat/svc.plus/akamai-cloud/manbuzhe2026/agent-proxy-sg/terraform.tfstate
-```
-
-The legacy candidate is derived from the historical UAT router at commit
-`77d3a51f5b39f420ebee4fe07a22b442ddd3b206`: its UAT Akamai `target_domains=all`
-path set `rf=selfhost`, used
-`terraform/${deployment_env}/${STATE_PROJECT}/${cloud_provider}/${account}/${rf}/terraform.tfstate`,
-and set `STATE_PROJECT=platform-ops-toolkit`. The same commit's environment
-defaults set the UAT account to `manbuzhe2026`. The resulting exact candidate is:
-
-```text
-terraform/uat/platform-ops-toolkit/akamai-cloud/manbuzhe2026/selfhost/terraform.tfstate
-```
-
-The script records the source commit/path in the sanitized JSON. It does not
-guess other historical keys or write to any candidate.
+Before reading backend state, the query owner verifies the actual Linode username.
+Reports distinguish all retained state bindings from provider resources matched by
+ID/label. A missing provider match is ambiguous and never grants state deletion.
 
 ## Run
 
