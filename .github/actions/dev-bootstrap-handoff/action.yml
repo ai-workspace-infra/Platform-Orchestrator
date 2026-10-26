@@ -1,0 +1,27 @@
+name: Select verified Dev bootstrap inventory
+description: Control-plane projection of an owner-verified current-run runtime bundle.
+inputs:
+  bundle-dir: {required: true, description: Owner-verified summary bundle directory}
+  receipt-artifact-id: {required: true, description: Current-run producer artifact ID}
+  inventory-artifact-id: {required: true, description: Owner inventory bundle artifact ID}
+  deploy-matrix: {required: true, description: Verified producer deploy matrix}
+  destination: {required: true, description: Selected target artifact staging directory}
+outputs:
+  instance-id:
+    value: ${{ steps.select.outputs.instance_id }}
+    description: Verified runtime instance ID
+  cmdb-sha256:
+    value: ${{ steps.select.outputs.cmdb_sha256 }}
+    description: Digest of byte-equivalent selected owner mapping
+runs:
+  using: composite
+  steps:
+    - id: select
+      shell: bash
+      env:
+        BUNDLE_DIR: ${{ inputs.bundle-dir }}
+        RECEIPT_ARTIFACT_ID: ${{ inputs.receipt-artifact-id }}
+        INVENTORY_ARTIFACT_ID: ${{ inputs.inventory-artifact-id }}
+        DEPLOY_MATRIX: ${{ inputs.deploy-matrix }}
+        DESTINATION: ${{ inputs.destination }}
+      run: python3 "${GITHUB_ACTION_PATH}/handoff.py"
