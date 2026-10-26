@@ -135,6 +135,11 @@ class GateTest(unittest.TestCase):
                 with self.subTest(field=field, value=bad), self.assertRaisesRegex(gate.Blocked, field):
                     self.decide(values, 'sit')
 
+    def test_null_template_collections_and_identifiers_are_blocked(self):
+        for field in ('namespaces', 'domains', 'required_tests', 'sources', 'feature_id', 'task_url'):
+            values = fixture(); values[0][field] = None
+            with self.subTest(field=field), self.assertRaises(gate.Blocked): self.decide(values, 'sit')
+
     def test_uat_uses_trusted_stable_target_not_feature_temporary_target(self):
         values = fixture(); self.mark_merged(values)
         result = self.decide(values, 'uat')

@@ -28,6 +28,7 @@ def identity(candidate):
 
 
 def validate_candidate(c, policy):
+    require(isinstance(c, dict) and isinstance(policy, dict), 'missing candidate or trusted policy')
     require(c.get('schema') == 1, 'unsupported candidate schema')
     feature = c.get('feature_id', '')
     require(isinstance(feature, str) and re.fullmatch(r'[a-z][a-z0-9-]{1,45}', feature) is not None, 'invalid feature id')
@@ -56,10 +57,11 @@ def validate_candidate(c, policy):
         else:
             require(sha(value, 64), 'missing immutable ' + field)
     sources = c.get('sources', [])
-    require(bool(sources), 'missing participating sources')
+    require(isinstance(sources, list) and bool(sources), 'missing participating sources')
     seen = set()
     features = 0
     for source in sources:
+        require(isinstance(source, dict), 'invalid participating source')
         repo = source.get('repository')
         require(repo in policy['repositories'] and repo not in seen, 'foreign or duplicate repository')
         seen.add(repo)
@@ -72,7 +74,9 @@ def validate_candidate(c, policy):
             require(source.get('kind') == 'baseline' and source.get('pr') is None,
                     'baseline dependencies cannot masquerade as open feature PRs')
     require(features > 0, 'already merged baseline alone cannot establish premerge SIT')
-    require(set(c.get('required_tests', [])) == set(policy['required_tests']), 'required acceptance contract mismatch')
+    tests = c.get('required_tests')
+    require(isinstance(tests, list) and all(isinstance(test, str) for test in tests) and
+            set(tests) == set(policy['required_tests']), 'required acceptance contract mismatch')
     return identity(c)
 
 
