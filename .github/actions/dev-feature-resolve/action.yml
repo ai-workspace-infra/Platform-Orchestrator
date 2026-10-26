@@ -1,0 +1,32 @@
+name: Resolve authenticated Dev feature deployment evidence
+description: Read-only PR, build and foundation artifact validation; no host/resource execution.
+inputs:
+  candidate-pr: {required: true, description: Same-repository GitOps PR number}
+  stage: {required: true, description: sit or uat}
+  foundation-run: {required: true, description: Authenticated foundation run ID}
+  summary-artifact: {required: true, description: Original IaC summary bundle artifact ID}
+  bootstrap-artifact: {required: true, description: Successful bootstrap receipt artifact ID}
+  evidence-root: {required: true, description: Fixed 1454 hardened shared reader checkout}
+  destination: {required: true, description: Public evidence staging directory}
+outputs:
+  instance-id: {value: '${{ steps.resolve.outputs.instance_id }}', description: Verified Dev instance ID}
+  cmdb-sha256: {value: '${{ steps.resolve.outputs.cmdb_sha256 }}', description: Selected owner CMDB digest}
+  node-uid: {value: '${{ steps.resolve.outputs.node_uid }}', description: Authenticated bootstrap node UID}
+  cluster-uid: {value: '${{ steps.resolve.outputs.cluster_uid }}', description: Authenticated bootstrap cluster UID}
+  platform-sha: {value: '${{ steps.resolve.outputs.platform_sha }}', description: Protected platform revision}
+  gitops-sha: {value: '${{ steps.resolve.outputs.gitops_sha }}', description: Current immutable candidate revision}
+  candidate-sha256: {value: '${{ steps.resolve.outputs.candidate_sha256 }}', description: Candidate receipt digest}
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        CANDIDATE_PR: ${{ inputs.candidate-pr }}
+        STAGE: ${{ inputs.stage }}
+        FOUNDATION_RUN: ${{ inputs.foundation-run }}
+        SUMMARY_ARTIFACT: ${{ inputs.summary-artifact }}
+        BOOTSTRAP_ARTIFACT: ${{ inputs.bootstrap-artifact }}
+        EVIDENCE_ROOT: ${{ inputs.evidence-root }}
+        DESTINATION: ${{ inputs.destination }}
+      run: python3 "${GITHUB_ACTION_PATH}/resolve.py"

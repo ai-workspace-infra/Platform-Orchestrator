@@ -1,0 +1,93 @@
+"""Control-plane offline falsification; fixtures are not live acceptance."""
+import copy,importlib.util,json,os,unittest
+from pathlib import Path
+from unittest.mock import patch
+ROOT=Path(__file__).resolve().parents[3]
+spec=importlib.util.spec_from_file_location('resolve',ROOT/'.github/actions/dev-feature-resolve/resolve.py');R=importlib.util.module_from_spec(spec);spec.loader.exec_module(R)
+FIX=Path(__file__).with_name('fixtures')/'dev-feature-foundation'
+
+class Reader:
+ def __init__(self):self.summary=json.loads((FIX/'summary.json').read_text());self.boot=json.loads((FIX/'receipt.json').read_text());self.calls=[]
+ def api(self,path,binary=False):
+  self.calls.append(path)
+  if '/attempts/1/jobs' in path:return {'jobs':[{'name':'iac / summary','conclusion':'success'},{'name':'iac / resources (dev-akamai-dev-k3s-v5, provider) / resources','conclusion':'success'}]}
+  if '/attempts/2/jobs' in path:return {'jobs':[{'name':'bootstrap / bootstrap','conclusion':'success'}]}
+  run={'repository':{'full_name':R.REPO},'head_repository':{'full_name':R.REPO},'head_sha':R.SOURCE,'path':'.github/workflows/dev-host-lifecycle.yml','event':'workflow_dispatch','head_branch':'main','run_attempt':2,'status':'completed','conclusion':'success'}
+  if path.endswith('/attempts/1'):run.update(run_attempt=1,conclusion='failure')
+  return run
+ def artifact_file(self,repo,aid,rid,transport_attempt,name,filename,sha):
+  assert transport_attempt==2
+  if filename=='summary.json':return json.dumps(self.summary).encode()
+  if filename=='receipt.json':return json.dumps(self.boot).encode()
+  return (FIX/'inventory.json').read_bytes()
+
+class FoundationTests(unittest.TestCase):
+ def test_actual_owner_bundle_reuses_handoff_and_preserves_attempts(self):
+  reader=Reader();raw,identity=R.foundation(reader,40353330431,12664517641,12668512699)
+  self.assertEqual(identity['instance_id'],'109277144');self.assertEqual(identity['iac_source_attempt'],1);self.assertEqual(identity['bootstrap_source_attempt'],2)
+  self.assertEqual(set(json.loads(raw)),{'dev-k3s-v5'});self.assertTrue(any('/attempts/1/jobs' in p for p in reader.calls))
+ def test_original_context_and_target_tampering_fail(self):
+  for mutate in [lambda r:r.summary['context'].update(run_attempt='2'),lambda r:r.boot.update(instance_id='other'),lambda r:r.boot.update(cmdb_sha256='0'*64),lambda r:r.boot.update(root_ready=False)]:
+   reader=Reader();mutate(reader)
+   with self.assertRaises(ValueError):R.foundation(reader,40353330431,12664517641,12668512699)
+ def test_bool_locator_rejected(self):
+  with self.assertRaises(ValueError):R.positive(True)
+
+class PublisherTests(unittest.TestCase):
+ def fixture(self):
+  sha='a'*40;image='ghcr.io/ai-workspace-services/billing-service@sha256:'+'b'*64
+  job={'id':1,'name':'build','steps':[{'name':'Run actions/checkout@v4','status':'completed','conclusion':'success','started_at':'2026-10-27T00:00:00Z','completed_at':'2026-10-27T00:00:02Z'},{'name':'Build and push','status':'completed','conclusion':'success','started_at':'2026-10-27T00:00:05Z','completed_at':'2026-10-27T00:00:10Z'}]}
+  log='2026-10-27T00:00:01.000Z [command]/usr/bin/git log -1 --format=%H\n2026-10-27T00:00:01.100Z '+sha+'\n2026-10-27T00:00:08.000Z #1 pushing manifest for '+image.split('@')[0]+':sha-'+sha+'@'+image.split('@')[1]+' 1.0s done\n'
+  return sha,image,job,log
+ def test_exact_publisher_step_source_tag_and_digest(self):
+  sha,image,job,log=self.fixture();proof=R.verify_publish_log('billing',job,log,sha,image)
+  self.assertEqual(proof['job_id'],1)
+ def test_unrelated_digest_or_export_or_failed_push_rejected(self):
+  sha,image,job,log=self.fixture()
+  for changed in [log.replace('1.0s done','failed'),log.replace(':sha-'+sha,':latest'),log.replace('pushing manifest for','exporting manifest for'),log.replace('billing-service','other-service'),log.replace('00:00:08.000','00:00:15.000'),log.replace('git log -1 --format=%H','git fetch '+sha)]:
+   with self.assertRaises(ValueError):R.verify_publish_log('billing',job,changed,sha,image)
+ def test_two_candidate_images_use_same_policy(self):
+  sha,image,job,log=self.fixture()
+  for source,digest in [('a','b'),('c','d')]:
+   changed=log.replace(sha,source*40).replace('b'*64,digest*64)
+   self.assertEqual(R.verify_publish_log('billing',job,changed,source*40,image.replace('b'*64,digest*64))['source_sha'],source*40)
+
+class ArchiveTests(unittest.TestCase):
+ def test_exact_job_archive_and_traversal_rejection(self):
+  import io,zipfile
+  def archive(entries):
+   stream=io.BytesIO()
+   with zipfile.ZipFile(stream,'w') as z:
+    for name,body in entries:z.writestr(name,body)
+   return stream.getvalue()
+  self.assertEqual(R.job_log_from_archive(archive([('1_Build.txt','synthetic')]),'Build'),b'synthetic')
+  for entries in [[('../Build.txt','bad')],[('1_Other.txt','bad')],[('1_Build.txt','one'),('2_Build.txt','two')]]:
+   with self.assertRaises(ValueError):R.job_log_from_archive(archive(entries),'Build')
+ def test_caddy_old_source_tag_is_bound_to_full_checkout(self):
+  sha,image,job,log=PublisherTests().fixture();image=image.replace('ai-workspace-services/billing-service','ai-workspace-infra/caddy-cloudflare')
+  job['name']='Build caddy image with cloudflare dns';job['steps'][0]['name']='Run actions/checkout@v7';job['steps'][1]['name']='Push image'
+  log=log.split('2026-10-27T00:00:08')[0]+'2026-10-27T00:00:08.000Z The push refers to repository [ghcr.io/ai-workspace-infra/caddy-cloudflare]\n2026-10-27T00:00:08.100Z '+sha[:7]+': digest: sha256:'+'b'*64+' size: 100\n'
+  self.assertEqual(R.verify_publish_log('caddy',job,log,sha,image)['source_sha'],sha)
+  with self.assertRaises(ValueError):R.verify_publish_log('caddy',job,log.replace(sha[:7]+': digest','latest: digest'),sha,image)
+
+class CandidateTests(unittest.TestCase):
+ def test_same_repository_main_ancestry_and_current_head(self):
+  class API:
+   def __init__(self):self.sha='a'*40;self.fork=False;self.state='ahead'
+   def api(self,path):
+    if '/pulls/' in path:return {'number':605,'head':{'sha':self.sha,'repo':{'full_name':'fork/repo' if self.fork else R.GITOPS}},'base':{'repo':{'full_name':R.GITOPS},'ref':'main'},'state':'open','merged':False}
+    if '/git/ref/' in path:return {'object':{'sha':'b'*40}}
+    if '/compare/' in path:return {'status':self.state}
+    if '/check-runs' in path:return {'check_runs':[{'name':'test','status':'completed','conclusion':'success','id':1}]}
+    if path.endswith('/status'):return {'state':'pending','total_count':0}
+    import base64
+    fixed='services/distributed-web-saas-fullstack/dev/sit-xconnect-referral/release.yaml'
+    return {'path':fixed,'type':'file','encoding':'base64','size':2,'content':base64.b64encode(b'{}').decode()}
+  api=API()
+  with patch.dict(os.environ,{'GITHUB_RUN_ID':'123'}):
+   for sha in ('a'*40,'c'*40):api.sha=sha;self.assertEqual(R.candidate(api,605,'sit')[0]['candidate_head'],sha)
+   api.fork=True
+   with self.assertRaises(ValueError):R.candidate(api,605,'sit')
+   api.fork=False;api.state='diverged'
+   with self.assertRaises(ValueError):R.candidate(api,605,'sit')
+if __name__=='__main__':unittest.main()

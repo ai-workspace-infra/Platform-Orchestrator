@@ -1,0 +1,34 @@
+{
+  "dev-akamai-dev-k3s-v5": {
+    "dev-k3s-v5": {
+      "ansible_user": "root",
+      "fqdn": "dev-k3s-v5",
+      "groups": [
+        "dev",
+        "k3s",
+        "k3s_server",
+        "akamai_cloud"
+      ],
+      "host_vars": {
+        "cloud_provider": "akamai-cloud",
+        "cloud_region": "jp-tyo-3",
+        "image": "linode/debian12",
+        "k3s_platform_cluster_name": "dev-k3s-v5",
+        "k3s_platform_k3s_version": "v1.37.1+k3s1",
+        "k3s_platform_node_name": "dev-k3s-v5",
+        "k3s_platform_write_kubeconfig_mode": "0600",
+        "plan": "g6-standard-4",
+        "role": "primary"
+      },
+      "image": "linode/debian12",
+      "instance_id": "109277144",
+      "ip": "172.237.5.48",
+      "ipv6": "2600:3c18::2000:c5ff:feb6:21fe",
+      "label": "dev-k3s-v5",
+      "name": "dev-k3s-v5",
+      "private_ip": null,
+      "region": "jp-tyo-3",
+      "type": "g6-standard-4"
+    }
+  }
+}

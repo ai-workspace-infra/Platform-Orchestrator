@@ -1,0 +1,23 @@
+name: Dev feature caller contract
+on:
+  pull_request:
+    paths:
+      - '.github/actions/dev-feature-resolve/**'
+      - '.github/workflows/dev-feature-deploy.yml'
+      - '.github/workflows/dev-feature-resolve-contract.yml'
+      - 'scripts/ci/tests/test_dev_feature_resolve.py'
+      - 'scripts/ci/tests/fixtures/dev-feature-foundation/**'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install PyYAML==6.0.3
+      - run: python -m unittest discover -s scripts/ci/tests -p test_dev_feature_resolve.py
+      - run: python scripts/ci/workflow_stage_depth_verify.py
+      - run: python scripts/ci/script_ownership_verify.py

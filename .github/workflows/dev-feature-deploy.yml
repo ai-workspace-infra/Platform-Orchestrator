@@ -1,0 +1,123 @@
+name: Dev XConnect referral deployment
+run-name: 'dev-feature:${{ inputs.phase }} / ${{ inputs.stage }} / GitOps PR${{ inputs.candidate_pr }}'
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        type: choice
+        options: [plan, prepare, submit, verify, enable-tls]
+        default: plan
+        required: true
+      stage:
+        type: choice
+        options: [sit, uat]
+        default: sit
+        required: true
+      candidate_pr:
+        description: Same-repository GitOps PR; actual head resolved through API
+        type: number
+        required: true
+      foundation_run:
+        type: number
+        default: 40353330431
+        required: true
+      summary_artifact:
+        description: Original IaC attempt1 owner bundle
+        type: number
+        default: 12664517641
+        required: true
+      bootstrap_artifact:
+        description: Successful bootstrap attempt2 receipt
+        type: number
+        default: 12668512699
+        required: true
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+concurrency:
+  group: dev-xconnect-referral-single-target
+  cancel-in-progress: false
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      instance: ${{ steps.evidence.outputs.instance-id }}
+      cmdb_sha256: ${{ steps.evidence.outputs.cmdb-sha256 }}
+      node_uid: ${{ steps.evidence.outputs.node-uid }}
+      cluster_uid: ${{ steps.evidence.outputs.cluster-uid }}
+      platform_sha: ${{ steps.evidence.outputs.platform-sha }}
+      gitops_sha: ${{ steps.evidence.outputs.gitops-sha }}
+      candidate_sha256: ${{ steps.evidence.outputs.candidate-sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # Explicit dependency: Toolkit1454 hardened shared evidence transport.
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/platform-ops-toolkit
+          ref: b5ba0199eda8db773bdd1d85966155079a15adaf
+          path: trusted-evidence
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install PyYAML==6.0.3
+      - uses: ./.github/actions/dev-feature-resolve
+        id: evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          candidate-pr: ${{ inputs.candidate_pr }}
+          stage: ${{ inputs.stage }}
+          foundation-run: ${{ inputs.foundation_run }}
+          summary-artifact: ${{ inputs.summary_artifact }}
+          bootstrap-artifact: ${{ inputs.bootstrap_artifact }}
+          evidence-root: ${{ github.workspace }}/trusted-evidence
+          destination: ${{ runner.temp }}/dev-feature-evidence
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dev-feature-cmdb-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dev-feature-evidence/cmdb/cmdb.json
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dev-feature-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dev-feature-evidence/candidate/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dev-feature-foundation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dev-feature-evidence/foundation.json
+          if-no-files-found: error
+          retention-days: 7
+  deploy:
+    needs: resolve
+    # B seed owner is not wired until its exact reviewed interface/callee is ready.
+    # Never accept hand-authored seed JSON or claim verify without that producer.
+    if: inputs.phase != 'verify'
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@b2c7b8eb41fe28fa4b66646ba64945bb4317e61f
+    with:
+      stage: ${{ inputs.stage }}
+      mode: ${{ inputs.phase }}
+      candidate_artifact: dev-feature-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+      candidate_sha256: ${{ needs.resolve.outputs.candidate_sha256 }}
+      cmdb_artifact: dev-feature-cmdb-${{ github.run_id }}-${{ github.run_attempt }}
+      cmdb_sha256: ${{ needs.resolve.outputs.cmdb_sha256 }}
+      instance_id: ${{ needs.resolve.outputs.instance }}
+      gitops_sha: ${{ needs.resolve.outputs.gitops_sha }}
+      platform_sha: ${{ needs.resolve.outputs.platform_sha }}
+      node_uid: ${{ needs.resolve.outputs.node_uid }}
+      cluster_uid: ${{ needs.resolve.outputs.cluster_uid }}
+  seed-owner-required:
+    needs: resolve
+    if: inputs.phase == 'verify'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo '::error::verify requires the reviewed B seed owner producer; no caller-supplied seed JSON is accepted'
+          exit 1

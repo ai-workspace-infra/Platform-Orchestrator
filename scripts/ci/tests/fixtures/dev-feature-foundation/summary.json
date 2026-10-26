@@ -1,0 +1,173 @@
+{
+  "context": {
+    "action": "apply",
+    "bootstrap_mode": "verify",
+    "contract_sha256": "3514c11449ee03c1cab7340b6c3591daa8050738f10e23b486a43920ddd78691",
+    "correlation_id": "dev-host-40353330431",
+    "declaration_files": {
+      "iac/targets/dev-akamai-dev-k3s-v5.yaml": "af4bf415b687325c651e9718eecdbea272f3a75d1fca098f8f5a5c200b97eeef"
+    },
+    "environment": "dev",
+    "github_environment": "dev",
+    "gitops_sha": "60bf8621c5a0d1dfd3f7ce38758a48740f9f14e7",
+    "iac_sha": "1d3bc5b54a49b946b98e48bf9f73606369b77d02",
+    "manifest_path": "iac/targets/dev-akamai-dev-k3s-v5.yaml",
+    "manifest_sha256": "af4bf415b687325c651e9718eecdbea272f3a75d1fca098f8f5a5c200b97eeef",
+    "requested_refs": {
+      "gitops": "60bf8621c5a0d1dfd3f7ce38758a48740f9f14e7",
+      "iac": "1d3bc5b54a49b946b98e48bf9f73606369b77d02"
+    },
+    "run_attempt": "1",
+    "run_id": "40353330431",
+    "schema_version": 1,
+    "selectors": {
+      "account": "manbuzhe2026",
+      "environment": "dev",
+      "namespace": "dev-k3s-v5",
+      "provider": "akamai-cloud"
+    },
+    "stage_scope": "resources",
+    "stages": [
+      "resources"
+    ],
+    "targets": [
+      {
+        "account": "manbuzhe2026",
+        "auth": {
+          "expected_identity": "manbuzhe2026",
+          "record": "kv/data/CICD/dev/akamai-cloud/manbuzhe2026",
+          "vault_role": "github-actions-platform-ops-toolkit-dev-akamai-oidc-bootstrap-manbuzhe2026"
+        },
+        "environment": "dev",
+        "id": "dev-akamai-dev-k3s-v5",
+        "lifecycle": {
+          "on_demand": true,
+          "persistent": false,
+          "status": "active"
+        },
+        "namespace": "dev-k3s-v5",
+        "project": "svc.plus",
+        "provider": "akamai-cloud",
+        "stages": {
+          "account": {
+            "mode": "not_applicable",
+            "reason": "Akamai namespaces use declared public keys and workload firewalls; this adapter owns no independent account resources."
+          },
+          "bootstrap": {
+            "mode": "verify",
+            "reason": "Verify the existing Vault-backed account token; never create or revoke the management identity."
+          },
+          "resources": {
+            "destroy_allowed": true,
+            "manifest": "resources/svc.plus/dev/akamai/dev-k3s-v5.yaml",
+            "manifest_sha256": "71b0453af254b9b965191cf12c0895219fec5c303fae296ffb5b25b59ae337a0",
+            "mode": "terraform",
+            "owners": [
+              "module.compute_dev_k3s_v5",
+              "linode_firewall.fw_dev_k3s_v5"
+            ],
+            "ownership_reviewed": true,
+            "protected": [],
+            "reason": "Disposable Dev K3s host for feature lanes. Create/destroy on demand; no business data, DNS or volumes are owned here.",
+            "requires_existing_state": false,
+            "state": {
+              "cli_workspace": "default",
+              "key": "terraform/dev/svc.plus/akamai-cloud/manbuzhe2026/dev-k3s-v5/terraform.tfstate"
+            }
+          }
+        },
+        "workspace": "dev-k3s-v5"
+      }
+    ],
+    "workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-host-lifecycle.yml@refs/heads/main",
+    "workflow_sha": "5542116661b2874a98f3c4fa647f1cdc804f8f76"
+  },
+  "deploy_matrix": [
+    {
+      "ansible_user": "root",
+      "fqdn": "dev-k3s-v5",
+      "groups": [
+        "dev",
+        "k3s",
+        "k3s_server",
+        "akamai_cloud"
+      ],
+      "host": "dev-k3s-v5",
+      "host_vars": {
+        "cloud_provider": "akamai-cloud",
+        "cloud_region": "jp-tyo-3",
+        "image": "linode/debian12",
+        "k3s_platform_cluster_name": "dev-k3s-v5",
+        "k3s_platform_k3s_version": "v1.37.1+k3s1",
+        "k3s_platform_node_name": "dev-k3s-v5",
+        "k3s_platform_write_kubeconfig_mode": "0600",
+        "plan": "g6-standard-4",
+        "role": "primary"
+      },
+      "image": "linode/debian12",
+      "instance_id": "109277144",
+      "ip": "172.237.5.48",
+      "ipv6": "2600:3c18::2000:c5ff:feb6:21fe",
+      "label": "dev-k3s-v5",
+      "name": "dev-k3s-v5",
+      "private_ip": null,
+      "region": "jp-tyo-3",
+      "target_id": "dev-akamai-dev-k3s-v5",
+      "type": "g6-standard-4"
+    }
+  ],
+  "jobs": {
+    "account": "not_selected",
+    "bootstrap": "not_selected",
+    "destroy-account": "not_selected",
+    "destroy-bootstrap": "not_selected",
+    "destroy-resources": "not_selected",
+    "resources": "success"
+  },
+  "receipts": [
+    {
+      "account": "manbuzhe2026",
+      "action": "apply",
+      "changes": {
+        "create": 2,
+        "delete": 0,
+        "update": 0
+      },
+      "contract_sha256": "3514c11449ee03c1cab7340b6c3591daa8050738f10e23b486a43920ddd78691",
+      "correlation_id": "dev-host-40353330431",
+      "environment": "dev",
+      "gitops_sha": "60bf8621c5a0d1dfd3f7ce38758a48740f9f14e7",
+      "iac_sha": "1d3bc5b54a49b946b98e48bf9f73606369b77d02",
+      "inventory_sha256": "3ce4426c77b7324a4fd51b2d31029e0ff18df9732f06e2c308159c6f2a677dcb",
+      "manifest_sha256": "71b0453af254b9b965191cf12c0895219fec5c303fae296ffb5b25b59ae337a0",
+      "owner_action": ".github/actions/iac-resources",
+      "plan_sha256": "db38d2042fb6affb3ad1edcf41e2d3bb8c7615ddca37961f7e7c52be5dfa8933",
+      "project": "svc.plus",
+      "provider": "akamai-cloud",
+      "requested_refs": {
+        "gitops": "60bf8621c5a0d1dfd3f7ce38758a48740f9f14e7",
+        "iac": "1d3bc5b54a49b946b98e48bf9f73606369b77d02"
+      },
+      "result": "applied_verified",
+      "run_attempt": "1",
+      "run_id": "40353330431",
+      "schema_version": 1,
+      "stage": "resources",
+      "state_key": "terraform/dev/svc.plus/akamai-cloud/manbuzhe2026/dev-k3s-v5/terraform.tfstate",
+      "target_id": "dev-akamai-dev-k3s-v5",
+      "verification": {
+        "cleanup": true,
+        "contract": true,
+        "convergence": true,
+        "dependencies": true,
+        "identity": true,
+        "ownership": true
+      },
+      "workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-host-lifecycle.yml@refs/heads/main",
+      "workflow_sha": "5542116661b2874a98f3c4fa647f1cdc804f8f76",
+      "workspace": "dev-k3s-v5"
+    }
+  ],
+  "result": "applied_verified",
+  "schema_version": 1
+}
