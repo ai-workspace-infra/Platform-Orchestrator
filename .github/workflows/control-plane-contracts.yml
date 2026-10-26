@@ -65,6 +65,9 @@ jobs:
           python3 scripts/tests/control_plane/environment_data_operations_test.py
           python3 scripts/tests/control_plane/import_receipt_test.py
 
+      - name: Verify feature lane event and candidate gates without deployment credentials
+        run: python3 scripts/tests/control_plane/feature_lane_gate_test.py
+
       - name: Verify release and workflow input contracts
         run: |
           bash scripts/tests/control_plane/daily_snapshot_tag_routing_test.sh
