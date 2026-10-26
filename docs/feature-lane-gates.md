@@ -71,7 +71,7 @@ not meet those requirements.
 ## Verification
 
 Run `python3 scripts/tests/control_plane/feature_lane_gate_test.py -v`.
-Sixteen test groups include a valid attempt-3 rerun and reject mismatched attempts,
+Seventeen test groups include a valid attempt-3 rerun and reject mismatched attempts,
 null/unknown baseline fields, undeclared UAT targets, missing/changed merge-artifact
 mappings, merged-baseline-as-SIT, changed heads, forks, mutable or
 missing artifacts/baselines, namespace/domain drift, wrong producer run, mock or
