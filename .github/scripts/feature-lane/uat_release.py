@@ -145,7 +145,8 @@ def publish(trusted, plan, mutate=write_api):
     name=f'feature/dev-uat-accounts-{plan["run_id"]}-{plan["attempt"]}-{plan["matrix_fingerprint"][:12]}'
     require(branch(api,GITOPS)==base and branch(api,REPOS['accounts'])==plan['source_sha'],'main advanced before proposal branch creation')
     mutate(f'repos/{GITOPS}/git/refs',{'ref':'refs/heads/'+name,'sha':commit['sha']})
-    require(branch(api,GITOPS)==base,'GitOps main advanced before PR; retain proposal branch for review')
+    require(branch(api,GITOPS)==base and branch(api,REPOS['accounts'])==plan['source_sha'],
+            'a main advanced before PR; retain proposal branch for review')
     return mutate(f'repos/{GITOPS}/pulls',{'title':'Update Dev UAT Accounts from verified main build','base':'main','head':name,'draft':True,
         'body':f'Verified Accounts push/main build {plan["run_id"]} attempt {plan["attempt"]}, source {plan["source_sha"]}. '
                f'Base {base}; complete six-component matrix fingerprint {plan["matrix_fingerprint"]}. '

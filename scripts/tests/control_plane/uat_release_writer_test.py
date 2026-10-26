@@ -102,6 +102,15 @@ class UATWriter(unittest.TestCase):
         self.assertEqual(calls[4][1]['base'],'main');self.assertTrue(calls[4][1]['draft'])
         self.assertFalse(any(payload.get('ref')=='refs/heads/main' for _,payload in calls))
 
+    def test_main_advance_after_branch_creation_prevents_pr(self):
+        t=Trusted();plan=m.prepare(t,BASE,12,2,34);calls=[]
+        def mutate(path,payload):
+            calls.append(path)
+            if path.endswith('/git/refs'):t.current=OLD
+            return {'sha':'f'*40}
+        self.assertRaises(m.Blocked,m.publish,t,plan,mutate)
+        self.assertFalse(any(path.endswith('/pulls') for path in calls))
+
     def test_fabricated_or_stale_proposal_cannot_mutate(self):
         t=Trusted();plan=m.prepare(t,BASE,12,2,34);plan['content']='fabricated'
         self.assertRaises(m.Blocked,m.publish,t,plan,lambda *args:self.fail('no mutation'))
