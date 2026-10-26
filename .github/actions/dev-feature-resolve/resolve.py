@@ -224,4 +224,4 @@ def main():
   for key,value in dict(identity,gitops_sha=receipt['candidate_head'],candidate_sha256=hashlib.sha256(body.encode()).hexdigest()).items():output.write(f'{key}={value}\n')
 if __name__=='__main__':
  try:main()
- except Exception as error:raise SystemExit('Dev candidate resolution blocked: '+str(error)) from None
+ except Exception as error:raise SystemExit('Dev candidate resolution blocked: '+(str(error) if type(error) is ValueError else type(error).__name__)) from None

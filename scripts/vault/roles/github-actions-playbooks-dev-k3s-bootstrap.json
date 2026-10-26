@@ -1,6 +1,6 @@
 {
   "role_name": "github-actions-playbooks-dev-k3s-bootstrap",
-  "description": "Dev K3s bootstrap credential read for exact protected-main caller and fixed Playbooks callee; proposed configuration, not apply authorization.",
+  "description": "Dev exact-main bootstrap and fixed feature owner credential reads; reviewed proposal only, not apply authorization.",
   "role_type": "jwt",
   "user_claim": "sub",
   "bound_audiences": [
@@ -11,8 +11,14 @@
     "repository": "ai-workspace-infra/platform-ops-toolkit",
     "ref": "refs/heads/main",
     "environment": "dev",
-    "workflow_ref": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-host-lifecycle.yml@refs/heads/main",
-    "job_workflow_ref": "ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@e4607530b545ccf09e4045113afeb644b067823e"
+    "workflow_ref": [
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-host-lifecycle.yml@refs/heads/main",
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-feature-deploy.yml@refs/heads/main"
+    ],
+    "job_workflow_ref": [
+      "ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@e4607530b545ccf09e4045113afeb644b067823e",
+      "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@b2c7b8eb41fe28fa4b66646ba64945bb4317e61f"
+    ]
   },
   "token_policies": [
     "github-actions-playbooks-dev-k3s-bootstrap"
