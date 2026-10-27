@@ -33,9 +33,9 @@ Bridge 实现，不在插件中硬编码 Accounts 内部接口）：
    租户上下文；不返回密码、MFA secret 或长期 token。
 2. `get_auth_distribution(tenant, audience)`：由 Bridge 生成目标 audience 的短期认证
    信息，并按租户边界分发给 XWorkmate/OpenClaw 工作流。
-3. `trigger_uat_release(tag_ref, migration_strategy)`：仅接受不可变的
-   `uat-daily-build-*` tag；自动发布固定传 `accounts_merge`。`replace_public` 必须额外
-   要求人工确认，不允许由模型默认选择。
+3. 常规 Main → UAT 由 `daily-main-snapshot.yaml` 自动执行；Agent 负责读取对应 release
+   manifest 与 run 状态，不重复触发。若已有明确授权需要人工补发，只接受不可变的完整
+   UAT 快照，并保持 `operation=deploy`；迁移仍走独立数据操作门禁。
 4. `get_job_status(run_id)`：读取 serverless orchestrator 和 reusable migration 的
    job 状态，返回失败步骤与 GitHub Actions 链接。
 5. `verify_uat_accounts()`：只读检查 Accounts merge 的 no-op replay、用户接口状态码，
@@ -45,8 +45,8 @@ Bridge 实现，不在插件中硬编码 Accounts 内部接口）：
 
 ## 自动化纪律
 
-- 每次自动发布都由 `daily-main-snapshot.yaml` 在 immutable tag 构建完成后触发
-  `serverless-orchestrator.yml` 的 `deploy+migrate`；迁移策略显式为 `accounts_merge`。
+- 自动 Main → UAT 由 `daily-main-snapshot.yaml` 在七个服务仓固定快照及 GitOps revision
+  校验完成后触发 `serverless-orchestrator.yml` 的 `deploy`；不在自动发布中迁移数据库。
 - 目标 public schema 非空时，Accounts merge 保留 UAT 行并按时间戳合并；只有明确选择
   `replace_public` 并传入确认值时才备份后清理 public。
 - 插件应在发布完成后等待迁移 job，再执行真实接口验证；不能把 workflow `success` 当作
