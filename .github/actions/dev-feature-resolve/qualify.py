@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Actual CI integration identity qualification. No authorization/deployment receipt."""
-import importlib.util,json,os,re,subprocess
+import base64,importlib.util,json,os,re,subprocess
+import yaml
 from pathlib import Path
 
 def load(name,path):
@@ -26,22 +27,18 @@ def main():
    if status in (401,403):denied.append({'api':path,'status':status})
    raise ValueError('CI API access failed: '+path+' HTTP '+str(status)) from None
  reader.api=authenticated
- # Do not synthesize source.workflow_ref=main; this PR job only proves API access.
- pr=reader.api('repos/ai-workspace-infra/gitops/pulls/605')
+ # Read the explicitly selected candidate and foundation; never emit a deployment receipt.
+ pr_number=module.positive(os.environ.get('DEV_SIT_QUALIFY_PR',''))
+ pr=reader.api(f'repos/ai-workspace-infra/gitops/pulls/{pr_number}')
+ require(pr.get('base',{}).get('ref')=='main' and pr.get('state')=='open','open main-based candidate required')
  head=pr.get('head',{}).get('sha');require(re.fullmatch('[0-9a-f]{40}',head or ''),'GitOps PR identity unavailable')
- checks=module.pages(reader,f'repos/ai-workspace-infra/gitops/commits/{head}/check-runs','check_runs')
- require(isinstance(checks,list),'GitOps checks API unavailable')
- _,identity=module.foundation(reader,40353330431,12664517641,12668512699)
- rows=[('accounts','ai-workspace-services/accounts',40222728214,'8d1b09a6f2022af221b2a817d516952af41ced0e','ghcr.io/ai-workspace-services/accounts@sha256:6edd156ce6974dfd0cd7486beebbb446091e4019eacf3c272e05aba4a609737d'),('console','ai-workspace-services/portal',40256113380,'2a272f295235efdd39f469245ad74177d1a5ff5d','ghcr.io/ai-workspace-services/console@sha256:03ffaf0174c64aede7602b5d566ff27921f760e134028afabb62b646324228f9'),('caddy','ai-workspace-infra/artifacts',30419099530,'959d6c8ec8dfdf1224fe3b976ae4548d38947332','ghcr.io/ai-workspace-infra/caddy-cloudflare@sha256:9895385033fea2bdb445841b45f37e6cd58b9e071a16e4c147e483abb74a0acf')]
- rows.append(('accounts','ai-workspace-services/accounts',40378515318,'450ab9940071883139d4a73e6cfd2f4b77d193ba','ghcr.io/ai-workspace-services/accounts@sha256:97a58ebe7fab56432777591604491c2dea7fc7cc57cd35820fedef78fa328572'))
- proofs=[]
- for component,repo,rid,sha,image in rows:
-  run=reader.api(f'repos/{repo}/actions/runs/{rid}');module.run_identity(run,repo,sha,module.COMPONENTS[component][2],'workflow_dispatch' if rid==40378515318 else 'push')
-  module.source_gate(reader,repo,sha,module.COMPONENTS[component][2],'sit',run)
-  proof=module.publisher_proof(reader,component,repo,rid,sha,image,rid==40378515318)
-  proofs.append({'component':component,'preview_dispatch':rid==40378515318,'job_id':proof['job_id'],'source_sha':sha,'image':image,'log_sha256':proof['log_sha256'],'matched_checkout_and_push':True,'preview_flags':proof.get('preview_flags')})
- reader.api('repos/ai-workspace-services/accounts/commits/450ab9940071883139d4a73e6cfd2f4b77d193ba/pulls?per_page=100')
- reader.api('repos/ai-workspace-services/accounts/contents/.github/workflows/ci-pipeline.yml?ref=450ab9940071883139d4a73e6cfd2f4b77d193ba')
+ checks=module.check_head(reader,head)
+ _,identity=module.foundation(reader,os.environ.get('DEV_SIT_FOUNDATION_RUN',''),os.environ.get('DEV_SIT_SUMMARY_ARTIFACT',''),os.environ.get('DEV_SIT_BOOTSTRAP_ARTIFACT',''))
+ path='services/distributed-web-saas-fullstack/dev/sit-xconnect-referral/release.yaml'
+ content=reader.api(f'repos/ai-workspace-infra/gitops/contents/{path}?ref={head}')
+ require(content.get('path')==path and content.get('type')=='file' and content.get('encoding')=='base64','candidate release unavailable')
+ release=yaml.safe_load(base64.b64decode(content['content']))
+ proofs=module.build_matrix(reader,release,'sit')
  require(not denied,'integration token denied cross-repository API: '+json.dumps(denied,sort_keys=True))
  print(json.dumps({'kind':'ci-integration-readonly-qualification','result':'api_access_verified','deployment':'NOT_RUN','authorization_receipt':False,'run_id':os.environ.get('GITHUB_RUN_ID'),'run_attempt':os.environ.get('GITHUB_RUN_ATTEMPT'),'gitops_head_sample':head,'checks_read':len(checks),'foundation_cmdb_sha256':identity['cmdb_sha256'],'publisher_matches':proofs,'api_observations':observed},sort_keys=True))
 if __name__=='__main__':
