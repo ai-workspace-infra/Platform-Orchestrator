@@ -32,9 +32,9 @@
 
 - Playbooks PR [#810](https://github.com/ai-workspace-infra/playbooks/pull/810) 已合并，实现 SIT-only rebuild owner：校验 feature 所有权和旧 Namespace UID，使用 UID 前置条件正常删除，只接受受支持的 `local-path`/Delete 回收结果，等待 Namespace/PV 清理后创建新 Namespace 并重新投影 registry 配置。遇到未知/保留卷、遗留 PV、finalizer 卡住或所有权不符即停止，不强删。
 - Playbooks PR [#811](https://github.com/ai-workspace-infra/playbooks/pull/811) 已合并，最终 reusable workflow 固定 SHA 为 `ce62d2ed3ea5f3e2e8d5c298f4f2aa7806e5b69a`，检出实现 SHA `e589b3dd8fca9c51061011f75a87034f6e4ba303`。
-- Toolkit PR [#1462](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1462) OPEN，head `3747e590f6336e2b9574027ecfacb6639c98e5d1`。增加 `phase=rebuild`，要求 prior prepare 回执，并认证 rebuild 后的新 Namespace UID 和卷回收证据；workflow 调用上面的固定 Playbooks SHA。required checks 最近一轮全部通过。
+- Toolkit PR [#1462](https://github.com/ai-workspace-infra/platform-ops-toolkit/pull/1462) 已合并，merge commit `4a56be01ee41b421e13ca17eb81eb0cce72f98f5`。增加 `phase=rebuild`，要求 prior prepare 回执，并认证 rebuild 后的新 Namespace UID 和卷回收证据；workflow 调用上面的固定 Playbooks SHA。合并前 required checks 全部通过。
 - 为完成一次性升级，resolver 只允许 `phase=rebuild` 使用旧 caller workflow blob `361b6a13dc9be3e01ee60aea95096a78e08ce37c` 产生的成功 prepare；其他阶段仍要求 producer 与当前 caller policy 一致。
-- Skill PR [#59](https://github.com/ai-workspace-lab/xworkspace-core-skills/pull/59) OPEN，head `a322d9909db04dc291706b9388048a7ff278936c`。把一次明确的 SIT 临时资源授权延伸到该功能后续重试，同时限定集群/namespace/数据范围和正常卷回收，不要求每次重试重复确认。
+- Skill PR [#59](https://github.com/ai-workspace-lab/xworkspace-core-skills/pull/59) 已合并，merge commit `8c0fd1460c19327f39caaa3d5514b946d7fe8620`。把一次明确的 SIT 临时资源授权延伸到该功能后续重试，同时限定集群/namespace/数据范围和正常卷回收，不要求每次重试重复确认。
 - PR #1462 的首轮检查发现 OIDC 合同测试漏列新增的精确 Playbooks SHA；已修正现有断言，随后检查全部通过。没有扩大 Vault policy 路径。
 
 ## 权限和执行边界
@@ -47,7 +47,7 @@
 
 ## 后续执行顺序
 
-1. 审阅并合并 Toolkit PR #1462 和技能 PR #59；合并前仍需确认两者最新 head 与检查状态。
+1. Toolkit PR #1462 与技能 PR #59 已合并；继续前确认 Toolkit `main` 包含 merge commit `4a56be01`，且 workflow 可选到 `phase=rebuild`。
 2. 通过受控 Vault 流程比较 live Dev role/policy；只增加精确 callee SHA `ce62d2ed3ea5f3e2e8d5c298f4f2aa7806e5b69a`，保留现有 caller/callee、策略及其他字段。记录 live 对照证据，不输出凭据。
 3. 执行前重新确认 GitOps PR #606 仍 OPEN、head 仍为 `49c96fb38e7a51d97054951f53a8edb2e82c3a66`、检查完整；重新解析动态实例/集群身份；确认旧 prepare artifact `12707064496` 未过期且所有字段仍绑定同一候选和目标。
 4. 在 Toolkit `main` 上 dispatch `operation=feature, phase=rebuild, stage=sit, candidate_pr=606`，并引用已核验的固定 locators：foundation run `40439068564`、summary artifact `12706040839`、bootstrap artifact `12705453829`、provenance run `40442755969`/artifact `12706334332`、prepare run `40444907535`/artifact `12707064496`。dispatch 前逐一通过 GitHub API 检查仍可读、未过期且回执匹配；不得仅凭本文 ID 直接执行。
