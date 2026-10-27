@@ -105,8 +105,6 @@ def foundation(reader,run_id,summary_id,bootstrap_id):
 def check_dependency_tag(reader, repo, tag, expected):
  if not tag:return
  require(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}',tag),'invalid dependency tag')
- release=reader.api(f'repos/{repo}/releases/tags/{tag}')
- require(release.get('tag_name')==tag and release.get('draft') is False and bool(release.get('published_at')),'dependency release is not published')
  obj=reader.api(f'repos/{repo}/git/ref/tags/{tag}').get('object',{})
  if obj.get('type')=='tag':obj=reader.api(f'repos/{repo}/git/tags/{obj.get("sha","")}').get('object',{})
  require(obj.get('type')=='commit' and obj.get('sha')==expected,'dependency tag does not match authenticated producer')

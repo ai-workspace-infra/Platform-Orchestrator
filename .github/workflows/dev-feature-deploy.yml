@@ -37,12 +37,12 @@ on:
         type: number
         default: 0
       iac_tag:
-        description: Optional published IaC release tag matching the foundation receipt
+        description: Optional IaC tag matching the foundation receipt
         type: string
         default: ''
         required: false
       bootstrap_playbooks_tag:
-        description: Optional published bootstrap Playbooks release tag matching the foundation receipt
+        description: Optional bootstrap Playbooks tag matching the foundation receipt
         type: string
         default: ''
         required: false

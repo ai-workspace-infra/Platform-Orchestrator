@@ -59,10 +59,9 @@ class PlatformTagTests(unittest.TestCase):
   with self.assertRaises(ValueError):R.check_platform_tag(TagReader(),'../invalid','a'*40)
 
 class DependencyTagTests(unittest.TestCase):
- def test_only_published_tag_pointing_to_authenticated_commit_is_accepted(self):
+ def test_only_tag_pointing_to_authenticated_commit_is_accepted(self):
   class Reader:
    def api(self,path):
-    if '/releases/tags/' in path:return {'tag_name':'v1.0.0','draft':False,'published_at':'2026-01-01'}
     return {'object':{'type':'commit','sha':'a'*40}}
   R.check_dependency_tag(Reader(),'ai-workspace-infra/iac_modules','v1.0.0','a'*40)
   with self.assertRaises(ValueError):R.check_dependency_tag(Reader(),'ai-workspace-infra/iac_modules','v1.0.0','b'*40)

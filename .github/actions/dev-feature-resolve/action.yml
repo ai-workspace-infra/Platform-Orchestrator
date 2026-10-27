@@ -9,8 +9,8 @@ inputs:
   seed-artifact: {default: '0', description: Prior initialized seed receipt locator}
   candidate-pr: {required: true, description: Same-repository GitOps PR number}
   stage: {required: true, description: sit or uat}
-  iac-tag: {default: '', description: Optional published IaC release tag matching foundation receipt}
-  bootstrap-playbooks-tag: {default: '', description: Optional published bootstrap Playbooks release tag matching receipt}
+  iac-tag: {default: '', description: Optional IaC tag matching foundation receipt}
+  bootstrap-playbooks-tag: {default: '', description: Optional bootstrap Playbooks tag matching receipt}
   platform-tag: {default: '', description: Optional GitOps tag matching bootstrap commit}
   foundation-run: {required: true, description: Authenticated foundation run ID}
   summary-artifact: {required: true, description: Original IaC summary bundle artifact ID}
