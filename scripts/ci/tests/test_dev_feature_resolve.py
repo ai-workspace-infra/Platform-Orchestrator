@@ -10,6 +10,8 @@ class Reader:
  def __init__(self):self.summary=json.loads((FIX/'summary.json').read_text());self.boot=json.loads((FIX/'receipt.json').read_text());self.calls=[]
  def api(self,path,binary=False):
   self.calls.append(path)
+  if path.endswith('/git/ref/heads/main'):return {'object':{'sha':'a'*40}}
+  if '/compare/' in path:return {'status':'ahead'}
   if '/attempts/1/jobs' in path:return {'jobs':[{'name':'iac / summary','conclusion':'success'},{'name':'iac / resources (dev-akamai-dev-k3s-v5, provider) / resources','conclusion':'success'}]}
   if '/attempts/2/jobs' in path:return {'jobs':[{'name':'bootstrap / bootstrap','conclusion':'success'}]}
   run={'repository':{'full_name':R.REPO},'head_repository':{'full_name':R.REPO},'head_sha':R.SOURCE,'path':'.github/workflows/dev-host-lifecycle.yml','event':'workflow_dispatch','head_branch':'main','run_attempt':2,'status':'completed','conclusion':'success'}
@@ -27,7 +29,7 @@ class FoundationTests(unittest.TestCase):
   self.assertEqual(identity['instance_id'],'109277144');self.assertEqual(identity['iac_source_attempt'],1);self.assertEqual(identity['bootstrap_source_attempt'],2)
   self.assertEqual(set(json.loads(raw)),{'dev-k3s-v5'});self.assertTrue(any('/attempts/1/jobs' in p for p in reader.calls))
  def test_original_context_and_target_tampering_fail(self):
-  for mutate in [lambda r:r.summary['context'].update(run_attempt='2'),lambda r:r.boot.update(instance_id='other'),lambda r:r.boot.update(cmdb_sha256='0'*64),lambda r:r.boot.update(root_ready=False)]:
+  for mutate in [lambda r:r.summary['context'].update(run_attempt='2'),lambda r:r.boot.update(instance_id='other'),lambda r:r.boot.update(cmdb_sha256='0'*64),lambda r:r.boot.update(root_ready=False),lambda r:r.summary['context'].update(gitops_sha='f'*40),lambda r:r.boot.update(source_revision='sha1:'+'f'*40)]:
    reader=Reader();mutate(reader)
    with self.assertRaises(ValueError):R.foundation(reader,40353330431,12664517641,12668512699)
  def test_bool_locator_rejected(self):
@@ -138,7 +140,7 @@ class PreviewTests(unittest.TestCase):
 
 class PriorOwnerTests(unittest.TestCase):
  def fixture(self):
-  identity={'instance_id':'109277144','node_uid':'node','cluster_uid':'cluster','platform_sha':R.PLATFORM,'cmdb_sha256':'e'*64}
+  identity={'instance_id':'109277144','node_uid':'node','cluster_uid':'cluster','platform_sha':'a'*40,'cmdb_sha256':'e'*64}
   source='a'*40;candidate='b'*40;owner='c'*40
   binding={'namespace_uid':'1'*36,'candidate_sha':candidate,'namespace':'feature-xconnect-referral-sit','node_uid':'node','cluster_uid':'cluster','instance_id':'109277144','manifest_sha256':'d'*64,'source':{'repository':R.REPO,'workflow_ref':R.WORKFLOW,'workflow_sha':source,'owner_sha':owner,'run_id':'123','run_attempt':'1'}}
   receipt={**identity,'namespace_uid':'1'*36,'candidate_sha':candidate,'namespace':binding['namespace'],'manifest_sha256':'d'*64,'schema_version':'dev-feature-flux/v1','mode':'prepare','result':'prepared','owner_sha':owner,'run_id':'123','run_attempt':'1','registry':{'result':'configured','namespace':binding['namespace'],'secret_name':'web-saas-registry','source_path':'kv/CICD/dev/ghcr','oci_mapping':{'schema_version':'dev-oci-platform/v1','images':{name:{} for name in R.COMPONENTS},'binding':binding}}}

@@ -7,10 +7,9 @@ REPO='ai-workspace-infra/platform-ops-toolkit'
 GITOPS='ai-workspace-infra/gitops'
 SOURCE='5542116661b2874a98f3c4fa647f1cdc804f8f76'
 IAC='1d3bc5b54a49b946b98e48bf9f73606369b77d02'
-PLATFORM='60bf8621c5a0d1dfd3f7ce38758a48740f9f14e7'
 PLAYBOOKS='4a5dbb8e1240a096e7818f1da6a925569a3da7ea'
 WORKFLOW='ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-feature-deploy.yml@refs/heads/main'
-SCOPES={'sit':'sit-xconnect-referral','uat':'uat','platform-ingress':None}
+SCOPES={'sit':'sit-xconnect-referral','platform-ingress':None}
 CALLEES={'feature':('dev-feature-flux.yml','41c00edbf14c77fe164df18e2a87c48244387901'),'seed':('dev-web-saas-seed.yml','6949b3f202114a135ab8db0e645286bb44bbdc64'),'ingress':('dev-platform-ingress.yml','41c00edbf14c77fe164df18e2a87c48244387901')}
 SHA=re.compile(r'[0-9a-f]{40}')
 # Source repository, immutable image repository, reviewed build workflow.
@@ -63,19 +62,22 @@ def foundation(reader,run_id,summary_id,bootstrap_id):
  summary=payload(summary_id,f'iac-summary-{run_id}-1','summary.json')
  inventories=payload(summary_id,f'iac-summary-{run_id}-1','inventory.json')
  context=summary.get('context',{})
- require(context.get('run_id')==str(run_id) and context.get('run_attempt')=='1' and context.get('workflow_sha')==SOURCE and context.get('gitops_sha')==PLATFORM and context.get('iac_sha')==IAC and context.get('workflow_ref')=='ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-host-lifecycle.yml@refs/heads/main','original owner document provenance mismatch')
+ platform=context.get('gitops_sha','')
+ require(isinstance(platform,str) and SHA.fullmatch(platform),'full platform commit required')
+ main=reader.api(f'repos/{GITOPS}/git/ref/heads/main')['object']['sha']
+ require(reader.api(f'repos/{GITOPS}/compare/{platform}...{main}').get('status') in ('ahead','identical'),'platform commit is not on protected main')
+ require(context.get('run_id')==str(run_id) and context.get('run_attempt')=='1' and context.get('workflow_sha')==SOURCE and context.get('gitops_sha')==platform and context.get('iac_sha')==IAC and context.get('workflow_ref')=='ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-host-lifecycle.yml@refs/heads/main','original owner document provenance mismatch')
  require(all(r.get('run_attempt')=='1' and r.get('run_id')==str(run_id) and r.get('workflow_sha')==SOURCE and r.get('iac_sha')==IAC and r.get('result')=='applied_verified' for r in summary.get('receipts',[])),'resource receipt identity mismatch')
  handoff=load('existing_dev_handoff',Path(__file__).parents[1]/'dev-bootstrap-handoff/handoff.py')
  raw,instance=handoff.select(summary,inventories,summary['deploy_matrix'])
- require(instance=='109277144','not the authorized Dev instance')
  bootstrap=payload(bootstrap_id,f'dev-k3s-bootstrap-{run_id}-2','receipt.json')
  digest=hashlib.sha256(raw.encode()).hexdigest()
  require(bootstrap.get('schema_version')==1 and bootstrap.get('result')=='PASS' and bootstrap.get('environment')=='dev' and bootstrap.get('instance_id')==instance and bootstrap.get('run_id')==str(run_id) and bootstrap.get('cmdb_sha256')==digest and bootstrap.get('playbooks_sha')==PLAYBOOKS,'bootstrap receipt binding mismatch')
  require(all(bootstrap.get(k) is True for k in ('node_ready','source_ready','root_ready')) and bootstrap.get('node')=='dev-k3s-v5' and bootstrap.get('hostname')=='dev-k3s-v5','bootstrap target not Ready')
- require(bootstrap.get('gitops_sha')==PLATFORM and bootstrap.get('source_revision')=='sha1:'+PLATFORM and bootstrap.get('applied_revision')=='sha1:'+PLATFORM,'bootstrap protected platform mismatch')
+ require(bootstrap.get('gitops_sha')==platform and bootstrap.get('source_revision')=='sha1:'+platform and bootstrap.get('applied_revision')=='sha1:'+platform,'bootstrap protected platform mismatch')
  require(bootstrap.get('node_info',{}).get('kubeletVersion')=='v1.37.1+k3s1' and bootstrap.get('node_info',{}).get('architecture')=='amd64','bootstrap runtime mismatch')
  for k in ('node_uid','cluster_uid'):require(re.fullmatch('[0-9a-f-]{36}',bootstrap.get(k,'')),'bootstrap UID missing')
- return raw,dict(instance_id=instance,cmdb_sha256=digest,node_uid=bootstrap['node_uid'],cluster_uid=bootstrap['cluster_uid'],platform_sha=PLATFORM,source_run=run_id,iac_source_attempt=1,bootstrap_source_attempt=2,summary_artifact=summary_id,bootstrap_artifact=bootstrap_id)
+ return raw,dict(instance_id=instance,cmdb_sha256=digest,node_uid=bootstrap['node_uid'],cluster_uid=bootstrap['cluster_uid'],platform_sha=platform,source_run=run_id,iac_source_attempt=1,bootstrap_source_attempt=2,summary_artifact=summary_id,bootstrap_artifact=bootstrap_id)
 
 def check_head(reader,sha,repo=GITOPS):
  checks=pages(reader,f'repos/{repo}/commits/{sha}/check-runs','check_runs')

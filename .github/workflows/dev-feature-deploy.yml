@@ -15,7 +15,7 @@ on:
         required: true
       stage:
         type: choice
-        options: [sit, uat]
+        options: [sit]
         default: sit
         required: true
       candidate_pr:
@@ -38,17 +38,17 @@ on:
         default: 0
       foundation_run:
         type: number
-        default: 40353330431
+        default: 0
         required: true
       summary_artifact:
         description: Original IaC attempt1 owner bundle
         type: number
-        default: 12664517641
+        default: 0
         required: true
       bootstrap_artifact:
         description: Successful bootstrap attempt2 receipt
         type: number
-        default: 12668512699
+        default: 0
         required: true
 permissions:
   contents: read
