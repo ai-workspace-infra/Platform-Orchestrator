@@ -1,0 +1,47 @@
+name: Resolve authenticated Dev feature deployment evidence
+description: Read-only PR, build and foundation artifact validation; no host/resource execution.
+inputs:
+  operation: {required: true, description: feature or ingress fixed owner route}
+  phase: {required: true, description: Explicit fixed owner phase}
+  prepare-run: {default: '0', description: Prior successful prepare run locator}
+  prepare-artifact: {default: '0', description: Prior prepare receipt artifact locator}
+  seed-run: {default: '0', description: Prior successful initialize run locator}
+  seed-artifact: {default: '0', description: Prior initialized seed receipt locator}
+  candidate-pr: {required: true, description: Same-repository GitOps PR number}
+  stage: {required: true, description: sit or uat}
+  foundation-run: {required: true, description: Authenticated foundation run ID}
+  summary-artifact: {required: true, description: Original IaC summary bundle artifact ID}
+  bootstrap-artifact: {required: true, description: Successful bootstrap receipt artifact ID}
+  evidence-root: {required: true, description: Fixed 1454 hardened shared reader checkout}
+  destination: {required: true, description: Public evidence staging directory}
+outputs:
+  instance-id: {value: '${{ steps.resolve.outputs.instance_id }}', description: Verified Dev instance ID}
+  cmdb-sha256: {value: '${{ steps.resolve.outputs.cmdb_sha256 }}', description: Selected owner CMDB digest}
+  namespace-uid: {value: '${{ steps.resolve.outputs.namespace_uid }}', description: Authenticated prepared namespace incarnation}
+  node-uid: {value: '${{ steps.resolve.outputs.node_uid }}', description: Authenticated bootstrap node UID}
+  cluster-uid: {value: '${{ steps.resolve.outputs.cluster_uid }}', description: Authenticated bootstrap cluster UID}
+  platform-sha: {value: '${{ steps.resolve.outputs.platform_sha }}', description: Protected platform revision}
+  gitops-sha: {value: '${{ steps.resolve.outputs.gitops_sha }}', description: Current immutable candidate revision}
+  prepare-sha256: {value: '${{ steps.resolve.outputs.prepare_sha256 }}', description: Authenticated prepare receipt digest}
+  seed-sha256: {value: '${{ steps.resolve.outputs.seed_sha256 }}', description: Authenticated initialize receipt digest}
+  candidate-sha256: {value: '${{ steps.resolve.outputs.candidate_sha256 }}', description: Candidate receipt digest}
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        OPERATION: ${{ inputs.operation }}
+        PHASE: ${{ inputs.phase }}
+        PREPARE_RUN: ${{ inputs.prepare-run }}
+        PREPARE_ARTIFACT: ${{ inputs.prepare-artifact }}
+        SEED_RUN: ${{ inputs.seed-run }}
+        SEED_ARTIFACT: ${{ inputs.seed-artifact }}
+        CANDIDATE_PR: ${{ inputs.candidate-pr }}
+        STAGE: ${{ inputs.stage }}
+        FOUNDATION_RUN: ${{ inputs.foundation-run }}
+        SUMMARY_ARTIFACT: ${{ inputs.summary-artifact }}
+        BOOTSTRAP_ARTIFACT: ${{ inputs.bootstrap-artifact }}
+        EVIDENCE_ROOT: ${{ inputs.evidence-root }}
+        DESTINATION: ${{ inputs.destination }}
+      run: python3 "${GITHUB_ACTION_PATH}/resolve.py"

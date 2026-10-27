@@ -1,0 +1,39 @@
+{
+  "kind": "review_only_vault_field_delta",
+  "role": "github-actions-playbooks-dev-k3s-bootstrap",
+  "baseline_observed_at": "2026-10-26T19:44:50.524522+00:00",
+  "baseline_data_sha256": "c1f25c4aa5aed4e1f1e431ecffcbe151f84a206b9c7e39216b29ded9c8aada90",
+  "baseline_policy_sha256": "e5fa543c2c99ba58a8bb6d808cf44be1bf49eeffc5738fea3bb8923fa786394b",
+  "role_field_changes": [
+    {
+      "path": "/bound_claims/workflow_ref",
+      "before": "ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-host-lifecycle.yml@refs/heads/main",
+      "after": [
+        "ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-host-lifecycle.yml@refs/heads/main",
+        "ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-feature-deploy.yml@refs/heads/main"
+      ]
+    },
+    {
+      "path": "/bound_claims/job_workflow_ref",
+      "before": "ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@e4607530b545ccf09e4045113afeb644b067823e",
+      "after": [
+        "ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@e4607530b545ccf09e4045113afeb644b067823e",
+        "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@41c00edbf14c77fe164df18e2a87c48244387901",
+        "ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@6949b3f202114a135ab8db0e645286bb44bbdc64",
+        "ai-workspace-infra/playbooks/.github/workflows/dev-platform-ingress.yml@41c00edbf14c77fe164df18e2a87c48244387901"
+      ]
+    }
+  ],
+  "preserve_every_other_data_key": true,
+  "apply_strategy": "Fresh authenticated read; require exact baseline data/policy hashes; merge only these two nested claim values while preserving every other live data key. This document is not a native Vault PATCH request or whole-role replacement payload.",
+  "policy_change": {
+    "before": "path \"kv/data/CICD/dev/k3s-bootstrap\" {\n  capabilities = [\"read\"]\n}\n",
+    "after": "path \"kv/data/CICD/dev/k3s-bootstrap\" {\n  capabilities = [\"read\"]\n}\n\npath \"kv/data/CICD/dev/ghcr\" {\n  capabilities = [\"read\"]\n}\n",
+    "only_added_path": "kv/data/CICD/dev/ghcr",
+    "only_added_capabilities": [
+      "read"
+    ]
+  },
+  "claim_semantics": "Exact set conjunction admits caller/callee cross-product, not ordered pairs; both main callers expose only fixed reviewed callees.",
+  "applied": false
+}

@@ -86,15 +86,15 @@ class DevOIDCContract(unittest.TestCase):
                 self.assertIn('Dev Akamai role claims',result.stderr)
                 self.assertFalse(any(x[0]=='write' or x[:2]==['policy','write'] for x in calls))
 
-    def test_managed_bootstrap_role_uses_fixed_callee_and_one_read_path(self):
+    def test_managed_bootstrap_role_keeps_bootstrap_adds_exact_dev_feature_and_two_read_paths(self):
         name='github-actions-playbooks-dev-k3s-bootstrap'
         declared=json.loads((ROOT/'scripts/vault/roles'/f'{name}.json').read_text())
         self.assertEqual(declared['bound_claims_type'],'string')
         self.assertEqual(declared['bound_claims'],{
             'repository':'ai-workspace-infra/platform-ops-toolkit',
             'ref':'refs/heads/main','environment':'dev',
-            'workflow_ref':'ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-host-lifecycle.yml@refs/heads/main',
-            'job_workflow_ref':'ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@e4607530b545ccf09e4045113afeb644b067823e'})
+            'workflow_ref':['ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-host-lifecycle.yml@refs/heads/main','ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-feature-deploy.yml@refs/heads/main'],
+            'job_workflow_ref':['ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@e4607530b545ccf09e4045113afeb644b067823e','ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@41c00edbf14c77fe164df18e2a87c48244387901','ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@6949b3f202114a135ab8db0e645286bb44bbdc64','ai-workspace-infra/playbooks/.github/workflows/dev-platform-ingress.yml@41c00edbf14c77fe164df18e2a87c48244387901']})
         self.assertEqual(declared['token_policies'],[name])
         self.assertTrue(declared['token_no_default_policy'])
         self.assertEqual(declared['token_type'],'batch')
@@ -108,7 +108,7 @@ class DevOIDCContract(unittest.TestCase):
             role=json.loads((root/'role.json').read_text())
             self.assertEqual(role,{k:v for k,v in declared.items() if k not in ('role_name','description')})
             self.assertEqual(list(root.glob('*.hcl')),[root/f'{name}.hcl'])
-            self.assertEqual((root/f'{name}.hcl').read_text(),'path "kv/data/CICD/dev/k3s-bootstrap" {\n  capabilities = ["read"]\n}\n')
+            self.assertEqual((root/f'{name}.hcl').read_text(),'path "kv/data/CICD/dev/k3s-bootstrap" {\n  capabilities = ["read"]\n}\n\npath "kv/data/CICD/dev/ghcr" {\n  capabilities = ["read"]\n}\n')
             calls=[json.loads(x) for x in (root/'calls').read_text().splitlines()]
             self.assertEqual(len(calls),2)
             self.assertEqual(calls[0][:3],['policy','write',name])

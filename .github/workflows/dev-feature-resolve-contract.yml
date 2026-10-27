@@ -1,0 +1,41 @@
+name: Dev feature caller contract
+on:
+  pull_request:
+    paths:
+      - '.github/actions/dev-feature-resolve/**'
+      - '.github/workflows/dev-feature-deploy.yml'
+      - '.github/workflows/dev-feature-resolve-contract.yml'
+      - 'scripts/ci/tests/test_dev_feature_resolve.py'
+      - 'scripts/ci/tests/fixtures/dev-feature-foundation/**'
+      - 'scripts/vault/roles/github-actions-playbooks-dev-k3s-bootstrap.json'
+      - 'scripts/vault/policies/github-actions-playbooks-dev-k3s-bootstrap.hcl'
+      - 'scripts/tests/test_akamai_dev_oidc_contract.py'
+      - 'docs/dev-feature-vault-delta.json'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/platform-ops-toolkit
+          ref: b5ba0199eda8db773bdd1d85966155079a15adaf
+          path: trusted-evidence
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install PyYAML==6.0.3
+      - run: python -m unittest discover -s scripts/ci/tests -p test_dev_feature_resolve.py
+      - run: python -m unittest discover -s scripts/tests -p test_akamai_dev_oidc_contract.py
+      - run: python scripts/ci/workflow_gating_verify.py
+      - run: python scripts/ci/workflow_stage_depth_verify.py
+      - run: python scripts/ci/script_ownership_verify.py
+      - name: Qualify actual CI integration read-only evidence access
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_ROOT: ${{ github.workspace }}/trusted-evidence
+        run: python .github/actions/dev-feature-resolve/qualify.py
