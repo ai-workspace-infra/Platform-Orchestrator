@@ -36,6 +36,16 @@ on:
       seed_artifact:
         type: number
         default: 0
+      iac_tag:
+        description: Optional published IaC release tag matching the foundation receipt
+        type: string
+        default: ''
+        required: false
+      bootstrap_playbooks_tag:
+        description: Optional published bootstrap Playbooks release tag matching the foundation receipt
+        type: string
+        default: ''
+        required: false
       platform_tag:
         description: Optional GitOps tag matching the authenticated bootstrap commit
         type: string
@@ -105,6 +115,8 @@ jobs:
           seed-artifact: ${{ inputs.seed_artifact }}
           candidate-pr: ${{ inputs.candidate_pr }}
           stage: ${{ inputs.stage }}
+          iac-tag: ${{ inputs.iac_tag }}
+          bootstrap-playbooks-tag: ${{ inputs.bootstrap_playbooks_tag }}
           platform-tag: ${{ inputs.platform_tag }}
           foundation-run: ${{ inputs.foundation_run }}
           summary-artifact: ${{ inputs.summary_artifact }}

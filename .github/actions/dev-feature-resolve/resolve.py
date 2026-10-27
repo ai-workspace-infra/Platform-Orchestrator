@@ -100,7 +100,16 @@ def foundation(reader,run_id,summary_id,bootstrap_id):
  require(bootstrap.get('gitops_sha')==platform and bootstrap.get('source_revision')=='sha1:'+platform and bootstrap.get('applied_revision')=='sha1:'+platform,'bootstrap protected platform mismatch')
  require(bootstrap.get('node_info',{}).get('kubeletVersion')=='v1.37.1+k3s1' and bootstrap.get('node_info',{}).get('architecture')=='amd64','bootstrap runtime mismatch')
  for k in ('node_uid','cluster_uid'):require(re.fullmatch('[0-9a-f-]{36}',bootstrap.get(k,'')),'bootstrap UID missing')
- return raw,dict(instance_id=instance,cmdb_sha256=digest,node_uid=bootstrap['node_uid'],cluster_uid=bootstrap['cluster_uid'],platform_sha=platform,source_run=run_id,iac_source_attempt=1,bootstrap_source_attempt=2,summary_artifact=summary_id,bootstrap_artifact=bootstrap_id)
+ return raw,dict(instance_id=instance,cmdb_sha256=digest,node_uid=bootstrap['node_uid'],cluster_uid=bootstrap['cluster_uid'],platform_sha=platform,iac_sha=iac,bootstrap_playbooks_sha=playbooks,source_run=run_id,iac_source_attempt=1,bootstrap_source_attempt=2,summary_artifact=summary_id,bootstrap_artifact=bootstrap_id)
+
+def check_dependency_tag(reader, repo, tag, expected):
+ if not tag:return
+ require(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}',tag),'invalid dependency tag')
+ release=reader.api(f'repos/{repo}/releases/tags/{tag}')
+ require(release.get('tag_name')==tag and release.get('draft') is False and bool(release.get('published_at')),'dependency release is not published')
+ obj=reader.api(f'repos/{repo}/git/ref/tags/{tag}').get('object',{})
+ if obj.get('type')=='tag':obj=reader.api(f'repos/{repo}/git/tags/{obj.get("sha","")}').get('object',{})
+ require(obj.get('type')=='commit' and obj.get('sha')==expected,'dependency tag does not match authenticated producer')
 
 def check_platform_tag(reader, tag, platform):
  if not tag:return
@@ -356,6 +365,8 @@ def main():
  stage='platform-ingress' if operation=='ingress' else os.environ['STAGE']
  raw,identity=foundation(reader,os.environ['FOUNDATION_RUN'],os.environ['SUMMARY_ARTIFACT'],os.environ['BOOTSTRAP_ARTIFACT'])
  check_platform_tag(reader,os.environ.get('PLATFORM_TAG',''),identity['platform_sha'])
+ check_dependency_tag(reader,'ai-workspace-infra/iac_modules',os.environ.get('IAC_TAG',''),identity['iac_sha'])
+ check_dependency_tag(reader,'ai-workspace-infra/playbooks',os.environ.get('BOOTSTRAP_PLAYBOOKS_TAG',''),identity['bootstrap_playbooks_sha'])
  receipt,release=candidate(reader,os.environ['CANDIDATE_PR'],stage)
  if operation=='feature':receipt['builds']=build_matrix(reader,release,stage)
  fresh,_=candidate(reader,os.environ['CANDIDATE_PR'],stage)
