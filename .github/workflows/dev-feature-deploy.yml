@@ -188,7 +188,7 @@ jobs:
   seed:
     needs: resolve
     if: inputs.operation == 'feature' && (inputs.phase == 'seed-admin' || inputs.phase == 'initialize')
-    uses: ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@6949b3f202114a135ab8db0e645286bb44bbdc64
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@5cf7e4363149aa8745061c513b51e7a2dbf048ac
     with:
       stage: ${{ inputs.stage }}
       phase: ${{ inputs.phase }}
