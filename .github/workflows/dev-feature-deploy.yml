@@ -158,7 +158,7 @@ jobs:
   deploy:
     needs: resolve
     if: inputs.operation == 'feature' && inputs.phase != 'seed-admin' && inputs.phase != 'initialize'
-    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@41c00edbf14c77fe164df18e2a87c48244387901
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@e92eb037a1b250e6b9c671531ae370c88ef5c176
     with:
       stage: ${{ inputs.stage }}
       mode: ${{ inputs.phase }}
