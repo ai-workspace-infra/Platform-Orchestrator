@@ -71,14 +71,15 @@ class GraphTests(unittest.TestCase):
         self.assertEqual(dispatch["needs"], "snapshot-gate")
         self.assertIn("needs.snapshot-gate.result == 'success'", dispatch["if"])
         self.assertIn("inputs.deploy_after_build == true", dispatch['if'])
-        self.assertEqual(steps[readiness]['if'], '${{ inputs.deploy_after_build == true }}')
-        self.assertEqual(steps[select]['if'], '${{ inputs.deploy_after_build == true }}')
+        automatic_or_requested = "${{ (github.event_name != 'workflow_dispatch' || inputs.deploy_after_build == true) }}"
+        self.assertEqual(steps[readiness]['if'], automatic_or_requested)
+        self.assertEqual(steps[select]['if'], automatic_or_requested)
         self.assertIn("needs.snapshot-gate.outputs.matrix", dispatch["strategy"]["matrix"])
         self.assertIn("always()", jobs["snapshot-summary"]["if"])
         failure = jobs["snapshot-summary"]["steps"][-1]["if"]
         self.assertIn("needs.snapshot-gate.result != 'success'", failure)
         self.assertIn("needs.dispatch-environment.result != 'success'", failure)
-        self.assertIn("inputs.deploy_after_build == true && needs.dispatch-environment.result != 'success'", failure)
+        self.assertIn("(github.event_name != 'workflow_dispatch' || inputs.deploy_after_build == true) && needs.dispatch-environment.result != 'success'", failure)
 
         prepare_vault = next(s for s in jobs["resolve-snapshot-tag"]["steps"] if s.get("id") == "vault")
         self.assertIn("github-actions-platform-ops-toolkit-prod-release", prepare_vault["with"]["role"])
