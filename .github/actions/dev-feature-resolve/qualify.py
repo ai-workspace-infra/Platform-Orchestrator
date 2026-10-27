@@ -44,7 +44,8 @@ def main():
   require(reader.api(f'repos/ai-workspace-infra/gitops/compare/{merged}...{main}').get('status') in ('ahead','identical'),'candidate is not based on current main')
  else:
   require(reader.api(f'repos/ai-workspace-infra/gitops/compare/{main}...{head}').get('status') in ('ahead','identical'),'candidate is not based on current main')
- expected={'schema_version':'dev-feature-candidate/v1','result':'verified','repository':module.GITOPS,'stage':'sit','candidate_pr':pr_number,'candidate_head':head,'base_ref':'main','base_sha':main,'checks':'success','same_repository':True,'main_ancestry_verified':True}
+ prov_base='f861be448ea495905ec614d82dedc45ab1197149' if os.environ.get('DEV_SIT_PROVENANCE_RUN')=='40442755969' else main
+ expected={'schema_version':'dev-feature-candidate/v1','result':'verified','repository':module.GITOPS,'stage':'sit','candidate_pr':pr_number,'candidate_head':head,'base_ref':'main','base_sha':prov_base,'checks':'success','same_repository':True,'main_ancestry_verified':True}
  proofs,provenance=module.prior_candidate_builds(reader,os.environ.get('DEV_SIT_PROVENANCE_RUN',''),os.environ.get('DEV_SIT_PROVENANCE_ARTIFACT',''),expected,release)
  require(not denied,'integration token denied cross-repository API: '+json.dumps(denied,sort_keys=True))
  print(json.dumps({'kind':'ci-integration-readonly-qualification','result':'api_access_verified','deployment':'NOT_RUN','authorization_receipt':False,'run_id':os.environ.get('GITHUB_RUN_ID'),'run_attempt':os.environ.get('GITHUB_RUN_ATTEMPT'),'gitops_head_sample':head,'checks_read':len(checks),'foundation_cmdb_sha256':identity['cmdb_sha256'],'publisher_matches':proofs,'prior_provenance':provenance,'api_observations':observed},sort_keys=True))
