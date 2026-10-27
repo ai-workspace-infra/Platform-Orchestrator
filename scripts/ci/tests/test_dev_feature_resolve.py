@@ -1,5 +1,5 @@
 """Control-plane offline falsification; fixtures are not live acceptance."""
-import copy,importlib.util,json,os,unittest
+import base64,copy,importlib.util,json,os,unittest
 from pathlib import Path
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[3]
@@ -10,11 +10,16 @@ class Reader:
  def __init__(self):self.summary=json.loads((FIX/'summary.json').read_text());self.boot=json.loads((FIX/'receipt.json').read_text());self.calls=[]
  def api(self,path,binary=False):
   self.calls.append(path)
+  if '/contents/.github/workflows/' in path:
+   name=path.split('/contents/')[1].split('?')[0]
+   if name.endswith('dev-host-lifecycle.yml'): content='jobs:\n  iac:\n    with:\n      iac_ref: 1d3bc5b54a49b946b98e48bf9f73606369b77d02\n  bootstrap:\n    uses: ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@'+'a'*40+'\n'
+   else: content='jobs:\n  boot:\n    steps:\n    - uses: actions/checkout@v4\n      with:\n        repository: ai-workspace-infra/playbooks\n        ref: 4a5dbb8e1240a096e7818f1da6a925569a3da7ea\n'
+   return {'path':name,'type':'file','encoding':'base64','size':len(content),'content':base64.b64encode(content.encode()).decode()}
   if path.endswith('/git/ref/heads/main'):return {'object':{'sha':'a'*40}}
   if '/compare/' in path:return {'status':'ahead'}
   if '/attempts/1/jobs' in path:return {'jobs':[{'name':'iac / summary','conclusion':'success'},{'name':'iac / resources (dev-akamai-dev-k3s-v5, provider) / resources','conclusion':'success'}]}
   if '/attempts/2/jobs' in path:return {'jobs':[{'name':'bootstrap / bootstrap','conclusion':'success'}]}
-  run={'repository':{'full_name':R.REPO},'head_repository':{'full_name':R.REPO},'head_sha':R.SOURCE,'path':'.github/workflows/dev-host-lifecycle.yml','event':'workflow_dispatch','head_branch':'main','run_attempt':2,'status':'completed','conclusion':'success'}
+  run={'repository':{'full_name':R.REPO},'head_repository':{'full_name':R.REPO},'head_sha':'5542116661b2874a98f3c4fa647f1cdc804f8f76','path':'.github/workflows/dev-host-lifecycle.yml','event':'workflow_dispatch','head_branch':'main','run_attempt':2,'status':'completed','conclusion':'success'}
   if path.endswith('/attempts/1'):run.update(run_attempt=1,conclusion='failure')
   return run
  def artifact_file(self,repo,aid,rid,transport_attempt,name,filename,sha):
