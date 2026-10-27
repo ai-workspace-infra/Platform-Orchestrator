@@ -10,7 +10,7 @@ on:
         required: true
       phase:
         type: choice
-        options: [plan, prepare, seed-admin, submit, initialize, verify, enable-tls, reconcile]
+        options: [plan, prepare, rebuild, seed-admin, submit, initialize, verify, enable-tls, reconcile]
         default: plan
         required: true
       stage:
@@ -31,7 +31,7 @@ on:
         type: number
         required: true
       prepare_run:
-        description: Successful prepare run locator, required for seed-admin/initialize/verify
+        description: Successful prepare or rebuild run locator, required for rebuild/seed-admin/initialize/verify
         type: number
         default: 0
       prepare_artifact:
@@ -152,7 +152,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - uses: actions/upload-artifact@v4
-        if: inputs.operation == 'feature' && (inputs.phase == 'seed-admin' || inputs.phase == 'initialize' || inputs.phase == 'verify')
+        if: inputs.operation == 'feature' && (inputs.phase == 'rebuild' || inputs.phase == 'seed-admin' || inputs.phase == 'initialize' || inputs.phase == 'verify')
         with:
           name: dev-feature-prepare-projection-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/dev-feature-evidence/prepare/receipt.json
@@ -168,7 +168,7 @@ jobs:
   deploy:
     needs: resolve
     if: inputs.operation == 'feature' && inputs.phase != 'seed-admin' && inputs.phase != 'initialize'
-    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@298235179326d05f085923fc561cfcbc66c0d05f
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@ce62d2ed3ea5f3e2e8d5c298f4f2aa7806e5b69a
     with:
       stage: ${{ inputs.stage }}
       mode: ${{ inputs.phase }}
@@ -239,7 +239,7 @@ jobs:
               test "$SEED_RESULT" = success
               test "$DEPLOY_RESULT" = skipped
               test "$INGRESS_RESULT" = skipped ;;
-            feature:plan|feature:prepare|feature:submit|feature:verify|feature:enable-tls)
+            feature:plan|feature:prepare|feature:rebuild|feature:submit|feature:verify|feature:enable-tls)
               test "$DEPLOY_RESULT" = success
               test "$SEED_RESULT" = skipped
               test "$INGRESS_RESULT" = skipped ;;

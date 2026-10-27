@@ -20,6 +20,7 @@
         "ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@e4607530b545ccf09e4045113afeb644b067823e",
         "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@41c00edbf14c77fe164df18e2a87c48244387901",
         "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@298235179326d05f085923fc561cfcbc66c0d05f",
+        "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@ce62d2ed3ea5f3e2e8d5c298f4f2aa7806e5b69a",
         "ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@6949b3f202114a135ab8db0e645286bb44bbdc64",
         "ai-workspace-infra/playbooks/.github/workflows/dev-platform-ingress.yml@41c00edbf14c77fe164df18e2a87c48244387901"
       ]

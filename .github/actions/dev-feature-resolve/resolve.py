@@ -354,10 +354,18 @@ def prior_owner_receipt(reader,kind,run_id,artifact_id,stage,phase,identity,cand
   row=reader.api(f'repos/{REPO}/contents/.github/workflows/dev-feature-deploy.yml?ref={ref}')
   require(row.get('type')=='file' and SHA.fullmatch(row.get('sha','')),'owner caller workflow missing')
   return row['sha']
- require(workflow_blob(source)==workflow_blob(main),'owner caller workflow policy changed; fresh producer required')
+ source_workflow_blob=workflow_blob(source);current_workflow_blob=workflow_blob(main)
+ if source_workflow_blob!=current_workflow_blob:
+  # A one-time SIT rebuild may consume the last authenticated prepare emitted
+  # before this additive rebuild phase existed. This exception is exact to the
+  # reviewed prior main workflow blob and never applies to other phases.
+  require(phase=='rebuild' and source_workflow_blob=='361b6a13dc9be3e01ee60aea95096a78e08ce37c','owner caller workflow policy changed; fresh producer required')
  meta=reader.api(f'repos/{REPO}/actions/artifacts/{artifact_id}')
- prefix=f'dev-feature-{stage}-prepare-' if kind=='feature' else f'dev-lane-seed-{stage}-initialize-'
- matched=re.fullmatch(re.escape(prefix+str(run_id)+'-')+r'([1-9][0-9]*)',meta.get('name',''))
+ prefixes=[f'dev-feature-{stage}-prepare-',f'dev-feature-{stage}-rebuild-'] if kind=='feature' else [f'dev-lane-seed-{stage}-initialize-']
+ matched=None
+ for prefix in prefixes:
+  matched=re.fullmatch(re.escape(prefix+str(run_id)+'-')+r'([1-9][0-9]*)',meta.get('name',''))
+  if matched:break
  require(matched is not None,'unexpected owner receipt artifact name')
  attempt=int(matched[1]);require(attempt<=positive(run['run_attempt']),'future owner source attempt rejected')
  jobs=pages(reader,f'repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs','jobs')
@@ -371,7 +379,10 @@ def prior_owner_receipt(reader,kind,run_id,artifact_id,stage,phase,identity,cand
  namespace_uid=receipt.get('namespace_uid')
  require(isinstance(namespace_uid,str) and re.fullmatch('[0-9a-f-]{36}',namespace_uid),'original owner namespace UID missing')
  if kind=='feature':
-  require(receipt.get('schema_version')=='dev-feature-flux/v1' and receipt.get('mode')=='prepare' and receipt.get('result')=='prepared','successful prepare owner required')
+  require(receipt.get('schema_version')=='dev-feature-flux/v1' and receipt.get('mode') in ('prepare','rebuild') and receipt.get('result')=='prepared','successful prepare/rebuild owner required')
+  if receipt.get('mode')=='rebuild':
+   lifecycle=receipt.get('rebuild',{})
+   require(re.fullmatch('[0-9a-f-]{36}',str(lifecycle.get('previous_namespace_uid',''))) and lifecycle.get('previous_namespace_uid')!=namespace_uid and lifecycle.get('namespace_deleted') is True and lifecycle.get('persistent_volumes_reclaimed') is True,'authenticated SIT namespace rebuild evidence missing')
   registry=receipt.get('registry',{});mapping=registry.get('oci_mapping',{});binding=mapping.get('binding',{})
   require(registry.get('result')=='configured' and registry.get('source_path')=='kv/CICD/dev/ghcr' and registry.get('secret_name')=='web-saas-registry' and registry.get('namespace')==namespace and mapping.get('schema_version')=='dev-oci-platform/v1' and set(mapping.get('images',{}))==set(COMPONENTS),'safe prepare OCI mapping missing')
   require(binding.get('candidate_sha')==candidate_sha and binding.get('namespace')==namespace and binding.get('namespace_uid')==namespace_uid and binding.get('node_uid')==identity['node_uid'] and binding.get('cluster_uid')==identity['cluster_uid'] and binding.get('instance_id')==identity['instance_id'] and binding.get('manifest_sha256')==receipt.get('manifest_sha256'),'OCI target binding mismatch')
@@ -386,7 +397,7 @@ def main():
  reader=load('hardened_shared_reader',Path(os.environ['EVIDENCE_ROOT'])/'.github/scripts/acceptance/migration_matrix.py')
  root=Path(os.environ['DESTINATION']);root.mkdir(parents=True,exist_ok=True)
  operation=os.environ.get('OPERATION','feature');phase=os.environ['PHASE']
- require((operation=='feature' and phase in ('plan','prepare','seed-admin','submit','initialize','verify','enable-tls')) or (operation=='ingress' and phase in ('plan','reconcile','verify')),'unsupported fixed owner operation/phase')
+ require((operation=='feature' and phase in ('plan','prepare','rebuild','seed-admin','submit','initialize','verify','enable-tls')) or (operation=='ingress' and phase in ('plan','reconcile','verify')),'unsupported fixed owner operation/phase')
  stage='platform-ingress' if operation=='ingress' else os.environ['STAGE']
  raw,identity=foundation(reader,os.environ['FOUNDATION_RUN'],os.environ['SUMMARY_ARTIFACT'],os.environ['BOOTSTRAP_ARTIFACT'])
  check_platform_tag(reader,os.environ.get('PLATFORM_TAG',''),identity['platform_sha'])
@@ -404,7 +415,7 @@ def main():
  (root/'cmdb/cmdb.json').write_text(raw)
  body=json.dumps(receipt,sort_keys=True)+'\n';(root/'candidate/receipt.json').write_text(body)
  extras={}
- if operation=='feature' and phase in ('seed-admin','initialize','verify'):
+ if operation=='feature' and phase in ('rebuild','seed-admin','initialize','verify'):
   requested=[('feature','prepare',os.environ['PREPARE_RUN'],os.environ['PREPARE_ARTIFACT'])]
   if phase=='verify':requested.append(('seed','seed',os.environ['SEED_RUN'],os.environ['SEED_ARTIFACT']))
   for kind,label,rid,aid in requested:
