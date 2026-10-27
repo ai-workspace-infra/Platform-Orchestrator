@@ -35,6 +35,14 @@ class FoundationTests(unittest.TestCase):
  def test_bool_locator_rejected(self):
   with self.assertRaises(ValueError):R.positive(True)
 
+class PlatformTagTests(unittest.TestCase):
+ def test_tag_matches_verified_commit_and_rejects_mismatch(self):
+  class TagReader:
+   def api(self,path):return {'object':{'type':'commit','sha':'a'*40}}
+  R.check_platform_tag(TagReader(),'v1.2.3','a'*40)
+  with self.assertRaises(ValueError):R.check_platform_tag(TagReader(),'v1.2.3','b'*40)
+  with self.assertRaises(ValueError):R.check_platform_tag(TagReader(),'../invalid','a'*40)
+
 class PublisherTests(unittest.TestCase):
  def fixture(self):
   sha='a'*40;image='ghcr.io/ai-workspace-services/billing-service@sha256:'+'b'*64

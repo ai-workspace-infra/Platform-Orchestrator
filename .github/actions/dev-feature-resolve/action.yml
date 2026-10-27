@@ -9,6 +9,7 @@ inputs:
   seed-artifact: {default: '0', description: Prior initialized seed receipt locator}
   candidate-pr: {required: true, description: Same-repository GitOps PR number}
   stage: {required: true, description: sit or uat}
+  platform-tag: {default: '', description: Optional GitOps tag matching bootstrap commit}
   foundation-run: {required: true, description: Authenticated foundation run ID}
   summary-artifact: {required: true, description: Original IaC summary bundle artifact ID}
   bootstrap-artifact: {required: true, description: Successful bootstrap receipt artifact ID}
@@ -39,6 +40,7 @@ runs:
         SEED_ARTIFACT: ${{ inputs.seed-artifact }}
         CANDIDATE_PR: ${{ inputs.candidate-pr }}
         STAGE: ${{ inputs.stage }}
+        PLATFORM_TAG: ${{ inputs.platform-tag }}
         FOUNDATION_RUN: ${{ inputs.foundation-run }}
         SUMMARY_ARTIFACT: ${{ inputs.summary-artifact }}
         BOOTSTRAP_ARTIFACT: ${{ inputs.bootstrap-artifact }}

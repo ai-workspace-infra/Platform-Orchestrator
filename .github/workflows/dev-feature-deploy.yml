@@ -36,6 +36,11 @@ on:
       seed_artifact:
         type: number
         default: 0
+      platform_tag:
+        description: Optional GitOps tag matching the authenticated bootstrap commit
+        type: string
+        default: ''
+        required: false
       foundation_run:
         type: number
         default: 0
@@ -100,6 +105,7 @@ jobs:
           seed-artifact: ${{ inputs.seed_artifact }}
           candidate-pr: ${{ inputs.candidate_pr }}
           stage: ${{ inputs.stage }}
+          platform-tag: ${{ inputs.platform_tag }}
           foundation-run: ${{ inputs.foundation_run }}
           summary-artifact: ${{ inputs.summary_artifact }}
           bootstrap-artifact: ${{ inputs.bootstrap_artifact }}

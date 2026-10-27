@@ -79,6 +79,14 @@ def foundation(reader,run_id,summary_id,bootstrap_id):
  for k in ('node_uid','cluster_uid'):require(re.fullmatch('[0-9a-f-]{36}',bootstrap.get(k,'')),'bootstrap UID missing')
  return raw,dict(instance_id=instance,cmdb_sha256=digest,node_uid=bootstrap['node_uid'],cluster_uid=bootstrap['cluster_uid'],platform_sha=platform,source_run=run_id,iac_source_attempt=1,bootstrap_source_attempt=2,summary_artifact=summary_id,bootstrap_artifact=bootstrap_id)
 
+def check_platform_tag(reader, tag, platform):
+ if not tag:return
+ require(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}',tag),'invalid platform tag')
+ obj=reader.api(f'repos/{GITOPS}/git/ref/tags/{tag}').get('object',{})
+ if obj.get('type')=='tag':
+  obj=reader.api(f'repos/{GITOPS}/git/tags/{obj.get("sha","")}').get('object',{})
+ require(obj.get('type')=='commit' and obj.get('sha')==platform,'platform tag does not match authenticated bootstrap')
+
 def check_head(reader,sha,repo=GITOPS):
  checks=pages(reader,f'repos/{repo}/commits/{sha}/check-runs','check_runs')
  statuses=reader.api(f'repos/{repo}/commits/{sha}/status')
@@ -317,6 +325,7 @@ def main():
  require((operation=='feature' and phase in ('plan','prepare','seed-admin','submit','initialize','verify','enable-tls')) or (operation=='ingress' and phase in ('plan','reconcile','verify')),'unsupported fixed owner operation/phase')
  stage='platform-ingress' if operation=='ingress' else os.environ['STAGE']
  raw,identity=foundation(reader,os.environ['FOUNDATION_RUN'],os.environ['SUMMARY_ARTIFACT'],os.environ['BOOTSTRAP_ARTIFACT'])
+ check_platform_tag(reader,os.environ.get('PLATFORM_TAG',''),identity['platform_sha'])
  receipt,release=candidate(reader,os.environ['CANDIDATE_PR'],stage)
  if operation=='feature':receipt['builds']=build_matrix(reader,release,stage)
  fresh,_=candidate(reader,os.environ['CANDIDATE_PR'],stage)
