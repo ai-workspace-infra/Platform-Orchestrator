@@ -5,13 +5,8 @@ from pathlib import Path
 import yaml
 REPO='ai-workspace-infra/platform-ops-toolkit'
 GITOPS='ai-workspace-infra/gitops'
-SOURCE='5542116661b2874a98f3c4fa647f1cdc804f8f76'
-IAC='1d3bc5b54a49b946b98e48bf9f73606369b77d02'
-PLATFORM='60bf8621c5a0d1dfd3f7ce38758a48740f9f14e7'
-PLAYBOOKS='4a5dbb8e1240a096e7818f1da6a925569a3da7ea'
 WORKFLOW='ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-feature-deploy.yml@refs/heads/main'
-SCOPES={'sit':'sit-xconnect-referral','uat':'uat','platform-ingress':None}
-CALLEES={'feature':('dev-feature-flux.yml','41c00edbf14c77fe164df18e2a87c48244387901'),'seed':('dev-web-saas-seed.yml','6949b3f202114a135ab8db0e645286bb44bbdc64'),'ingress':('dev-platform-ingress.yml','41c00edbf14c77fe164df18e2a87c48244387901')}
+SCOPES={'sit':'sit-xconnect-referral','platform-ingress':None}
 SHA=re.compile(r'[0-9a-f]{40}')
 # Source repository, immutable image repository, reviewed build workflow.
 COMPONENTS={
@@ -45,13 +40,40 @@ def run_identity(raw,repo,sha,workflow,event='push'):
  require(raw.get('head_sha')==sha and raw.get('path','').split('@')[0]==workflow and raw.get('event')==event,'build source/workflow mismatch')
  require(raw.get('status')=='completed' and raw.get('conclusion')=='success','producer not successful')
 
+def read_workflow(reader,repo,path,sha):
+ require(isinstance(sha,str) and SHA.fullmatch(sha),'workflow source must be immutable')
+ data=reader.api(f'repos/{repo}/contents/{path}?ref={sha}')
+ require(data.get('path')==path and data.get('type')=='file' and data.get('encoding')=='base64' and 0<data.get('size',0)<100000,'workflow source unavailable')
+ return yaml.safe_load(base64.b64decode(data['content']))
+
+def foundation_dependencies(reader,source):
+ workflow=read_workflow(reader,REPO,'.github/workflows/dev-host-lifecycle.yml',source)
+ iac=workflow.get('jobs',{}).get('iac',{}).get('with',{}).get('iac_ref','')
+ require(isinstance(iac,str) and SHA.fullmatch(iac),'foundation IaC ref must be immutable')
+ use=workflow.get('jobs',{}).get('bootstrap',{}).get('uses','')
+ prefix='ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@'
+ require(use.startswith(prefix) and SHA.fullmatch(use[len(prefix):]),'foundation bootstrap ref must be immutable')
+ boot=read_workflow(reader,'ai-workspace-infra/playbooks','.github/workflows/dev-k3s-bootstrap.yml',use[len(prefix):])
+ refs=[]
+ for job in boot.get('jobs',{}).values():
+  for step in job.get('steps',[]):
+   conf=step.get('with',{})
+   if str(step.get('uses','')).startswith('actions/checkout@') and conf.get('repository')=='ai-workspace-infra/playbooks':refs.append(conf.get('ref',''))
+ require(len(refs)==1 and isinstance(refs[0],str) and SHA.fullmatch(refs[0]),'bootstrap implementation ref must be immutable')
+ return iac,refs[0]
+
 def foundation(reader,run_id,summary_id,bootstrap_id):
  run_id=positive(run_id);summary_id=positive(summary_id);bootstrap_id=positive(bootstrap_id)
  run=reader.api(f'repos/{REPO}/actions/runs/{run_id}')
- run_identity(run,REPO,SOURCE,'.github/workflows/dev-host-lifecycle.yml','workflow_dispatch')
+ source=run.get('head_sha','')
+ require(isinstance(source,str) and SHA.fullmatch(source),'foundation workflow commit missing')
+ run_identity(run,REPO,source,'.github/workflows/dev-host-lifecycle.yml','workflow_dispatch')
+ main=reader.api(f'repos/{REPO}/git/ref/heads/main')['object']['sha']
+ require(reader.api(f'repos/{REPO}/compare/{source}...{main}').get('status') in ('ahead','identical'),'foundation caller is not on protected main')
+ iac,playbooks=foundation_dependencies(reader,source)
  require(run.get('head_branch')=='main' and run.get('run_attempt')==2,'reviewed bootstrap run attempt2 required')
  historical=reader.api(f'repos/{REPO}/actions/runs/{run_id}/attempts/1')
- require(historical.get('head_sha')==SOURCE and historical.get('run_attempt')==1,'historical source attempt missing')
+ require(historical.get('head_sha')==source and historical.get('run_attempt')==1,'historical source attempt missing')
  jobs=pages(reader,f'repos/{REPO}/actions/runs/{run_id}/attempts/1/jobs','jobs')
  require(any(j.get('name')=='iac / summary' and j.get('conclusion')=='success' for j in jobs),'original summary job not successful')
  require(any(j.get('name','').startswith('iac / resources (dev-akamai-dev-k3s-v5,') and j.get('name','').endswith(' / resources') and j.get('conclusion')=='success' for j in jobs),'original resource job not successful')
@@ -59,23 +81,41 @@ def foundation(reader,run_id,summary_id,bootstrap_id):
  require(any(j.get('name')=='bootstrap / bootstrap' and j.get('conclusion')=='success' for j in bootstrap_jobs),'bootstrap attempt2 not successful')
  # Download authentication uses current successful aggregate run attempt2. The
  # immutable artifact name/document and historical jobs prove IaC source attempt1.
- def payload(aid,name,filename):return json.loads(reader.artifact_file(REPO,aid,run_id,2,name,filename,SOURCE))
+ def payload(aid,name,filename):return json.loads(reader.artifact_file(REPO,aid,run_id,2,name,filename,source))
  summary=payload(summary_id,f'iac-summary-{run_id}-1','summary.json')
  inventories=payload(summary_id,f'iac-summary-{run_id}-1','inventory.json')
  context=summary.get('context',{})
- require(context.get('run_id')==str(run_id) and context.get('run_attempt')=='1' and context.get('workflow_sha')==SOURCE and context.get('gitops_sha')==PLATFORM and context.get('iac_sha')==IAC and context.get('workflow_ref')=='ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-host-lifecycle.yml@refs/heads/main','original owner document provenance mismatch')
- require(all(r.get('run_attempt')=='1' and r.get('run_id')==str(run_id) and r.get('workflow_sha')==SOURCE and r.get('iac_sha')==IAC and r.get('result')=='applied_verified' for r in summary.get('receipts',[])),'resource receipt identity mismatch')
+ platform=context.get('gitops_sha','')
+ require(isinstance(platform,str) and SHA.fullmatch(platform),'full platform commit required')
+ main=reader.api(f'repos/{GITOPS}/git/ref/heads/main')['object']['sha']
+ require(reader.api(f'repos/{GITOPS}/compare/{platform}...{main}').get('status') in ('ahead','identical'),'platform commit is not on protected main')
+ require(context.get('run_id')==str(run_id) and context.get('run_attempt')=='1' and context.get('workflow_sha')==source and context.get('gitops_sha')==platform and context.get('iac_sha')==iac and context.get('workflow_ref')=='ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-host-lifecycle.yml@refs/heads/main','original owner document provenance mismatch')
+ require(all(r.get('run_attempt')=='1' and r.get('run_id')==str(run_id) and r.get('workflow_sha')==source and r.get('iac_sha')==iac and r.get('result')=='applied_verified' for r in summary.get('receipts',[])),'resource receipt identity mismatch')
  handoff=load('existing_dev_handoff',Path(__file__).parents[1]/'dev-bootstrap-handoff/handoff.py')
  raw,instance=handoff.select(summary,inventories,summary['deploy_matrix'])
- require(instance=='109277144','not the authorized Dev instance')
  bootstrap=payload(bootstrap_id,f'dev-k3s-bootstrap-{run_id}-2','receipt.json')
  digest=hashlib.sha256(raw.encode()).hexdigest()
- require(bootstrap.get('schema_version')==1 and bootstrap.get('result')=='PASS' and bootstrap.get('environment')=='dev' and bootstrap.get('instance_id')==instance and bootstrap.get('run_id')==str(run_id) and bootstrap.get('cmdb_sha256')==digest and bootstrap.get('playbooks_sha')==PLAYBOOKS,'bootstrap receipt binding mismatch')
+ require(bootstrap.get('schema_version')==1 and bootstrap.get('result')=='PASS' and bootstrap.get('environment')=='dev' and bootstrap.get('instance_id')==instance and bootstrap.get('run_id')==str(run_id) and bootstrap.get('cmdb_sha256')==digest and bootstrap.get('playbooks_sha')==playbooks,'bootstrap receipt binding mismatch')
  require(all(bootstrap.get(k) is True for k in ('node_ready','source_ready','root_ready')) and bootstrap.get('node')=='dev-k3s-v5' and bootstrap.get('hostname')=='dev-k3s-v5','bootstrap target not Ready')
- require(bootstrap.get('gitops_sha')==PLATFORM and bootstrap.get('source_revision')=='sha1:'+PLATFORM and bootstrap.get('applied_revision')=='sha1:'+PLATFORM,'bootstrap protected platform mismatch')
+ require(bootstrap.get('gitops_sha')==platform and bootstrap.get('source_revision')=='sha1:'+platform and bootstrap.get('applied_revision')=='sha1:'+platform,'bootstrap protected platform mismatch')
  require(bootstrap.get('node_info',{}).get('kubeletVersion')=='v1.37.1+k3s1' and bootstrap.get('node_info',{}).get('architecture')=='amd64','bootstrap runtime mismatch')
  for k in ('node_uid','cluster_uid'):require(re.fullmatch('[0-9a-f-]{36}',bootstrap.get(k,'')),'bootstrap UID missing')
- return raw,dict(instance_id=instance,cmdb_sha256=digest,node_uid=bootstrap['node_uid'],cluster_uid=bootstrap['cluster_uid'],platform_sha=PLATFORM,source_run=run_id,iac_source_attempt=1,bootstrap_source_attempt=2,summary_artifact=summary_id,bootstrap_artifact=bootstrap_id)
+ return raw,dict(instance_id=instance,cmdb_sha256=digest,node_uid=bootstrap['node_uid'],cluster_uid=bootstrap['cluster_uid'],platform_sha=platform,iac_sha=iac,bootstrap_playbooks_sha=playbooks,source_run=run_id,iac_source_attempt=1,bootstrap_source_attempt=2,summary_artifact=summary_id,bootstrap_artifact=bootstrap_id)
+
+def check_dependency_tag(reader, repo, tag, expected):
+ if not tag:return
+ require(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}',tag),'invalid dependency tag')
+ obj=reader.api(f'repos/{repo}/git/ref/tags/{tag}').get('object',{})
+ if obj.get('type')=='tag':obj=reader.api(f'repos/{repo}/git/tags/{obj.get("sha","")}').get('object',{})
+ require(obj.get('type')=='commit' and obj.get('sha')==expected,'dependency tag does not match authenticated producer')
+
+def check_platform_tag(reader, tag, platform):
+ if not tag:return
+ require(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}',tag),'invalid platform tag')
+ obj=reader.api(f'repos/{GITOPS}/git/ref/tags/{tag}').get('object',{})
+ if obj.get('type')=='tag':
+  obj=reader.api(f'repos/{GITOPS}/git/tags/{obj.get("sha","")}').get('object',{})
+ require(obj.get('type')=='commit' and obj.get('sha')==platform,'platform tag does not match authenticated bootstrap')
 
 def check_head(reader,sha,repo=GITOPS):
  checks=pages(reader,f'repos/{repo}/commits/{sha}/check-runs','check_runs')
@@ -256,8 +296,15 @@ def build_matrix(reader,release,stage='sit'):
   matrix.append({'component':component,'repository':repo,'source_sha':sha,'image':image,'run_id':rid,'attempt':run['run_attempt'],'artifact_id':aid,'document_sha256':hashlib.sha256(payload).hexdigest(),'source_gate':source_proof})
  return matrix
 
-def owner_producer(reader,kind):
- filename,sha=CALLEES[kind];path='.github/workflows/'+filename
+def owner_producer(reader,kind,source):
+ jobs={'feature':('deploy','dev-feature-flux.yml'),'seed':('seed','dev-web-saas-seed.yml'),'ingress':('ingress','dev-platform-ingress.yml')}
+ require(kind in jobs,'unsupported owner kind')
+ job,filename=jobs[kind];path='.github/workflows/'+filename
+ caller=read_workflow(reader,REPO,'.github/workflows/dev-feature-deploy.yml',source)
+ use=caller.get('jobs',{}).get(job,{}).get('uses','')
+ prefix='ai-workspace-infra/playbooks/'+path+'@'
+ require(use.startswith(prefix) and SHA.fullmatch(use[len(prefix):]),'owner callee ref must be immutable')
+ sha=use[len(prefix):]
  data=reader.api(f'repos/ai-workspace-infra/playbooks/contents/{path}?ref={sha}')
  require(data.get('path')==path and data.get('type')=='file' and data.get('encoding')=='base64' and 0<data.get('size',0)<100000,'fixed callee source unavailable')
  workflow=yaml.safe_load(base64.b64decode(data['content']));selected=[]
@@ -291,7 +338,7 @@ def prior_owner_receipt(reader,kind,run_id,artifact_id,stage,phase,identity,cand
  selected_jobs=[j for j in jobs if j.get('name')==job_name]
  require(len(selected_jobs)==1 and selected_jobs[0].get('conclusion')=='success','original owner phase job not uniquely successful')
  raw=reader.artifact_file(REPO,artifact_id,run_id,run['run_attempt'],meta['name'],'receipt.json',source);receipt=json.loads(raw)
- require(receipt.get('owner_sha')==owner_producer(reader,kind) and str(receipt.get('run_id'))==str(run_id) and str(receipt.get('run_attempt'))==str(attempt),'original owner source/run/attempt mismatch')
+ require(receipt.get('owner_sha')==owner_producer(reader,kind,source) and str(receipt.get('run_id'))==str(run_id) and str(receipt.get('run_attempt'))==str(attempt),'original owner source/run/attempt mismatch')
  namespace='feature-xconnect-referral-sit' if stage=='sit' else 'web-saas-uat'
  require(receipt.get('instance_id')==identity['instance_id'] and receipt.get('namespace')==namespace and receipt.get('candidate_sha')==candidate_sha and receipt.get('platform_sha')==identity['platform_sha'] and receipt.get('cmdb_sha256')==identity['cmdb_sha256'] and receipt.get('node_uid')==identity['node_uid'] and receipt.get('cluster_uid')==identity['cluster_uid'],'stale owner target/candidate binding')
  namespace_uid=receipt.get('namespace_uid')
@@ -315,6 +362,9 @@ def main():
  require((operation=='feature' and phase in ('plan','prepare','seed-admin','submit','initialize','verify','enable-tls')) or (operation=='ingress' and phase in ('plan','reconcile','verify')),'unsupported fixed owner operation/phase')
  stage='platform-ingress' if operation=='ingress' else os.environ['STAGE']
  raw,identity=foundation(reader,os.environ['FOUNDATION_RUN'],os.environ['SUMMARY_ARTIFACT'],os.environ['BOOTSTRAP_ARTIFACT'])
+ check_platform_tag(reader,os.environ.get('PLATFORM_TAG',''),identity['platform_sha'])
+ check_dependency_tag(reader,'ai-workspace-infra/iac_modules',os.environ.get('IAC_TAG',''),identity['iac_sha'])
+ check_dependency_tag(reader,'ai-workspace-infra/playbooks',os.environ.get('BOOTSTRAP_PLAYBOOKS_TAG',''),identity['bootstrap_playbooks_sha'])
  receipt,release=candidate(reader,os.environ['CANDIDATE_PR'],stage)
  if operation=='feature':receipt['builds']=build_matrix(reader,release,stage)
  fresh,_=candidate(reader,os.environ['CANDIDATE_PR'],stage)

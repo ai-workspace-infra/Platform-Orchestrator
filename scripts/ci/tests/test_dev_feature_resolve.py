@@ -1,5 +1,5 @@
 """Control-plane offline falsification; fixtures are not live acceptance."""
-import copy,importlib.util,json,os,unittest
+import base64,copy,importlib.util,json,os,unittest
 from pathlib import Path
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[3]
@@ -10,9 +10,16 @@ class Reader:
  def __init__(self):self.summary=json.loads((FIX/'summary.json').read_text());self.boot=json.loads((FIX/'receipt.json').read_text());self.calls=[]
  def api(self,path,binary=False):
   self.calls.append(path)
+  if '/contents/.github/workflows/' in path:
+   name=path.split('/contents/')[1].split('?')[0]
+   if name.endswith('dev-host-lifecycle.yml'): content='jobs:\n  iac:\n    with:\n      iac_ref: 1d3bc5b54a49b946b98e48bf9f73606369b77d02\n  bootstrap:\n    uses: ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@'+'a'*40+'\n'
+   else: content='jobs:\n  boot:\n    steps:\n    - uses: actions/checkout@v4\n      with:\n        repository: ai-workspace-infra/playbooks\n        ref: 4a5dbb8e1240a096e7818f1da6a925569a3da7ea\n'
+   return {'path':name,'type':'file','encoding':'base64','size':len(content),'content':base64.b64encode(content.encode()).decode()}
+  if path.endswith('/git/ref/heads/main'):return {'object':{'sha':'a'*40}}
+  if '/compare/' in path:return {'status':'ahead'}
   if '/attempts/1/jobs' in path:return {'jobs':[{'name':'iac / summary','conclusion':'success'},{'name':'iac / resources (dev-akamai-dev-k3s-v5, provider) / resources','conclusion':'success'}]}
   if '/attempts/2/jobs' in path:return {'jobs':[{'name':'bootstrap / bootstrap','conclusion':'success'}]}
-  run={'repository':{'full_name':R.REPO},'head_repository':{'full_name':R.REPO},'head_sha':R.SOURCE,'path':'.github/workflows/dev-host-lifecycle.yml','event':'workflow_dispatch','head_branch':'main','run_attempt':2,'status':'completed','conclusion':'success'}
+  run={'repository':{'full_name':R.REPO},'head_repository':{'full_name':R.REPO},'head_sha':'5542116661b2874a98f3c4fa647f1cdc804f8f76','path':'.github/workflows/dev-host-lifecycle.yml','event':'workflow_dispatch','head_branch':'main','run_attempt':2,'status':'completed','conclusion':'success'}
   if path.endswith('/attempts/1'):run.update(run_attempt=1,conclusion='failure')
   return run
  def artifact_file(self,repo,aid,rid,transport_attempt,name,filename,sha):
@@ -27,11 +34,46 @@ class FoundationTests(unittest.TestCase):
   self.assertEqual(identity['instance_id'],'109277144');self.assertEqual(identity['iac_source_attempt'],1);self.assertEqual(identity['bootstrap_source_attempt'],2)
   self.assertEqual(set(json.loads(raw)),{'dev-k3s-v5'});self.assertTrue(any('/attempts/1/jobs' in p for p in reader.calls))
  def test_original_context_and_target_tampering_fail(self):
-  for mutate in [lambda r:r.summary['context'].update(run_attempt='2'),lambda r:r.boot.update(instance_id='other'),lambda r:r.boot.update(cmdb_sha256='0'*64),lambda r:r.boot.update(root_ready=False)]:
+  for mutate in [lambda r:r.summary['context'].update(run_attempt='2'),lambda r:r.boot.update(instance_id='other'),lambda r:r.boot.update(cmdb_sha256='0'*64),lambda r:r.boot.update(root_ready=False),lambda r:r.summary['context'].update(gitops_sha='f'*40),lambda r:r.boot.update(source_revision='sha1:'+'f'*40)]:
    reader=Reader();mutate(reader)
    with self.assertRaises(ValueError):R.foundation(reader,40353330431,12664517641,12668512699)
+ def test_workflow_dependency_tampering_is_rejected(self):
+  reader=Reader(); original=reader.api
+  def altered(path,binary=False):
+   data=original(path,binary)
+   if '/contents/.github/workflows/dev-host-lifecycle.yml?' in path:
+    text=base64.b64decode(data['content']).decode().replace('1d3bc5b54a49b946b98e48bf9f73606369b77d02','f'*40)
+    data={**data,'content':base64.b64encode(text.encode()).decode(),'size':len(text)}
+   return data
+  reader.api=altered
+  with self.assertRaises(ValueError):R.foundation(reader,40353330431,12664517641,12668512699)
  def test_bool_locator_rejected(self):
   with self.assertRaises(ValueError):R.positive(True)
+
+class PlatformTagTests(unittest.TestCase):
+ def test_tag_matches_verified_commit_and_rejects_mismatch(self):
+  class TagReader:
+   def api(self,path):return {'object':{'type':'commit','sha':'a'*40}}
+  R.check_platform_tag(TagReader(),'v1.2.3','a'*40)
+  with self.assertRaises(ValueError):R.check_platform_tag(TagReader(),'v1.2.3','b'*40)
+  with self.assertRaises(ValueError):R.check_platform_tag(TagReader(),'../invalid','a'*40)
+
+class DependencyTagTests(unittest.TestCase):
+ def test_only_tag_pointing_to_authenticated_commit_is_accepted(self):
+  class Reader:
+   def api(self,path):
+    return {'object':{'type':'commit','sha':'a'*40}}
+  R.check_dependency_tag(Reader(),'ai-workspace-infra/iac_modules','v1.0.0','a'*40)
+  with self.assertRaises(ValueError):R.check_dependency_tag(Reader(),'ai-workspace-infra/iac_modules','v1.0.0','b'*40)
+  with self.assertRaises(ValueError):R.check_dependency_tag(Reader(),'ai-workspace-infra/iac_modules','../bad','a'*40)
+ def test_annotated_tag_resolves_to_the_commit(self):
+  class Reader:
+   def api(self,path):
+    if '/git/ref/tags/' in path:return {'object':{'type':'tag','sha':'b'*40}}
+    if '/git/tags/' in path:return {'object':{'type':'commit','sha':'a'*40}}
+    raise AssertionError('unexpected repository API')
+  R.check_dependency_tag(Reader(),'ai-workspace-infra/playbooks','v1.0.0','a'*40)
+  with self.assertRaises(ValueError):R.check_dependency_tag(Reader(),'ai-workspace-infra/playbooks','v1.0.0','c'*40)
 
 class PublisherTests(unittest.TestCase):
  def fixture(self):
@@ -138,7 +180,7 @@ class PreviewTests(unittest.TestCase):
 
 class PriorOwnerTests(unittest.TestCase):
  def fixture(self):
-  identity={'instance_id':'109277144','node_uid':'node','cluster_uid':'cluster','platform_sha':R.PLATFORM,'cmdb_sha256':'e'*64}
+  identity={'instance_id':'109277144','node_uid':'node','cluster_uid':'cluster','platform_sha':'a'*40,'cmdb_sha256':'e'*64}
   source='a'*40;candidate='b'*40;owner='c'*40
   binding={'namespace_uid':'1'*36,'candidate_sha':candidate,'namespace':'feature-xconnect-referral-sit','node_uid':'node','cluster_uid':'cluster','instance_id':'109277144','manifest_sha256':'d'*64,'source':{'repository':R.REPO,'workflow_ref':R.WORKFLOW,'workflow_sha':source,'owner_sha':owner,'run_id':'123','run_attempt':'1'}}
   receipt={**identity,'namespace_uid':'1'*36,'candidate_sha':candidate,'namespace':binding['namespace'],'manifest_sha256':'d'*64,'schema_version':'dev-feature-flux/v1','mode':'prepare','result':'prepared','owner_sha':owner,'run_id':'123','run_attempt':'1','registry':{'result':'configured','namespace':binding['namespace'],'secret_name':'web-saas-registry','source_path':'kv/CICD/dev/ghcr','oci_mapping':{'schema_version':'dev-oci-platform/v1','images':{name:{} for name in R.COMPONENTS},'binding':binding}}}
