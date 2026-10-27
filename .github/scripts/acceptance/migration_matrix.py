@@ -7,29 +7,62 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import select
+import time
 import zipfile
 
 
 def api(path, binary=False):
-    result=subprocess.run(['gh','api',path],capture_output=True,check=True)
-    return result.stdout if binary else json.loads(result.stdout)
+    # Authenticated gh handles GitHub's signed archive redirect. Never consume a
+    # caller URL or archive_download_url, and never buffer unbounded stdout.
+    if not isinstance(path,str) or not path.startswith('repos/') or any(part in ('.','..') for part in path.split('/')) or '://' in path:
+        raise ValueError('invalid GitHub API path')
+    limit=2_000_000 if binary else 4_000_000
+    process=subprocess.Popen(['gh','api','--hostname','github.com',path],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+    output=bytearray();deadline=time.monotonic()+120
+    try:
+        while True:
+            remaining=deadline-time.monotonic()
+            if remaining<=0:raise ValueError('GitHub retrieval timeout')
+            ready,_,_=select.select([process.stdout],[],[],min(remaining,1))
+            if not ready:continue
+            chunk=os.read(process.stdout.fileno(),min(65_536,limit-len(output)+1))
+            if not chunk:break
+            output.extend(chunk)
+            if len(output)>limit:raise ValueError('GitHub response exceeds size limit')
+        if process.wait(timeout=max(.01,deadline-time.monotonic()))!=0:raise ValueError('GitHub retrieval failed')
+        return bytes(output) if binary else json.loads(output)
+    finally:
+        if process.poll() is None:process.kill();process.wait()
+        process.stdout.close()
 
 
 def artifact_file(repo, artifact_id, run_id, attempt, name, filename, head_sha):
-    if any(not re.fullmatch('[1-9][0-9]*',str(x)) for x in (artifact_id,run_id,attempt)):raise ValueError('invalid artifact/run identity')
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo):raise ValueError('invalid repository')
+    if any(type(x) is bool or not re.fullmatch('[1-9][0-9]*',str(x)) for x in (artifact_id,run_id,attempt)):raise ValueError('invalid artifact/run identity')
     meta=api(f'repos/{repo}/actions/artifacts/{artifact_id}')
     run=api(f'repos/{repo}/actions/runs/{run_id}')
-    if (meta.get('expired') is not False or meta.get('name')!=name or
+    if (str(meta.get('id'))!=str(artifact_id) or meta.get('expired') is not False or meta.get('name')!=name or
+        type(meta.get('size_in_bytes')) is not int or not 0<meta['size_in_bytes']<=2_000_000 or
         str(meta.get('workflow_run',{}).get('id'))!=str(run_id) or
         str(run.get('run_attempt'))!=str(attempt) or run.get('head_sha')!=head_sha or
+        run.get('repository',{}).get('full_name')!=repo or
         run.get('status')!='completed' or run.get('conclusion')!='success'):
         raise ValueError('artifact provenance mismatch')
     archive=api(f'repos/{repo}/actions/artifacts/{artifact_id}/zip',binary=True)
+    if len(archive)>2_000_000:raise ValueError('oversized artifact archive')
     if meta.get('digest')!='sha256:'+hashlib.sha256(archive).hexdigest():raise ValueError('archive digest mismatch')
     with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
-        entries=[x for x in zipped.infolist() if x.filename==filename]
-        if len(entries)!=1 or entries[0].file_size>2_000_000:raise ValueError('invalid artifact file')
-        return zipped.read(entries[0])
+        entries=zipped.infolist()
+        if len(entries)>100 or sum(x.file_size for x in entries)>4_000_000:raise ValueError('oversized artifact content')
+        for item in entries:
+            path=Path(item.filename)
+            mode=(item.external_attr>>16)&0o170000
+            if (path.is_absolute() or '..' in path.parts or '\\' in item.filename or
+                mode==0o120000 or item.flag_bits&1):raise ValueError('unsafe artifact entry')
+        matches=[x for x in entries if x.filename==filename]
+        if len(matches)!=1 or matches[0].file_size>2_000_000:raise ValueError('invalid artifact file')
+        return zipped.read(matches[0])
 
 
 def validate_data_plan(config, environment, toolkit_sha):
