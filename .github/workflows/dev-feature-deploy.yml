@@ -18,6 +18,14 @@ on:
         options: [sit]
         default: sit
         required: true
+      provenance_run:
+        description: Prior authenticated exact-candidate evidence run, or 0 for fresh verification
+        type: number
+        default: 0
+      provenance_artifact:
+        description: Prior exact-candidate evidence artifact, or 0 for fresh verification
+        type: number
+        default: 0
       candidate_pr:
         description: Same-repository GitOps PR; actual head resolved through API
         type: number
@@ -113,6 +121,8 @@ jobs:
           prepare-artifact: ${{ inputs.prepare_artifact }}
           seed-run: ${{ inputs.seed_run }}
           seed-artifact: ${{ inputs.seed_artifact }}
+          provenance-run: ${{ inputs.provenance_run }}
+          provenance-artifact: ${{ inputs.provenance_artifact }}
           candidate-pr: ${{ inputs.candidate_pr }}
           stage: ${{ inputs.stage }}
           iac-tag: ${{ inputs.iac_tag }}

@@ -38,6 +38,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVIDENCE_ROOT: ${{ github.workspace }}/trusted-evidence
+          DEV_SIT_PROVENANCE_RUN: ${{ vars.DEV_SIT_PROVENANCE_RUN }}
+          DEV_SIT_PROVENANCE_ARTIFACT: ${{ vars.DEV_SIT_PROVENANCE_ARTIFACT }}
           DEV_SIT_QUALIFY_PR: ${{ vars.DEV_SIT_QUALIFY_PR }}
           DEV_SIT_FOUNDATION_RUN: ${{ vars.DEV_SIT_FOUNDATION_RUN }}
           DEV_SIT_SUMMARY_ARTIFACT: ${{ vars.DEV_SIT_SUMMARY_ARTIFACT }}

@@ -38,9 +38,12 @@ def main():
  content=reader.api(f'repos/ai-workspace-infra/gitops/contents/{path}?ref={head}')
  require(content.get('path')==path and content.get('type')=='file' and content.get('encoding')=='base64','candidate release unavailable')
  release=yaml.safe_load(base64.b64decode(content['content']))
- proofs=module.build_matrix(reader,release,'sit')
+ main=reader.api('repos/ai-workspace-infra/gitops/git/ref/heads/main')['object']['sha']
+ require(reader.api(f'repos/ai-workspace-infra/gitops/compare/{main}...{head}').get('status') in ('ahead','identical'),'candidate is not based on current main')
+ expected={'schema_version':'dev-feature-candidate/v1','result':'verified','repository':module.GITOPS,'stage':'sit','candidate_pr':pr_number,'candidate_head':head,'base_ref':'main','base_sha':main,'checks':'success','same_repository':True,'main_ancestry_verified':True}
+ proofs,provenance=module.prior_candidate_builds(reader,os.environ.get('DEV_SIT_PROVENANCE_RUN',''),os.environ.get('DEV_SIT_PROVENANCE_ARTIFACT',''),expected,release)
  require(not denied,'integration token denied cross-repository API: '+json.dumps(denied,sort_keys=True))
- print(json.dumps({'kind':'ci-integration-readonly-qualification','result':'api_access_verified','deployment':'NOT_RUN','authorization_receipt':False,'run_id':os.environ.get('GITHUB_RUN_ID'),'run_attempt':os.environ.get('GITHUB_RUN_ATTEMPT'),'gitops_head_sample':head,'checks_read':len(checks),'foundation_cmdb_sha256':identity['cmdb_sha256'],'publisher_matches':proofs,'api_observations':observed},sort_keys=True))
+ print(json.dumps({'kind':'ci-integration-readonly-qualification','result':'api_access_verified','deployment':'NOT_RUN','authorization_receipt':False,'run_id':os.environ.get('GITHUB_RUN_ID'),'run_attempt':os.environ.get('GITHUB_RUN_ATTEMPT'),'gitops_head_sample':head,'checks_read':len(checks),'foundation_cmdb_sha256':identity['cmdb_sha256'],'publisher_matches':proofs,'prior_provenance':provenance,'api_observations':observed},sort_keys=True))
 if __name__=='__main__':
  try:main()
  except Exception as error:raise SystemExit('CI readonly identity qualification failed: '+(str(error) if type(error) is ValueError else type(error).__name__)) from None
