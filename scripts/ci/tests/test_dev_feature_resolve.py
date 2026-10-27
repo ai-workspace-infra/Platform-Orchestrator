@@ -37,6 +37,16 @@ class FoundationTests(unittest.TestCase):
   for mutate in [lambda r:r.summary['context'].update(run_attempt='2'),lambda r:r.boot.update(instance_id='other'),lambda r:r.boot.update(cmdb_sha256='0'*64),lambda r:r.boot.update(root_ready=False),lambda r:r.summary['context'].update(gitops_sha='f'*40),lambda r:r.boot.update(source_revision='sha1:'+'f'*40)]:
    reader=Reader();mutate(reader)
    with self.assertRaises(ValueError):R.foundation(reader,40353330431,12664517641,12668512699)
+ def test_workflow_dependency_tampering_is_rejected(self):
+  reader=Reader(); original=reader.api
+  def altered(path,binary=False):
+   data=original(path,binary)
+   if '/contents/.github/workflows/dev-host-lifecycle.yml?' in path:
+    text=base64.b64decode(data['content']).decode().replace('1d3bc5b54a49b946b98e48bf9f73606369b77d02','f'*40)
+    data={**data,'content':base64.b64encode(text.encode()).decode(),'size':len(text)}
+   return data
+  reader.api=altered
+  with self.assertRaises(ValueError):R.foundation(reader,40353330431,12664517641,12668512699)
  def test_bool_locator_rejected(self):
   with self.assertRaises(ValueError):R.positive(True)
 
