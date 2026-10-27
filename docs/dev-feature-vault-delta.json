@@ -19,13 +19,14 @@
       "after": [
         "ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@e4607530b545ccf09e4045113afeb644b067823e",
         "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@41c00edbf14c77fe164df18e2a87c48244387901",
+        "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@298235179326d05f085923fc561cfcbc66c0d05f",
         "ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@6949b3f202114a135ab8db0e645286bb44bbdc64",
         "ai-workspace-infra/playbooks/.github/workflows/dev-platform-ingress.yml@41c00edbf14c77fe164df18e2a87c48244387901"
       ]
     }
   ],
   "preserve_every_other_data_key": true,
-  "apply_strategy": "Fresh authenticated read; require exact baseline data/policy hashes; merge only these two nested claim values while preserving every other live data key. This document is not a native Vault PATCH request or whole-role replacement payload.",
+  "apply_strategy": "Original baseline delta was applied. For the reviewed new callee, read current role and policy and append only its exact job_workflow_ref while preserving every other live field. See docs/dev-feature-current-instance-owner.md.",
   "policy_change": {
     "before": "path \"kv/data/CICD/dev/k3s-bootstrap\" {\n  capabilities = [\"read\"]\n}\n",
     "after": "path \"kv/data/CICD/dev/k3s-bootstrap\" {\n  capabilities = [\"read\"]\n}\n\npath \"kv/data/CICD/dev/ghcr\" {\n  capabilities = [\"read\"]\n}\n",

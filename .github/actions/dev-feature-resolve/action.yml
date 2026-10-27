@@ -7,6 +7,8 @@ inputs:
   prepare-artifact: {default: '0', description: Prior prepare receipt artifact locator}
   seed-run: {default: '0', description: Prior successful initialize run locator}
   seed-artifact: {default: '0', description: Prior initialized seed receipt locator}
+  provenance-run: {default: '0', description: Prior authenticated exact-candidate evidence run}
+  provenance-artifact: {default: '0', description: Prior exact-candidate evidence artifact}
   candidate-pr: {required: true, description: Same-repository GitOps PR number}
   stage: {required: true, description: sit or uat}
   iac-tag: {default: '', description: Optional IaC tag matching foundation receipt}
@@ -40,6 +42,8 @@ runs:
         PREPARE_ARTIFACT: ${{ inputs.prepare-artifact }}
         SEED_RUN: ${{ inputs.seed-run }}
         SEED_ARTIFACT: ${{ inputs.seed-artifact }}
+        PROVENANCE_RUN: ${{ inputs.provenance-run }}
+        PROVENANCE_ARTIFACT: ${{ inputs.provenance-artifact }}
         CANDIDATE_PR: ${{ inputs.candidate-pr }}
         STAGE: ${{ inputs.stage }}
         IAC_TAG: ${{ inputs.iac-tag }}

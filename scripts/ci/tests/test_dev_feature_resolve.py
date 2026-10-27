@@ -75,6 +75,35 @@ class DependencyTagTests(unittest.TestCase):
   R.check_dependency_tag(Reader(),'ai-workspace-infra/playbooks','v1.0.0','a'*40)
   with self.assertRaises(ValueError):R.check_dependency_tag(Reader(),'ai-workspace-infra/playbooks','v1.0.0','c'*40)
 
+class PriorCandidateEvidenceTests(unittest.TestCase):
+ def fixture(self):
+  current={'schema_version':'dev-feature-candidate/v1','result':'verified','repository':R.GITOPS,'stage':'sit','candidate_pr':606,'candidate_head':'a'*40,'base_ref':'main','base_sha':'b'*40,'checks':'success','same_repository':True,'main_ancestry_verified':True}
+  release={};builds=[]
+  for n,(name,(repo,image_repo,_)) in enumerate(R.COMPONENTS.items(),1):
+   image='ghcr.io/'+image_repo+'@sha256:'+'c'*64;ann={'release.svc.plus/source_sha':'d'*40,'release.svc.plus/build_run_id':str(n)}
+   row={'podAnnotations':ann}
+   if name=='console':row['singleContainer']={'image':image}
+   elif name in ('accounts','billing','content'):row['workload']={'image':image}
+   else:row['image']=image
+   release[name]=row;builds.append({'component':name,'repository':repo,'source_sha':'d'*40,'image':image,'run_id':n,'source_gate':{'verified':True},'log_sha256':'e'*64})
+  proof={**current,'source':{'workflow_ref':R.WORKFLOW,'run_id':'123'},'builds':builds}
+  class EvidenceReader:
+   def api(self,path):
+    if '/attempts/1/jobs' in path:return {'jobs':[{'name':'resolve','conclusion':'success'}]}
+    if '/git/ref/heads/main' in path:return {'object':{'sha':'f'*40}}
+    if '/compare/' in path:return {'status':'ahead'}
+    return {'head_sha':'c'*40,'repository':{'full_name':R.REPO},'head_repository':{'full_name':R.REPO},'path':'.github/workflows/dev-feature-deploy.yml','event':'workflow_dispatch','head_branch':'main','run_attempt':1,'status':'completed','conclusion':'success'}
+   def artifact_file(self,*args):return json.dumps(proof).encode()
+  return EvidenceReader(),current,release,proof
+ def test_exact_candidate_and_component_binding(self):
+  reader,current,release,proof=self.fixture()
+  self.assertEqual(len(R.prior_candidate_builds(reader,123,456,current,release)[0]),6)
+  proof['builds'][0]['source_sha']='f'*40
+  with self.assertRaises(ValueError):R.prior_candidate_builds(reader,123,456,current,release)
+ def test_changed_candidate_rejected(self):
+  reader,current,release,proof=self.fixture();proof['candidate_head']='f'*40
+  with self.assertRaises(ValueError):R.prior_candidate_builds(reader,123,456,current,release)
+
 class PublisherTests(unittest.TestCase):
  def fixture(self):
   sha='a'*40;image='ghcr.io/ai-workspace-services/billing-service@sha256:'+'b'*64

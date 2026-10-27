@@ -18,6 +18,14 @@ on:
         options: [sit]
         default: sit
         required: true
+      provenance_run:
+        description: Prior authenticated exact-candidate evidence run, or 0 for fresh verification
+        type: number
+        default: 0
+      provenance_artifact:
+        description: Prior exact-candidate evidence artifact, or 0 for fresh verification
+        type: number
+        default: 0
       candidate_pr:
         description: Same-repository GitOps PR; actual head resolved through API
         type: number
@@ -113,6 +121,8 @@ jobs:
           prepare-artifact: ${{ inputs.prepare_artifact }}
           seed-run: ${{ inputs.seed_run }}
           seed-artifact: ${{ inputs.seed_artifact }}
+          provenance-run: ${{ inputs.provenance_run }}
+          provenance-artifact: ${{ inputs.provenance_artifact }}
           candidate-pr: ${{ inputs.candidate_pr }}
           stage: ${{ inputs.stage }}
           iac-tag: ${{ inputs.iac_tag }}
@@ -158,7 +168,7 @@ jobs:
   deploy:
     needs: resolve
     if: inputs.operation == 'feature' && inputs.phase != 'seed-admin' && inputs.phase != 'initialize'
-    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@41c00edbf14c77fe164df18e2a87c48244387901
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@298235179326d05f085923fc561cfcbc66c0d05f
     with:
       stage: ${{ inputs.stage }}
       mode: ${{ inputs.phase }}

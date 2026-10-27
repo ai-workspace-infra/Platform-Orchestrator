@@ -296,6 +296,33 @@ def build_matrix(reader,release,stage='sit'):
   matrix.append({'component':component,'repository':repo,'source_sha':sha,'image':image,'run_id':rid,'attempt':run['run_attempt'],'artifact_id':aid,'document_sha256':hashlib.sha256(payload).hexdigest(),'source_gate':source_proof})
  return matrix
 
+def prior_candidate_builds(reader,run_id,artifact_id,current,release):
+ run_id=positive(run_id);artifact_id=positive(artifact_id)
+ run=reader.api(f'repos/{REPO}/actions/runs/{run_id}');source=run.get('head_sha','')
+ require(isinstance(source,str) and SHA.fullmatch(source),'candidate evidence workflow SHA missing')
+ run_identity(run,REPO,source,'.github/workflows/dev-feature-deploy.yml','workflow_dispatch')
+ require(run.get('head_branch')=='main','candidate evidence must originate on main')
+ main=reader.api(f'repos/{REPO}/git/ref/heads/main')['object']['sha']
+ require(reader.api(f'repos/{REPO}/compare/{source}...{main}').get('status') in ('ahead','identical'),'candidate evidence producer not on main')
+ attempt=positive(run.get('run_attempt'))
+ jobs=pages(reader,f'repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs','jobs')
+ require(any(j.get('name')=='resolve' and j.get('conclusion')=='success' for j in jobs),'candidate evidence resolve job not successful')
+ raw=reader.artifact_file(REPO,artifact_id,run_id,attempt,f'dev-feature-candidate-{run_id}-{attempt}','receipt.json',source)
+ proof=json.loads(raw)
+ for key in ('schema_version','result','repository','stage','candidate_pr','candidate_head','base_ref','base_sha','checks','same_repository','main_ancestry_verified'):
+  require(proof.get(key)==current.get(key),'prior candidate evidence no longer matches '+key)
+ require(proof.get('source',{}).get('workflow_ref')==WORKFLOW and str(proof.get('source',{}).get('run_id'))==str(run_id),'candidate evidence producer mismatch')
+ builds=proof.get('builds');require(isinstance(builds,list) and len(builds)==len(COMPONENTS),'complete prior build evidence required')
+ byname={x.get('component'):x for x in builds if isinstance(x,dict)}
+ require(set(byname)==set(COMPONENTS),'unique component build evidence required')
+ for name,(repo,image_repo,_) in COMPONENTS.items():
+  row=release[name];ann=row['podAnnotations'];entry=byname[name]
+  image=row['singleContainer']['image'] if name=='console' else row['workload']['image'] if name in ('accounts','billing','content') else row['image']
+  require(entry.get('repository')==repo and entry.get('source_sha')==ann['release.svc.plus/source_sha'] and entry.get('image')==image and str(entry.get('run_id'))==str(ann['release.svc.plus/build_run_id']),'prior build differs from candidate '+name)
+  require(image.startswith('ghcr.io/'+image_repo+'@sha256:') and isinstance(entry.get('source_gate'),dict) and entry.get('source_gate'),'invalid prior source evidence')
+  require(re.fullmatch(r'[0-9a-f]{64}',str(entry.get('log_sha256') or entry.get('document_sha256') or '')),'missing immutable producer evidence digest')
+ return builds,{'run_id':run_id,'attempt':attempt,'artifact_id':artifact_id,'source_sha':source,'receipt_sha256':hashlib.sha256(raw).hexdigest()}
+
 def owner_producer(reader,kind,source):
  jobs={'feature':('deploy','dev-feature-flux.yml'),'seed':('seed','dev-web-saas-seed.yml'),'ingress':('ingress','dev-platform-ingress.yml')}
  require(kind in jobs,'unsupported owner kind')
@@ -366,7 +393,11 @@ def main():
  check_dependency_tag(reader,'ai-workspace-infra/iac_modules',os.environ.get('IAC_TAG',''),identity['iac_sha'])
  check_dependency_tag(reader,'ai-workspace-infra/playbooks',os.environ.get('BOOTSTRAP_PLAYBOOKS_TAG',''),identity['bootstrap_playbooks_sha'])
  receipt,release=candidate(reader,os.environ['CANDIDATE_PR'],stage)
- if operation=='feature':receipt['builds']=build_matrix(reader,release,stage)
+ if operation=='feature':
+  evidence_run=os.environ.get('PROVENANCE_RUN','0');evidence_artifact=os.environ.get('PROVENANCE_ARTIFACT','0')
+  if str(evidence_run)!='0' or str(evidence_artifact)!='0':
+   receipt['builds'],receipt['prior_build_evidence']=prior_candidate_builds(reader,evidence_run,evidence_artifact,receipt,release)
+  else:receipt['builds']=build_matrix(reader,release,stage)
  fresh,_=candidate(reader,os.environ['CANDIDATE_PR'],stage)
  require(fresh['candidate_head']==receipt['candidate_head'] and fresh['base_sha']==receipt['base_sha'],'candidate/main moved during resolution')
  (root/'cmdb').mkdir(exist_ok=True);(root/'candidate').mkdir(exist_ok=True)
