@@ -66,6 +66,14 @@ class DependencyTagTests(unittest.TestCase):
   R.check_dependency_tag(Reader(),'ai-workspace-infra/iac_modules','v1.0.0','a'*40)
   with self.assertRaises(ValueError):R.check_dependency_tag(Reader(),'ai-workspace-infra/iac_modules','v1.0.0','b'*40)
   with self.assertRaises(ValueError):R.check_dependency_tag(Reader(),'ai-workspace-infra/iac_modules','../bad','a'*40)
+ def test_annotated_tag_resolves_to_the_commit(self):
+  class Reader:
+   def api(self,path):
+    if '/git/ref/tags/' in path:return {'object':{'type':'tag','sha':'b'*40}}
+    if '/git/tags/' in path:return {'object':{'type':'commit','sha':'a'*40}}
+    raise AssertionError('unexpected repository API')
+  R.check_dependency_tag(Reader(),'ai-workspace-infra/playbooks','v1.0.0','a'*40)
+  with self.assertRaises(ValueError):R.check_dependency_tag(Reader(),'ai-workspace-infra/playbooks','v1.0.0','c'*40)
 
 class PublisherTests(unittest.TestCase):
  def fixture(self):
