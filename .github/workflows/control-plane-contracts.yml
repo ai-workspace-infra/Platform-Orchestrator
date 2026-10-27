@@ -68,8 +68,8 @@ jobs:
           python3 scripts/tests/test_akamai_dev_oidc_contract.py -v
           bash scripts/tests/akamai_vault_bootstrap_contract_test.sh
 
-      - name: Verify Dev UAT main release proposals offline
-        run: python3 scripts/tests/control_plane/uat_release_writer_test.py -v
+      - name: Verify Serverless automatic Main release gate offline
+        run: python3 scripts/tests/control_plane/serverless_main_release_test.py -v
 
       - name: Verify environment and receipt contracts
         run: |

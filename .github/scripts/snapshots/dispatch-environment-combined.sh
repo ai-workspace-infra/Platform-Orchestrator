@@ -92,6 +92,7 @@ case "${workflow}" in
     args+=(
       -f "target_domains=${target_domains}"
       -f "tag_ref=${snapshot_tag}"
+      -f "website_content_ref=${WEBSITE_CONTENT_REF:-${snapshot_tag}}"
       -f deploy_cloudflare=true
       -f deploy_cloud_run=true
       -f "skip_stripe_catalog=${skip_stripe_catalog}"

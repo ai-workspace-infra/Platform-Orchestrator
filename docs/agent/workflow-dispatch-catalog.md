@@ -7,7 +7,7 @@
 "这个仓库具体是怎样"的事实，随 workflow 改动同步维护，不要让通用 skill 里出现会漂移的
 本仓库细节。
 
-更新时间：2026-09-23（UAT schema 发布规则见 [`uat-feature-release-and-schema-upgrade.md`](uat-feature-release-and-schema-upgrade.md)）
+更新时间：2026-10-27（Serverless Main 自动 UAT 见 [`serverless-main-uat-automation.md`](serverless-main-uat-automation.md)）
 
 ---
 
@@ -28,15 +28,18 @@ Let's Encrypt 对同一组域名限流 5 次/168h（`too many certificates ... r
 
 ## 2. `daily-main-snapshot.yaml` —— 快照、部署与环境矩阵
 
-Daily 只负责完整快照、Shared 只读就绪检查和按 `deploy_env` 选择的环境派发。
-迁移、基线采纳、schema migration 及 PROD release 不再作为 Daily inputs；这些操作走
-`environment-data-operations.yml` 的 Playbooks role + GitOps 校验链路。
+Daily 负责不可变快照、Shared 只读就绪检查和受控环境派发。每日 16:00 UTC 自动运行，
+面向 UAT 时仅构建七个 Serverless Web SaaS 仓库，校验快照 SHA 仍等于各仓当前 `main`，
+再调用 `serverless-orchestrator.yml` 部署持久 Serverless UAT。Toolkit 主干中发布流程相关
+文件变化也会触发同一条 UAT 路径。跨仓库 main 合并没有即时事件通知；未接入该通知时，
+service main 的新提交最迟由下一次每日构建拾取。迁移、基线采纳及 schema migration 仍走
+`environment-data-operations.yml` 的 Playbooks role + GitOps 校验链路；PROD 仍由人工受控发布。
 
 | input | 类型 | 现状 |
 |---|---|---|
 | `snapshot_tag` | string | 留空 → `daily-build-$(date -u +%Y.%m.%d)` |
 | `snapshot_source_ref` | string | 留空使用 `main`；也可指定明确的 source ref |
-| `deploy_env` | choice：sit / uat | 默认 `uat`；PROD 不从 Daily Snapshot 入口派发 |
+| `deploy_env` | choice：sit / uat / prod | 默认 `uat`；自动触发固定 UAT，PROD 仅人工受控发布 |
 | `repositories` | string，逗号分隔 | 留空 → 当前 `.github/daily-snapshot-builds.json` 的完整构建清单；指定部分仓库只构建，不触发组合部署 |
 
 - **`snapshot_source_ref` 已生效**：该值会作为 `SNAPSHOT_REF` 传给打 tag 脚本；新 tag
@@ -62,6 +65,10 @@ Daily 只负责完整快照、Shared 只读就绪检查和按 `deploy_env` 选�
   已完成的构建误判为超时。`xworkmate-bridge` 不接收 daily tag push，而是在 tag 创建后
   显式 `workflow_dispatch`（`environment=uat`、`run_apply=false`）。
 
+自动运行不读取 workflow_dispatch 输入：固定 `deploy_env=uat`、目标 `web-saas`、Serverless 模式、
+`dns_mode=none`、跳过 Stripe catalog，不做迁移或生产操作。只有完整七仓 Main 快照通过后才派发；
+若任一仓 `main` 在构建期间前进，门禁失败并保留证据，不部署混合组合。
+
 **验收**：run 绿不等于每个仓都真的打上了预期的 tag/release。逐仓核对
 `gh release view <tag> -R <repo>` 或对应的 assets 是否存在（`wait-daily-snapshot-builds.sh`
 本身就是这道验收，本条只是提醒 agent 不要跳过它、也不要只看 job 结论）。
@@ -70,10 +77,10 @@ Daily 只负责完整快照、Shared 只读就绪检查和按 `deploy_env` 选�
 
 ## 3. `serverless-orchestrator.yml` —— SIT 环境发布与独立数据操作
 
-`daily-main-snapshot.yaml` 在完整快照构建完成后，根据 `deploy_env` 矩阵派发
-`serverless-orchestrator.yml`（SIT）或 `hybrid-orchestrator.yml`（UAT）。SIT 传入
-`operation=deploy`、`vault_env_path=sit` 与不可变 `tag_ref`；UAT 则由 Hybrid 按
-GitOps 拓扑继续派发其子流程。Daily 不传迁移控制参数。
+`daily-main-snapshot.yaml` 在完整快照构建完成后，根据 `deploy_env` 派发
+`serverless-orchestrator.yml`（SIT 或 UAT）。UAT 目标为 `web-saas`，使用不可变快照 tag，
+并把 `website_content_ref` 固定到同一个 tag。UAT 主干发布清单关联七个源仓 SHA 与精确
+GitOps SHA；Daily 不传迁移控制参数。
 
 独立手工派发 serverless 时，才可按该 workflow 自身的受保护输入执行数据操作；它同时明确传入
 `supabase_target_existing_strategy=accounts_merge`，因此 UAT 已有 public 表时不会因
