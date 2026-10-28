@@ -27,6 +27,20 @@ def identity(candidate):
     return hashlib.sha256(json.dumps(candidate, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
+def validate_feature_tag(tag, feature_id):
+    """Validate a tag against the authoritative feature ID, not by splitting hyphens.
+
+    This is a naming check only; callers must separately authenticate the event,
+    tag object, candidate and policy before authorizing any deployment.
+    """
+    require(isinstance(feature_id, str) and re.fullmatch(r'[a-z][a-z0-9-]{1,45}', feature_id) is not None,
+            'invalid feature id')
+    require(isinstance(tag, str) and tag.endswith('-' + feature_id), 'tag does not match feature id')
+    name = tag[:-(len(feature_id) + 1)]
+    require(re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*', name) is not None, 'invalid feature tag name')
+    return name
+
+
 def configurations(c, policy):
     rows = c.get('configurations', [])
     require(isinstance(rows, list) and len(rows) <= 32, 'invalid configuration members')
@@ -76,7 +90,7 @@ def verify_configuration(row, snapshot, stage):
 
 def validate_candidate(c, policy):
     require(isinstance(c, dict) and isinstance(policy, dict), 'missing candidate or trusted policy')
-    require(c.get('schema') == 1, 'unsupported candidate schema')
+    require(c.get('schema') in (1, 2), 'unsupported candidate schema')
     feature = c.get('feature_id', '')
     require(isinstance(feature, str) and re.fullmatch(r'[a-z][a-z0-9-]{1,45}', feature) is not None, 'invalid feature id')
     task_url = c.get('task_url')
@@ -91,7 +105,14 @@ def validate_candidate(c, policy):
     require(isinstance(namespaces, dict) and isinstance(domains, dict) and isinstance(stable, dict),
             'missing declared SIT/UAT targets')
     require(namespaces.get('sit') == 'feature-' + feature + '-sit', 'invalid temporary SIT namespace')
-    require(domains.get('sit') == feature + '-sit.' + policy['domain_suffix'], 'unapproved temporary SIT domain')
+    if c['schema'] == 2:
+        tag = c.get('feature_tag')
+        validate_feature_tag(tag, feature)
+        label = tag + '-sit'
+        require(len(label) <= 63, 'SIT DNS label exceeds 63 characters')
+        require(domains.get('sit') == label + '.' + policy['domain_suffix'], 'unapproved temporary SIT domain')
+    else:
+        require(domains.get('sit') == feature + '-sit.' + policy['domain_suffix'], 'unapproved temporary SIT domain')
     require(isinstance(stable.get('namespace'), str) and bool(stable['namespace']) and
             isinstance(stable.get('domain'), str) and bool(stable['domain']), 'missing trusted stable UAT target')
     require(namespaces.get('uat') == stable['namespace'] and domains.get('uat') == stable['domain'],
@@ -123,7 +144,14 @@ def validate_candidate(c, policy):
             require(source.get('kind') == 'baseline' and source.get('pr') is None,
                     'baseline dependencies cannot masquerade as open feature PRs')
     configs = configurations(c, policy)
-    require(features > 0 or bool(configs), 'already merged baseline alone cannot establish premerge SIT')
+    rehearsal = c.get('candidate_mode') == 'main-rehearsal'
+    if rehearsal:
+        require(c['schema'] == 2 and c.get('task_url') in policy.get('main_rehearsal_tasks', []) and
+                features == 0 and not configs,
+                'main rehearsal must be explicitly allowed for this task and use only baseline sources')
+    else:
+        require(c.get('candidate_mode') in (None, 'feature') and (features > 0 or bool(configs)),
+                'already merged baseline alone cannot establish premerge SIT')
     components = c.get('components')
     require(not configs or components is not None, 'configuration candidate requires independent runtime components')
     if components is not None:

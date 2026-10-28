@@ -88,6 +88,62 @@ class TrustedTest(unittest.TestCase):
     def test_verified_retrieval_never_executes(self):
         r=self.decide();self.assertEqual(r['status'],'VERIFIED_GATE');self.assertFalse(r['dispatch_authorized']);self.assertEqual(r['execution'],'NOT_RUN')
 
+    def test_new_tag_candidate_is_blocked_without_trusted_provenance(self):
+        self.c['schema'] = 2
+        self.c['feature_tag'] = 'smoke-' + self.c['feature_id']
+        self.c['domains']['sit'] = self.c['feature_tag'] + '-sit.' + self.policy['domain_suffix']
+        self.selectors = {'builds': self.selectors['builds']}
+        with self.assertRaisesRegex(T.gate.Blocked, 'tag not in reviewed policy'):
+            self.decide('sit')
+
+    def test_tagged_rehearsal_requires_tag_main_and_build_evidence(self):
+        self.c.update(schema=2, candidate_mode='main-rehearsal', feature_tag='smoke-' + self.c['feature_id'])
+        self.c['domains']['sit'] = self.c['feature_tag'] + '-sit.' + self.policy['domain_suffix']
+        self.c['sources'][0].update(kind='baseline', pr=None)
+        self.policy['main_rehearsal_tasks'] = [self.c['task_url']]
+        self.selectors = {'builds': self.selectors['builds']}
+        with patch.object(T.reader, 'api', side_effect=self.api), \
+             patch.object(T, 'verify_feature_tag') as tag_check, \
+             patch.object(T, 'verify_main_rehearsal_sources') as main_check:
+            result = T.verified(self.c, 'sit', 'f' * 40, self.selectors)
+            self.assertEqual(result['status'], 'VERIFIED_GATE')
+            self.assertFalse(result['dispatch_authorized'])
+            self.assertEqual(tag_check.call_count, 2)
+            self.assertEqual(main_check.call_count, 2)
+            main_check.side_effect = T.gate.Blocked('Main moved')
+            with self.assertRaisesRegex(T.gate.Blocked, 'Main moved'):
+                T.verified(self.c, 'sit', 'f' * 40, self.selectors)
+
+    def test_rehearsal_rejects_moved_main(self):
+        self.c['candidate_mode'] = 'main-rehearsal'
+        self.c['sources'][0].update(kind='baseline', pr=None)
+        self.policy['main_rehearsal_tasks'] = [self.c['task_url']]
+        with patch.object(T.reader, 'api', return_value={'object': {'type': 'commit', 'sha': 'a' * 40}}):
+            T.verify_main_rehearsal_sources(self.c, self.policy)
+        with patch.object(T.reader, 'api', return_value={'object': {'type': 'commit', 'sha': 'b' * 40}}):
+            with self.assertRaisesRegex(T.gate.Blocked, 'Main moved'):
+                T.verify_main_rehearsal_sources(self.c, self.policy)
+
+    def test_reviewed_tag_binding_rejects_moved_tag_and_candidate(self):
+        self.c['feature_tag'] = 'smoke-' + self.c['feature_id']
+        tag = self.c['feature_tag']
+        self.policy['tag_repositories'] = ['example/control']
+        self.policy['feature_tags'] = {tag: {'repository': 'example/control', 'tag_object_sha': 'a' * 40,
+            'target_sha': 'b' * 40, 'candidate_sha256': T.gate.identity(self.c), 'task_url': self.c['task_url']}}
+        def api(path):
+            if '/git/ref/tags/' in path:
+                return {'ref': 'refs/tags/' + tag, 'object': {'type': 'tag', 'sha': 'a' * 40}}
+            return {'sha': 'a' * 40, 'tag': tag, 'object': {'type': 'commit', 'sha': 'b' * 40}}
+        with patch.object(T.reader, 'api', side_effect=api):
+            T.verify_feature_tag(self.c, self.policy)
+            self.c['task_url'] += '1'
+            with self.assertRaisesRegex(T.gate.Blocked, 'invalid reviewed tag binding'):
+                T.verify_feature_tag(self.c, self.policy)
+        self.c['task_url'] = self.c['task_url'][:-1]
+        with patch.object(T.reader, 'api', return_value={'ref': 'refs/tags/' + tag, 'object': {'type': 'tag', 'sha': 'c' * 40}}):
+            with self.assertRaisesRegex(T.gate.Blocked, 'tag ref moved'):
+                T.verify_feature_tag(self.c, self.policy)
+
     def test_policy_must_be_reviewed_main_not_pr_or_local_json(self):
         for field,bad in [('policy_drift',True),('main_status','diverged')]:
             with self.subTest(field=field):

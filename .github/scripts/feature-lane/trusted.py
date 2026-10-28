@@ -75,6 +75,50 @@ def task_at(candidate, policy):
     return {'kind': 'file', 'repository': match[1], 'commit': match[2], 'path': match[3], 'sha256': digest}
 
 
+def verify_main_rehearsal_sources(candidate, policy):
+    """Verify the selected baseline is the current Main of each allowed source.
+
+    This is one prerequisite only; it does not authenticate a tag or authorize
+    deployment, and must be rechecked before accepting a candidate for use.
+    """
+    gate.require(candidate.get('candidate_mode') == 'main-rehearsal', 'main rehearsal required')
+    gate.require(candidate.get('task_url') in policy.get('main_rehearsal_tasks', []), 'rehearsal task not allowed')
+    sources = candidate.get('sources')
+    gate.require(isinstance(sources, list) and bool(sources), 'missing rehearsal sources')
+    seen = set()
+    for source in sources:
+        gate.require(isinstance(source, dict), 'invalid rehearsal source')
+        repo = source.get('repository')
+        gate.require(repo in policy.get('repositories', []) and repo not in seen and
+                     source.get('kind') == 'baseline' and source.get('pr') is None and gate.sha(source.get('sha')),
+                     'invalid rehearsal baseline')
+        seen.add(repo)
+        current = reader.api(f'repos/{repo}/git/ref/heads/main')
+        gate.require(current.get('object', {}).get('type') == 'commit' and
+                     current.get('object', {}).get('sha') == source['sha'], 'rehearsal Main moved or unavailable')
+
+
+def verify_feature_tag(candidate, policy):
+    """Check a reviewed tag binding against GitHub; never authorize execution."""
+    tag = candidate.get('feature_tag')
+    gate.validate_feature_tag(tag, candidate.get('feature_id'))
+    bindings = policy.get('feature_tags', {})
+    gate.require(isinstance(bindings, dict) and isinstance(bindings.get(tag), dict), 'tag not in reviewed policy')
+    binding = bindings[tag]
+    repo, object_sha, target_sha = binding.get('repository'), binding.get('tag_object_sha'), binding.get('target_sha')
+    gate.require(repo in policy.get('tag_repositories', []) and gate.sha(object_sha) and gate.sha(target_sha) and
+                 binding.get('candidate_sha256') == gate.identity(candidate) and
+                 binding.get('task_url') == candidate.get('task_url'), 'invalid reviewed tag binding')
+    ref = reader.api(f'repos/{repo}/git/ref/tags/{tag}')
+    gate.require(ref.get('ref') == 'refs/tags/' + tag and ref.get('object', {}).get('type') == 'tag' and
+                 ref.get('object', {}).get('sha') == object_sha, 'tag ref moved or is not annotated')
+    obj = reader.api(f'repos/{repo}/git/tags/{object_sha}')
+    gate.require(obj.get('sha') == object_sha and obj.get('tag') == tag and
+                 obj.get('object', {}).get('type') == 'commit' and obj.get('object', {}).get('sha') == target_sha,
+                 'tag object target differs from reviewed binding')
+    return {'tag': tag, 'repository': repo, 'tag_object_sha': object_sha, 'target_sha': target_sha}
+
+
 def locator(owner, selectors, source_sha):
     stable = {'repository', 'workflow', 'event', 'filename', 'artifact_prefix'}
     gate.require(isinstance(owner, dict) and stable <= set(owner) and set(owner) <= stable | {'sha'},
@@ -175,6 +219,11 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
         sources = {source['repository'] for source in candidate.get('sources', [])}
         gate.require(isinstance(evidence_selectors['builds'], dict) and set(evidence_selectors['builds']) == sources, 'build selector source set differs')
         fingerprint = gate.validate_candidate(candidate, policy)
+        if candidate.get('schema') == 2:
+            gate.require(task.get('kind') == 'issue', 'feature tag requires a tracked Issue')
+            verify_feature_tag(candidate, policy)
+            if candidate.get('candidate_mode') == 'main-rehearsal' and stage == 'sit':
+                verify_main_rehearsal_sources(candidate, policy)
         prs = {}
         config_prs = {}
         for row in candidate.get('configurations', []):
@@ -193,6 +242,9 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
             proof, _ = artifact(locator(owner, evidence_selectors['builds'][source['repository']], source['sha']))
             gate.require(proof.get('repository') == source['repository'] and proof.get('source_sha') == source['sha'] and
                          proof.get('image') == source['image'], 'build manifest source/image mismatch')
+        if candidate.get('schema') == 2 and candidate.get('candidate_mode') == 'main-rehearsal' and stage == 'sit':
+            verify_main_rehearsal_sources(candidate, policy)
+            verify_feature_tag(candidate, policy)
         receipt = run = auth = None
         if stage in ('merge', 'uat'):
             receipt, run = artifact(locator(policy['acceptance_owner'], evidence_selectors['acceptance'], policy['acceptance_owner']['sha']))
