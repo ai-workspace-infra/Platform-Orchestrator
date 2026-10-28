@@ -343,20 +343,21 @@ jobs:
           method: jwt
           role: github-actions-platform-ops-toolkit-${{ inputs.environment || 'uat' }}
           jwtGithubAudience: vault
+          exportToken: true
           secrets: |
-            kv/data/CICD/${{ inputs.environment || 'uat' }} APP_INSTALLATION_ID | APP_INSTALLATION_ID ;
-            kv/data/CICD/${{ inputs.environment || 'uat' }} APP_PRIVATE_KEY_PEM | APP_PRIVATE_KEY_PEM ;
-            kv/data/CICD/${{ inputs.environment || 'uat' }} GCP_WORKLOAD_IDENTITY_PROVIDER | GCP_WORKLOAD_IDENTITY_PROVIDER ;
-            kv/data/CICD/${{ inputs.environment || 'uat' }} GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL ;
-            kv/data/CICD/${{ inputs.environment || 'uat' }} DOCKER_BUILD_SECRET_GHCR_PAT | DOCKER_BUILD_SECRET_GHCR_PAT
+            kv/data/${{ inputs.environment || 'uat' }}/serverless/gcp GCP_WORKLOAD_IDENTITY_PROVIDER | GCP_WORKLOAD_IDENTITY_PROVIDER ;
+            kv/data/${{ inputs.environment || 'uat' }}/serverless/gcp GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL ;
+            kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY_PEM
 
       - name: Create service-source GitHub App token
         id: app_token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.AI_WORKSPACE_APP_ID || '1027106' }}
+          client-id: Iv23liNwStpQIiXajhpb
           private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY_PEM }}
           owner: ai-workspace-services
+          repositories: ${{ matrix.service }}
+          permission-contents: read
 
       - name: Checkout immutable service source
         uses: actions/checkout@v7
@@ -384,9 +385,22 @@ jobs:
         run: |
           gcloud auth configure-docker "${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev" --quiet
 
-      # 多环境抽象分支：UAT 从源码构建新镜像；PROD 严格按 UAT 验收的不可变 Digest 晋级
+      # 场景 A：全新环境初始化（init）
+      - name: Initialize Cloud Run baseline service configuration
+        if: ${{ inputs.operation == 'init' }}
+        id: backend_init
+        env:
+          ENVIRONMENT: ${{ inputs.environment || 'uat' }}
+          SERVICE_NAME: ${{ matrix.service }}
+          PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
+          REGION: ${{ steps.gitops_gcp.outputs.region }}
+        run: |
+          echo "Initializing Cloud Run baseline service configuration for ${SERVICE_NAME} in ${ENVIRONMENT} (project=${PROJECT_ID}, region=${REGION})..."
+          echo "backend_status=initialized" >> "$GITHUB_OUTPUT"
+
+      # 场景 B：服务部署与镜像晋级（deploy / upgrade / deploy+migrate）
       - name: Build and publish target Cloud Run image (UAT)
-        if: ${{ inputs.environment != 'prod' }}
+        if: ${{ inputs.operation != 'init' && inputs.environment != 'prod' }}
         id: build_uat
         env:
           SERVICE_NAME: ${{ matrix.service }}
@@ -394,7 +408,7 @@ jobs:
           REGISTRY_HOST: ${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev
           PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
         run: |
-          TARGET_IMAGE="${REGISTRY_HOST}/${PROJECT_ID}/web-saas/${SERVICE_NAME}:${IMAGE_TAG}"
+          TARGET_IMAGE="${REGISTRY_HOST}/${PROJECT_ID}/serverless/${SERVICE_NAME}:${IMAGE_TAG}"
           echo "Building ${SERVICE_NAME} for UAT -> ${TARGET_IMAGE}..."
           docker build -t "${TARGET_IMAGE}" "src/${SERVICE_NAME}"
           docker push "${TARGET_IMAGE}"
@@ -402,7 +416,7 @@ jobs:
           echo "artifact-digest=${DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Promote the UAT-accepted image by digest (PROD)
-        if: ${{ inputs.environment == 'prod' }}
+        if: ${{ inputs.operation != 'init' && inputs.environment == 'prod' }}
         id: promoted
         env:
           SERVICE_NAME: ${{ matrix.service }}
@@ -441,8 +455,13 @@ jobs:
         with:
           environment: ${{ inputs.environment || 'uat' }}
           service: ${{ matrix.service }}
+        env:
+          VAULT_ADDR: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          CLOUDFLARE_BOUNDARY_CONFIG: ${{ runner.temp }}/edge-routing.json
+          GITOPS_OAUTH_GITHUB_CONFIG: ${{ runner.temp }}/accounts-github-oauth.json
 
       - name: Deploy Cloud Run service through the Provider owner
+        if: ${{ inputs.operation != 'init' }}
         env:
           ENVIRONMENT: ${{ inputs.environment || 'uat' }}
           SERVICE_NAME: ${{ matrix.service }}
@@ -452,6 +471,7 @@ jobs:
           # 调用 Cloud Run 部署命令并保证零中断平滑流量切换
 
       - name: Query the serving revision through the IaC owner
+        if: ${{ inputs.operation != 'init' }}
         id: cloud_run_facts
         uses: ./iac_modules/.github/actions/cloud-run-serving-facts
         with:
@@ -461,6 +481,7 @@ jobs:
           artifact-digest: ${{ steps.promoted.outputs.digest || steps.build_uat.outputs.artifact-digest }}
 
       - name: Verify Cloud Run serving facts
+        if: ${{ inputs.operation != 'init' }}
         env:
           CLOUD_RUN_SERVICE_NAME: ${{ format('{0}-{1}', inputs.environment || 'uat', matrix.service) }}
           EXPECTED_DIGEST: ${{ steps.promoted.outputs.digest || steps.build_uat.outputs.artifact-digest }}
@@ -523,9 +544,10 @@ jobs:
           method: jwt
           role: github-actions-platform-ops-toolkit-${{ inputs.environment || 'uat' }}
           jwtGithubAudience: vault
+          exportToken: true
           secrets: |
-            kv/data/CICD/${{ inputs.environment || 'uat' }} CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN ;
-            kv/data/CICD/${{ inputs.environment || 'uat' }} CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID
+            kv/data/${{ inputs.environment || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN ;
+            kv/data/${{ inputs.environment || 'uat' }}/serverless/cloudflare CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID
 
       - name: Deploy Cloudflare component
         env:
@@ -585,8 +607,9 @@ jobs:
           method: jwt
           role: github-actions-platform-ops-toolkit-${{ inputs.environment || 'uat' }}
           jwtGithubAudience: vault
+          exportToken: true
           secrets: |
-            kv/data/CICD/${{ inputs.environment || 'uat' }} CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
+            kv/data/${{ inputs.environment || 'uat' }}/serverless/cloudflare CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
 
       # 场景 A：DNS 路由更新与生产割接
       - name: Reconcile DNS records
