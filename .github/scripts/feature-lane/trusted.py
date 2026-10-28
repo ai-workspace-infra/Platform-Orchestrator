@@ -219,6 +219,20 @@ def pull(source, stage, task_url, configuration=False, require_task_link=True):
     return snapshot
 
 
+def verify_configuration_diff(row):
+    """Every changed path must be among the candidate's fixed declarations."""
+    files = reader.api(f'repos/{row["repository"]}/pulls/{row["pr"]}/files?per_page=100&page=1')
+    gate.require(isinstance(files, list) and 0 < len(files) <= 64,
+                 'configuration PR must contain a bounded set of changes')
+    seen = set()
+    for item in files:
+        path = item.get('filename') if isinstance(item, dict) else None
+        gate.require(isinstance(path, str) and path in row['paths'] and path not in seen and
+                     item.get('status') in ('added', 'modified'),
+                     'configuration PR contains undeclared, renamed or deleted files')
+        seen.add(path)
+
+
 def artifact(locator):
     repo = locator['repository']
     gate.require(isinstance(repo, str) and re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo), 'invalid evidence repository')
@@ -326,6 +340,7 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
             key = row['repository']+'#'+str(row['pr'])
             primary = len(candidate['configurations']) == 1 or candidate.get('configuration_entrypoint') == key
             snapshot = pull(row, stage, candidate['task_url'], configuration=True, require_task_link=primary)
+            verify_configuration_diff(row)
             snapshot['path_hashes'] = {path: file_at(row['repository'], row['sha'], path) for path in row['paths']}
             if stage == 'uat':
                 snapshot['merged_path_hashes'] = {path: file_at(row['repository'], snapshot['merge_sha'], path) for path in row['paths']}

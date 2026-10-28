@@ -22,6 +22,15 @@ F=load('gate_fixture',ROOT/'scripts/tests/control_plane/feature_lane_gate_test.p
 
 
 class TrustedTest(unittest.TestCase):
+    def test_configuration_diff_rejects_undeclared_and_deleted_files(self):
+        row={'repository':'example/config','pr':7,'paths':{'lane/values.yaml':'a'*64}}
+        for files in ([{'filename':'lane/values.yaml','status':'modified'},{'filename':'prod/values.yaml','status':'modified'}],
+                      [{'filename':'lane/values.yaml','status':'removed'}]):
+            with self.subTest(files=files), patch.object(T.reader,'api',return_value=files), self.assertRaises(T.gate.Blocked):
+                T.verify_configuration_diff(row)
+        with patch.object(T.reader,'api',return_value=[{'filename':'lane/values.yaml','status':'added'}]):
+            T.verify_configuration_diff(row)
+
     def test_content_alias_must_match_repository_id_and_commit(self):
         policy={'website_content_repositories':['old/content'],'website_content_canonical_repository':'new/content'}
         records={'repos/old/content':{'id':7},'repos/new/content':{'id':7,'full_name':'new/content'},'repos/new/content/commits/'+'e'*40:{'sha':'e'*40}}
@@ -134,6 +143,8 @@ class TrustedTest(unittest.TestCase):
         if '/compare/' in path:return {'status':self.main_status}
         if '/contents/' in path and T.POLICY_PATH not in path:return self.files[path]
         if '/contents/' in path:return {'type':'file','path':T.POLICY_PATH,'size':1000,'sha':('c' if self.policy_drift and path.endswith('d'*40) else 'b')*40,'content':base64.b64encode(json.dumps(self.policy).encode()).decode()}
+        if path.startswith('repos/example/config/pulls/') and '/files?' in path:
+            return [{'filename':name,'status':'modified'} for name in self.c['configurations'][0]['paths']]
         if path.startswith('repos/example/config/pulls/'):return self.config_rawpr
         if '/pulls/' in path:return self.rawpr
         if '/git/commits/' in path:return {'tree':{'sha':'b'*40}}
