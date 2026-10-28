@@ -58,6 +58,7 @@ def validate_inventory():
 
 def read_status(directory, snapshot_tag):
     records = {}
+    tag_records = {}
     for path in Path(directory).glob("*.jsonl"):
         for line in path.read_text().splitlines():
             if not line.strip():
@@ -65,6 +66,10 @@ def read_status(directory, snapshot_tag):
             record = json.loads(line)
             repository = record.get("repository")
             if repository in REPOSITORIES:
+                if record.get("status") in ("created", "tag_created", "unchanged"):
+                    require(repository not in tag_records, f"duplicate tag status for {repository}")
+                    tag_records[repository] = record
+                    continue
                 require(repository not in records, f"duplicate snapshot status for {repository}")
                 require(record.get("status") == "build_succeeded", f"snapshot build did not pass for {repository}")
                 require(record.get("tag") == snapshot_tag, f"snapshot tag mismatch for {repository}")
@@ -73,6 +78,9 @@ def read_status(directory, snapshot_tag):
                 records[repository] = record
     missing = sorted(set(REPOSITORIES) - set(records))
     require(not missing, f"snapshot evidence missing repositories: {', '.join(missing)}")
+    for repository, record in tag_records.items():
+        require(record.get("tag") == snapshot_tag and record.get("sha") == records[repository]["sha"],
+                f"tag and build evidence mismatch for {repository}")
     return records
 
 
