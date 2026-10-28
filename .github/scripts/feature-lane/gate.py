@@ -151,8 +151,17 @@ def validate_candidate(c, policy):
     rehearsal = c.get('candidate_mode') == 'main-rehearsal'
     if rehearsal:
         require(c['schema'] == 2 and c.get('task_url') in policy.get('main_rehearsal_tasks', []) and
-                features == 0 and not configs,
+                features == 0,
                 'main rehearsal must be explicitly allowed for this task and use only baseline sources')
+        if configs:
+            prefix = 'services/distributed-web-saas-fullstack/dev/feature-lanes/' + feature + '/'
+            domain_path = 'docs/features/tagged-sit-domain-contract.yaml'
+            require(c.get('task_url') in policy.get('main_rehearsal_configuration_tasks', []) and
+                    len(configs) == 1 and configs[0]['repository'] == policy.get('gitops_repository') and
+                    configs[0]['base_ref'] == 'main' and domain_path in configs[0]['paths'] and
+                    any(path.startswith(prefix) for path in configs[0]['paths']) and
+                    all(path == domain_path or path.startswith(prefix) for path in configs[0]['paths']),
+                    'main rehearsal configuration requires one explicitly allowed lane-only GitOps PR')
     else:
         require(c.get('candidate_mode') in (None, 'feature') and (features > 0 or bool(configs)),
                 'already merged baseline alone cannot establish premerge SIT')

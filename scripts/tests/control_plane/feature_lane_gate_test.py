@@ -58,6 +58,26 @@ class FeatureTagTests(unittest.TestCase):
         with self.assertRaisesRegex(gate.Blocked, 'baseline alone'):
             gate.validate_candidate(candidate, policy)
 
+    def test_main_rehearsal_may_use_only_explicit_lane_configuration(self):
+        candidate,policy,*_=fixture()
+        candidate.update(schema=2,feature_tag='smoke-'+candidate['feature_id'],candidate_mode='main-rehearsal')
+        candidate['domains']['sit']=candidate['feature_tag']+'-sit.'+policy['domain_suffix']
+        candidate['sources'][0].update(kind='baseline',pr=None)
+        bind_fixture_components(candidate,policy)
+        policy['main_rehearsal_tasks']=[candidate['task_url']]
+        policy['gitops_repository']='example/gitops'
+        policy['configuration_paths']={'example/gitops':['services/distributed-web-saas-fullstack/dev/feature-lanes/','docs/features/']}
+        prefix='services/distributed-web-saas-fullstack/dev/feature-lanes/'+candidate['feature_id']+'/'
+        row={'repository':'example/gitops','pr':7,'sha':'a'*40,'base_sha':'b'*40,'base_ref':'main','paths':{prefix+'values.yaml':'c'*64,'docs/features/tagged-sit-domain-contract.yaml':'d'*64}}
+        candidate['configurations']=[row]
+        with self.assertRaisesRegex(gate.Blocked,'explicitly allowed lane-only'):
+            gate.validate_candidate(candidate,policy)
+        policy['main_rehearsal_configuration_tasks']=[candidate['task_url']]
+        gate.validate_candidate(candidate,policy)
+        row['paths']['services/distributed-web-saas-fullstack/dev/feature-lanes/other/values.yaml']='e'*64
+        with self.assertRaisesRegex(gate.Blocked,'lane-only'):
+            gate.validate_candidate(candidate,policy)
+
     def test_feature_pr_main_base_is_fixed(self):
         candidate, policy, prs, *_ = fixture()
         source = candidate['sources'][0]
