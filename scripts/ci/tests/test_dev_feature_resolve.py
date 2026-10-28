@@ -10,6 +10,7 @@ class Reader:
  def __init__(self):self.summary=json.loads((FIX/'summary.json').read_text());self.boot=json.loads((FIX/'receipt.json').read_text());self.calls=[]
  def api(self,path,binary=False):
   self.calls.append(path)
+  if path == f'repos/{R.REPO}':return {'id':1284966060,'full_name':R.REPO}
   if '/contents/.github/workflows/' in path:
    name=path.split('/contents/')[1].split('?')[0]
    if name.endswith('dev-host-lifecycle.yml'): content='jobs:\n  iac:\n    with:\n      iac_ref: 1d3bc5b54a49b946b98e48bf9f73606369b77d02\n  bootstrap:\n    uses: ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@'+'a'*40+'\n'
@@ -46,6 +47,21 @@ class FoundationTests(unittest.TestCase):
     data={**data,'content':base64.b64encode(text.encode()).decode(),'size':len(text)}
    return data
   reader.api=altered
+  with self.assertRaises(ValueError):R.foundation(reader,40353330431,12664517641,12668512699)
+ def test_renamed_repository_requires_matching_stable_id(self):
+  reader=Reader(); original=reader.api
+  def renamed(path,binary=False):
+   if path==f'repos/{R.REPO}':return {'id':1284966060,'full_name':'ai-workspace-infra/Platform-Orchestrator'}
+   data=original(path,binary)
+   if isinstance(data,dict) and 'head_repository' in data:
+    data['repository']['full_name']=data['head_repository']['full_name']='ai-workspace-infra/Platform-Orchestrator'
+   return data
+  reader.api=renamed
+  R.foundation(reader,40353330431,12664517641,12668512699)
+  def impostor(path,binary=False):
+   if path==f'repos/{R.REPO}':return {'id':999,'full_name':'ai-workspace-infra/Platform-Orchestrator'}
+   return renamed(path,binary)
+  reader.api=impostor
   with self.assertRaises(ValueError):R.foundation(reader,40353330431,12664517641,12668512699)
  def test_bool_locator_rejected(self):
   with self.assertRaises(ValueError):R.positive(True)
