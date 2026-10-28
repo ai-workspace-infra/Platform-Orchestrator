@@ -300,6 +300,7 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
                 verify_main_rehearsal_sources(candidate, policy)
         prs = {}
         config_prs = {}
+        verified_website_content = None
         for row in candidate.get('configurations', []):
             key = row['repository']+'#'+str(row['pr'])
             primary = len(candidate['configurations']) == 1 or candidate.get('configuration_entrypoint') == key
@@ -324,6 +325,7 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
                              proof.get('environment') == 'sit' and proof.get('build_mode') == 'feature-sit' and
                              proof.get('candidate_hostname') == candidate['domains']['sit'],
                              'frontend SIT build inputs differ from candidate')
+                verified_website_content = {'repository': content_repo, 'sha': content_sha}
         if candidate.get('schema') == 2 and candidate.get('candidate_mode') == 'main-rehearsal' and stage == 'sit':
             verify_main_rehearsal_sources(candidate, policy)
             verify_feature_tag(candidate, policy)
@@ -352,6 +354,8 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
         evaluation_policy = dict(policy, authorization_url_prefix=prefix)
         result = gate._evaluate(candidate, evaluation_policy, stage, prs, receipt, run, auth, config_prs)
         result.update(status='VERIFIED_GATE', evidence_kind='github_retrieved', policy_sha=policy_commit)
+        if verified_website_content is not None:
+            result['verified_website_content'] = verified_website_content
         return result
     except gate.Blocked:
         raise

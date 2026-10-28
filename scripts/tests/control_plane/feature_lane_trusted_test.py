@@ -169,6 +169,7 @@ class TrustedTest(unittest.TestCase):
              patch.object(T, 'verify_main_rehearsal_sources') as main_check:
             result = T.verified(self.c, 'sit', 'f' * 40, self.selectors)
             self.assertEqual(result['status'], 'VERIFIED_GATE')
+            self.assertEqual(result['verified_website_content'], {'repository':'example/content','sha':'e'*40})
             self.assertFalse(result['dispatch_authorized'])
             self.assertEqual(tag_check.call_count, 2)
             self.assertEqual(gitops_check.call_count, 2)
