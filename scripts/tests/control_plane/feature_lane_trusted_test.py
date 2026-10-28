@@ -136,6 +136,10 @@ class TrustedTest(unittest.TestCase):
         def api(path):
             if '/git/ref/tags/' in path:
                 return {'ref': 'refs/tags/' + tag, 'object': {'type': 'tag', 'sha': 'a' * 40}}
+            if path.endswith('/git/ref/heads/main'):
+                return {'object': {'sha': 'c' * 40}}
+            if '/compare/' in path:
+                return {'status': 'ahead'}
             return {'sha': 'a' * 40, 'tag': tag, 'object': {'type': 'commit', 'sha': 'b' * 40}}
         with patch.object(T.reader, 'api', side_effect=api):
             T.verify_feature_tag(self.c, self.policy)
@@ -143,6 +147,11 @@ class TrustedTest(unittest.TestCase):
             with self.assertRaisesRegex(T.gate.Blocked, 'invalid reviewed tag binding'):
                 T.verify_feature_tag(self.c, self.policy)
         self.c['task_url'] = self.c['task_url'][:-1]
+        def divergent(path):
+            return {'status': 'diverged'} if '/compare/' in path else api(path)
+        with patch.object(T.reader, 'api', side_effect=divergent):
+            with self.assertRaisesRegex(T.gate.Blocked, 'not reachable from Main'):
+                T.verify_feature_tag(self.c, self.policy)
         with patch.object(T.reader, 'api', return_value={'ref': 'refs/tags/' + tag, 'object': {'type': 'tag', 'sha': 'c' * 40}}):
             with self.assertRaisesRegex(T.gate.Blocked, 'tag ref moved'):
                 T.verify_feature_tag(self.c, self.policy)

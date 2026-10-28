@@ -116,6 +116,10 @@ def verify_feature_tag(candidate, policy):
     gate.require(obj.get('sha') == object_sha and obj.get('tag') == tag and
                  obj.get('object', {}).get('type') == 'commit' and obj.get('object', {}).get('sha') == target_sha,
                  'tag object target differs from reviewed binding')
+    main = reader.api(f'repos/{repo}/git/ref/heads/main').get('object', {}).get('sha')
+    gate.require(gate.sha(main), 'tag repository Main unavailable')
+    comparison = reader.api(f'repos/{repo}/compare/{target_sha}...{main}')
+    gate.require(comparison.get('status') in ('ahead', 'identical'), 'tag target is not reachable from Main')
     return {'tag': tag, 'repository': repo, 'tag_object_sha': object_sha, 'target_sha': target_sha}
 
 
