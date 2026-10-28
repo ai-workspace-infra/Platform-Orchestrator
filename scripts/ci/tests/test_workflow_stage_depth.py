@@ -56,7 +56,7 @@ class GraphTests(unittest.TestCase):
         trigger = document.get('on', document.get(True))
         deployment = trigger['workflow_dispatch']['inputs']['deploy_after_build']
         self.assertEqual(deployment['type'], 'boolean')
-        self.assertIs(deployment['default'], False)
+        self.assertIs(deployment['default'], True)
         self.assertEqual(len(jobs), 5)
         self.assertEqual(len(checker.longest_chain(jobs)), 5)
         gate = jobs["snapshot-gate"]
