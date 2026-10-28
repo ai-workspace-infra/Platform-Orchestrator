@@ -102,7 +102,7 @@ def command(args, **kwargs):
 def resolve_candidate(env):
     candidate = inputs(env)
     repository = env.get("GITHUB_REPOSITORY", "")
-    require(repository == "ai-workspace-infra/platform-ops-toolkit", "unexpected release repository")
+    require(repository in ("ai-workspace-infra/platform-ops-toolkit", "ai-workspace-infra/Platform-Orchestrator"), "unexpected release repository")
     if candidate["environment"] == "prod":
         protected = json.loads(command(["gh", "api", f"repos/{repository}/environments/prod"]))
         rules = protected.get("protection_rules", [])
@@ -170,10 +170,10 @@ def resolve_candidate(env):
 
 
 def verify_rehearsal_run(candidate, run_id):
-    repository = "ai-workspace-infra/platform-ops-toolkit"
+    repository = os.environ.get("GITHUB_REPOSITORY") or "ai-workspace-infra/Platform-Orchestrator"
     run = json.loads(command(["gh", "api", f"repos/{repository}/actions/runs/{run_id}"]))
     require(str(run.get("id")) == run_id
-            and run.get("repository", {}).get("full_name") == repository
+            and run.get("repository", {}).get("full_name") in ("ai-workspace-infra/platform-ops-toolkit", "ai-workspace-infra/Platform-Orchestrator", repository)
             and run.get("path", "").split("@", 1)[0] == ".github/workflows/environment-data-operations.yml"
             and run.get("head_branch") == "main" and run.get("event") == "workflow_dispatch"
             and run.get("status") == "completed" and run.get("conclusion") == "success",
