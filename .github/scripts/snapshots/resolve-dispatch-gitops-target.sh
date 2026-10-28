@@ -37,7 +37,14 @@ readarray -t values < <(CONFIG_FILE="${config_file}" ruby -ryaml -e '
   exit 1
 }
 
+gitops_sha="$(git -C "$(dirname "${config_file}")" rev-parse HEAD 2>/dev/null || true)"
+[[ "${gitops_sha}" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "::error::GitOps topology checkout revision could not be resolved." >&2
+  exit 1
+}
+
 {
+  printf 'gitops_sha=%s\n' "${gitops_sha}"
   printf 'target_domain_base=%s\n' "${values[2]}"
   printf 'agent_controller_url=%s\n' "${values[3]}"
 } >> "${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}"
