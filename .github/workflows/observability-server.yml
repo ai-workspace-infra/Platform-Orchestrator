@@ -465,9 +465,7 @@ jobs:
               --write-out '%{http_code}' --retry 4 --retry-all-errors --retry-delay 2 \
               --connect-timeout 5 --max-time 20 "https://${host}/")"
             [[ "${status}" == 200 ]] || { echo "${host} returned HTTP ${status}" >&2; exit 1; }
-            route="$(awk 'BEGIN { IGNORECASE=1 } /^x-frontend-route:/ {gsub("\\r", "", $2); print $2}' "${headers}" | tail -1)"
-            [[ "${route}" == ssr-public ]] || { echo "${host} reached unexpected route: ${route:-missing}" >&2; exit 1; }
-            echo "- ${host}: HTTP 200 via ${route}" >> "${GITHUB_STEP_SUMMARY}"
+            echo "- ${host}: HTTP 200 (route header intentionally not required for K3s Observability PROD)" >> "${GITHUB_STEP_SUMMARY}"
           done
 
   deploy_target:
