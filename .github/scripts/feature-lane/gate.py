@@ -33,7 +33,8 @@ def validate_feature_tag(tag, feature_id):
     This is a naming check only; callers must separately authenticate the event,
     tag object, candidate and policy before authorizing any deployment.
     """
-    require(isinstance(feature_id, str) and re.fullmatch(r'[a-z][a-z0-9-]{1,45}', feature_id) is not None,
+    require(isinstance(feature_id, str) and re.fullmatch(r'[a-z][a-z0-9-]{1,45}', feature_id) is not None and
+            not feature_id.endswith('-'),
             'invalid feature id')
     require(isinstance(tag, str) and tag.endswith('-' + feature_id), 'tag does not match feature id')
     name = tag[:-(len(feature_id) + 1)]

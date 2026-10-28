@@ -18,6 +18,8 @@ class FeatureTagTests(unittest.TestCase):
         for tag in ('sit-test-1483', 'smoke-sit-test-1484', 'smoke--sit-test-1483', 'Smoke-sit-test-1483'):
             with self.subTest(tag=tag), self.assertRaises(gate.Blocked):
                 gate.validate_feature_tag(tag, 'sit-test-1483')
+        with self.assertRaisesRegex(gate.Blocked, 'invalid feature id'):
+            gate.validate_feature_tag('smoke-sit-test-', 'sit-test-')
 
     def test_candidate_domain_is_bound_to_full_tag(self):
         candidate, policy, *_ = fixture()
