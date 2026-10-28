@@ -22,6 +22,27 @@ F=load('gate_fixture',ROOT/'scripts/tests/control_plane/feature_lane_gate_test.p
 
 
 class TrustedTest(unittest.TestCase):
+    def test_gitops_domain_binding_rejects_moved_main_and_changed_bytes(self):
+        path = 'docs/features/tagged-sit-domain-contract.yaml'
+        candidate = {'gitops': {'repository': 'example/gitops', 'sha': 'd' * 40, 'domain_sha256': 'a' * 64},
+                     'configurations': []}
+        policy = {'gitops_repository': 'example/gitops', 'gitops_domain_contract_path': path}
+        with patch.object(T, 'file_at', return_value='a' * 64), \
+             patch.object(T.reader, 'api', return_value={'object': {'type': 'commit', 'sha': 'd' * 40}}):
+            T.verify_gitops_domain(candidate, policy, 'sit')
+            with patch.object(T.reader, 'api', return_value={'object': {'type': 'commit', 'sha': 'e' * 40}}):
+                with self.assertRaisesRegex(T.gate.Blocked, 'Main moved'):
+                    T.verify_gitops_domain(candidate, policy, 'sit')
+            candidate['configurations'] = [{'repository': 'example/gitops', 'sha': 'd' * 40,
+                                             'paths': {path: 'a' * 64}}]
+            T.verify_gitops_domain(candidate, policy, 'sit')
+            candidate['configurations'][0]['paths'][path] = 'b' * 64
+            with self.assertRaisesRegex(T.gate.Blocked, 'configuration PR'):
+                T.verify_gitops_domain(candidate, policy, 'sit')
+        with patch.object(T, 'file_at', return_value='b' * 64):
+            with self.assertRaisesRegex(T.gate.Blocked, 'declaration differs'):
+                T.verify_gitops_domain(candidate, policy, 'sit')
+
     def test_main_image_manifest_binds_authenticated_run_and_source(self):
         source = {'repository': 'example/accounts', 'kind': 'baseline', 'sha': 'a' * 40,
                   'image': 'example/accounts@sha256:' + 'b' * 64}
@@ -133,11 +154,13 @@ class TrustedTest(unittest.TestCase):
         self.selectors = {'builds': self.selectors['builds']}
         with patch.object(T.reader, 'api', side_effect=self.api), \
              patch.object(T, 'verify_feature_tag') as tag_check, \
+             patch.object(T, 'verify_gitops_domain') as gitops_check, \
              patch.object(T, 'verify_main_rehearsal_sources') as main_check:
             result = T.verified(self.c, 'sit', 'f' * 40, self.selectors)
             self.assertEqual(result['status'], 'VERIFIED_GATE')
             self.assertFalse(result['dispatch_authorized'])
             self.assertEqual(tag_check.call_count, 2)
+            self.assertEqual(gitops_check.call_count, 2)
             self.assertEqual(main_check.call_count, 2)
             self.documents[102]['website_content_sha'] = 'b' * 40
             self.archive(102, 'manifest.json', json.dumps(self.documents[102]))
