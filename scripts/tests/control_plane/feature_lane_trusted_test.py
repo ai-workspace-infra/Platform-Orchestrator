@@ -92,6 +92,7 @@ class TrustedTest(unittest.TestCase):
         self.c['schema'] = 2
         self.c['feature_tag'] = 'smoke-' + self.c['feature_id']
         self.c['domains']['sit'] = self.c['feature_tag'] + '-sit.' + self.policy['domain_suffix']
+        F.bind_fixture_components(self.c, self.policy)
         self.selectors = {'builds': self.selectors['builds']}
         with self.assertRaisesRegex(T.gate.Blocked, 'tag not in reviewed policy'):
             self.decide('sit')
@@ -101,6 +102,7 @@ class TrustedTest(unittest.TestCase):
         self.c['domains']['sit'] = self.c['feature_tag'] + '-sit.' + self.policy['domain_suffix']
         self.c['sources'][0].update(kind='baseline', pr=None)
         self.policy['main_rehearsal_tasks'] = [self.c['task_url']]
+        F.bind_fixture_components(self.c, self.policy)
         self.selectors = {'builds': self.selectors['builds']}
         with patch.object(T.reader, 'api', side_effect=self.api), \
              patch.object(T, 'verify_feature_tag') as tag_check, \

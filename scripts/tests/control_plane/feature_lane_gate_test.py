@@ -26,6 +26,9 @@ class FeatureTagTests(unittest.TestCase):
         candidate['schema'] = 2
         candidate['feature_tag'] = 'smoke-' + candidate['feature_id']
         candidate['domains']['sit'] = candidate['feature_tag'] + '-sit.' + policy['domain_suffix']
+        with self.assertRaisesRegex(gate.Blocked, 'runtime components'):
+            gate.validate_candidate(candidate, policy)
+        bind_fixture_components(candidate, policy)
         gate.validate_candidate(candidate, policy)
         candidate['domains']['sit'] = 'other-' + candidate['domains']['sit']
         with self.assertRaisesRegex(gate.Blocked, 'unapproved temporary SIT domain'):
@@ -47,10 +50,17 @@ class FeatureTagTests(unittest.TestCase):
         with self.assertRaisesRegex(gate.Blocked, 'explicitly allowed'):
             gate.validate_candidate(candidate, policy)
         policy['main_rehearsal_tasks'] = [candidate['task_url']]
+        bind_fixture_components(candidate, policy)
         gate.validate_candidate(candidate, policy)
         candidate['candidate_mode'] = 'feature'
         with self.assertRaisesRegex(gate.Blocked, 'baseline alone'):
             gate.validate_candidate(candidate, policy)
+
+
+def bind_fixture_components(candidate, policy):
+    source = candidate['sources'][0]
+    policy['runtime_components'] = {'accounts': source['repository']}
+    candidate['components'] = {'accounts': {'source_repository': source['repository'], 'image': source['image']}}
 
 
 def fixture():

@@ -155,7 +155,8 @@ def validate_candidate(c, policy):
         require(c.get('candidate_mode') in (None, 'feature') and (features > 0 or bool(configs)),
                 'already merged baseline alone cannot establish premerge SIT')
     components = c.get('components')
-    require(not configs or components is not None, 'configuration candidate requires independent runtime components')
+    require((not configs and c['schema'] != 2) or components is not None,
+            'candidate requires independent runtime components')
     if components is not None:
         require(isinstance(components, dict) and bool(components), 'runtime components required')
         expected = policy.get('runtime_components')
