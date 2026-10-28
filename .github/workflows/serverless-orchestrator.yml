@@ -280,7 +280,7 @@ jobs:
   backend:
     name: Cloud Run / ${{ matrix.service }}
     needs: [prepare, database]
-    if: ${{ always() && needs.prepare.result == 'success' && (needs.database.result == 'success' || needs.database.result == 'skipped') && needs.prepare.outputs.run_backend == 'true' && inputs.operation != 'plan' }}
+    if: ${{ always() && needs.prepare.result == 'success' && (needs.database.result == 'success' || needs.prepare.outputs.run_database == 'false') && needs.prepare.outputs.run_backend == 'true' && inputs.operation != 'plan' }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment || 'uat' }}
     strategy:
@@ -477,7 +477,7 @@ jobs:
   frontend:
     name: Cloudflare / ${{ matrix.component.title }}
     needs: [prepare, database]
-    if: ${{ always() && needs.prepare.result == 'success' && (needs.database.result == 'success' || needs.database.result == 'skipped') && needs.prepare.outputs.run_frontend == 'true' && inputs.operation != 'plan' }}
+    if: ${{ always() && needs.prepare.result == 'success' && (needs.database.result == 'success' || needs.prepare.outputs.run_database == 'false') && needs.prepare.outputs.run_frontend == 'true' && inputs.operation != 'plan' }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment || 'uat' }}
     strategy:
@@ -561,7 +561,7 @@ jobs:
   configure:
     name: '[5/6] 配置 | DNS & Service Alignment'
     needs: [prepare, backend, frontend]
-    if: ${{ always() && needs.prepare.result == 'success' && (needs.backend.result == 'success' || needs.backend.result == 'skipped') && (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') && needs.prepare.outputs.run_configure == 'true' && inputs.operation != 'plan' }}
+    if: ${{ always() && needs.prepare.result == 'success' && (needs.backend.result == 'success' || needs.prepare.outputs.run_backend == 'false') && (needs.frontend.result == 'success' || needs.prepare.outputs.run_frontend == 'false') && needs.prepare.outputs.run_configure == 'true' && inputs.operation != 'plan' }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment || 'uat' }}
     steps:

@@ -13,7 +13,7 @@ import uuid
 from importlib.util import module_from_spec, spec_from_file_location
 
 WORKFLOW = "environment-data-operations.yml"
-REPOSITORY = "ai-workspace-infra/platform-ops-toolkit"
+REPOSITORY = os.environ.get("GITHUB_REPOSITORY") or "ai-workspace-infra/Platform-Orchestrator"
 _validator_spec = spec_from_file_location("validate_operation", Path(__file__).with_name("validate_operation.py"))
 _validator_module = module_from_spec(_validator_spec)
 _validator_spec.loader.exec_module(_validator_module)
@@ -51,7 +51,11 @@ def gh(*arguments, payload=None, timeout=30):
     if payload is None and environment.get("RUN_STATUS_TOKEN"):
         environment["GH_TOKEN"] = environment["RUN_STATUS_TOKEN"]
     result = subprocess.run(["gh", *arguments], input=json.dumps(payload) if payload else None,
-                            text=True, capture_output=True, check=True, env=environment, timeout=timeout)
+                            text=True, capture_output=True, env=environment, timeout=timeout)
+    if result.returncode != 0:
+        if result.stderr:
+            print(f"::error::gh {' '.join(arguments)} failed (code {result.returncode}): {result.stderr.strip()}", flush=True)
+        raise subprocess.CalledProcessError(result.returncode, ["gh", *arguments], output=result.stdout, stderr=result.stderr)
     return json.loads(result.stdout) if result.stdout.strip() else {}
 
 

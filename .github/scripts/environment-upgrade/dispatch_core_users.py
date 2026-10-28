@@ -12,7 +12,7 @@ import re
 import subprocess
 import time
 
-REPOSITORY = "ai-workspace-infra/platform-ops-toolkit"
+REPOSITORY = os.environ.get("GITHUB_REPOSITORY") or "ai-workspace-infra/Platform-Orchestrator"
 WORKFLOW = "selfhost-orchestrator.yml"
 RECEIPT_NAME = "prod-full-business-receipt"
 TAG = re.compile(r"v[0-9]+(?:\.[0-9]+)+(?:-r[1-9][0-9]*)?")
