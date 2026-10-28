@@ -146,7 +146,7 @@ class TrustedTest(unittest.TestCase):
         self.c['feature_tag'] = 'smoke-' + self.c['feature_id']
         self.c['domains']['sit'] = self.c['feature_tag'] + '-sit.' + self.policy['domain_suffix']
         F.bind_fixture_components(self.c, self.policy)
-        self.selectors = {'builds': self.selectors['builds']}
+        self.selectors = {'builds': self.selectors['builds'], 'chart': {'run_id': 1, 'attempt': 1, 'artifact_id': 1}}
         with self.assertRaisesRegex(T.gate.Blocked, 'tag not in reviewed policy'):
             self.decide('sit')
 
@@ -162,16 +162,18 @@ class TrustedTest(unittest.TestCase):
                                    environment='sit', build_mode='feature-sit', candidate_hostname=self.c['domains']['sit'])
         self.archive(102, 'manifest.json', json.dumps(self.documents[102]))
         F.bind_fixture_components(self.c, self.policy)
-        self.selectors = {'builds': self.selectors['builds']}
+        self.selectors = {'builds': self.selectors['builds'], 'chart': {'run_id': 1, 'attempt': 1, 'artifact_id': 1}}
         with patch.object(T.reader, 'api', side_effect=self.api), \
              patch.object(T, 'verify_feature_tag') as tag_check, \
              patch.object(T, 'verify_gitops_domain') as gitops_check, \
+             patch.object(T.chart, 'verify') as chart_check, \
              patch.object(T, 'verify_main_rehearsal_sources') as main_check:
             result = T.verified(self.c, 'sit', 'f' * 40, self.selectors)
             self.assertEqual(result['status'], 'VERIFIED_GATE')
             self.assertFalse(result['dispatch_authorized'])
             self.assertEqual(tag_check.call_count, 2)
             self.assertEqual(gitops_check.call_count, 2)
+            self.assertEqual(chart_check.call_count, 1)
             self.assertEqual(main_check.call_count, 2)
             self.documents[102]['website_content_sha'] = 'b' * 40
             self.archive(102, 'manifest.json', json.dumps(self.documents[102]))
