@@ -25,6 +25,7 @@ class FeatureTagTests(unittest.TestCase):
         candidate, policy, *_ = fixture()
         candidate['schema'] = 2
         candidate['feature_tag'] = 'smoke-' + candidate['feature_id']
+        candidate['sources'][0]['base_sha'] = 'd' * 40
         candidate['domains']['sit'] = candidate['feature_tag'] + '-sit.' + policy['domain_suffix']
         with self.assertRaisesRegex(gate.Blocked, 'runtime components'):
             gate.validate_candidate(candidate, policy)
@@ -38,6 +39,7 @@ class FeatureTagTests(unittest.TestCase):
         candidate, policy, *_ = fixture()
         candidate['schema'] = 2
         candidate['feature_tag'] = 'a' * 40 + '-' + candidate['feature_id']
+        candidate['sources'][0]['base_sha'] = 'd' * 40
         candidate['domains']['sit'] = candidate['feature_tag'] + '-sit.' + policy['domain_suffix']
         with self.assertRaisesRegex(gate.Blocked, 'DNS label exceeds'):
             gate.validate_candidate(candidate, policy)
@@ -55,6 +57,16 @@ class FeatureTagTests(unittest.TestCase):
         candidate['candidate_mode'] = 'feature'
         with self.assertRaisesRegex(gate.Blocked, 'baseline alone'):
             gate.validate_candidate(candidate, policy)
+
+    def test_feature_pr_main_base_is_fixed(self):
+        candidate, policy, prs, *_ = fixture()
+        source = candidate['sources'][0]
+        source['base_sha'] = 'd' * 40
+        prs[source['repository']]['base_sha'] = 'd' * 40
+        gate.verify_pr(source, prs[source['repository']], 'sit')
+        prs[source['repository']]['base_sha'] = 'e' * 40
+        with self.assertRaisesRegex(gate.Blocked, 'Main base moved'):
+            gate.verify_pr(source, prs[source['repository']], 'sit')
 
 
 def bind_fixture_components(candidate, policy):
