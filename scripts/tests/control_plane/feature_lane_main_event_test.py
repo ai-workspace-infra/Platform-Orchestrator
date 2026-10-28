@@ -42,13 +42,14 @@ class MainEventTest(unittest.TestCase):
             return self.run
         self.trusted.reader.api.side_effect = api
         self.trusted.policy_at.return_value = {'gitops_repository': 'ai-workspace-infra/gitops',
+            'website_content_canonical_repository': 'ai-workspace-services/knowledge',
             'task_repositories': ['ai-workspace-infra/Platform-Orchestrator']}
         self.trusted.verify_feature_tag.return_value = {'repository': self.env['GITHUB_REPOSITORY'], 'target_sha': 'b' * 40}
 
     def test_main_event_validates_exact_run_and_reviewed_tag(self):
         tag, repos = module.authenticate(self.event, self.env, self.trusted)
         self.assertEqual(tag, 'smoke-sit-test-1483')
-        self.assertEqual(repos['ai-workspace-services'], ['accounts'])
+        self.assertEqual(repos['ai-workspace-services'], ['accounts', 'knowledge'])
         self.assertEqual(repos['ai-workspace-infra'], ['gitops', 'Platform-Orchestrator'])
         self.trusted.policy_at.assert_called_once_with('a' * 40)
         self.trusted.verify_feature_tag.assert_called_once()

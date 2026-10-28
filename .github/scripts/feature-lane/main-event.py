@@ -26,6 +26,10 @@ def installation_repositories(candidate, policy, binding):
     repositories = {match.group(1), binding['repository'], gitops}
     repositories.update(row['repository'] for row in candidate['sources'])
     repositories.update(row['repository'] for row in candidate.get('configurations', []))
+    canonical = policy.get('website_content_canonical_repository')
+    if not isinstance(canonical, str) or not re.fullmatch(r'ai-workspace-services/[A-Za-z0-9_.-]+', canonical):
+        raise ValueError('reviewed canonical content repository required')
+    repositories.add(canonical)
     result = {'ai-workspace-infra': set(), 'ai-workspace-services': set()}
     for repository in repositories:
         parts = repository.split('/') if isinstance(repository, str) else []
