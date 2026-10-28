@@ -1,6 +1,27 @@
-# platform-ops-toolkit
+# Platform Orchestrator (platform-ops-toolkit)
+
+> **平台统一交付编排中心**：聚焦全环境（UAT / PROD / SIT）多云流水线编排调度、质量门禁判定、云平台抽象对接与不可变交付凭据签发。
 
 [🇬🇧 English](README.md) · [🇨🇳 中文版](README_zh.md) · [English alternate](README_EN.md)
+
+---
+
+## 🧭 平台核心编排流水线 (Core Orchestrators)
+
+本仓库作为平台工程的 **统一编排控制面**，聚焦驱动以下核心交付编排器：
+
+| 编排器名称 | 入口 Workflow | 核心职责 | 环境覆盖 |
+| :--- | :--- | :--- | :--- |
+| **Serverless Orchestrator** | [`.github/workflows/serverless-orchestrator.yml`](.github/workflows/serverless-orchestrator.yml) | 统一 Serverless 准生产与生产交付（六阶段结构：准备 → DB 服务 → 后端矩阵 → 前端矩阵 → 配置 → 汇总） | UAT / PROD |
+| **Selfhost Orchestrator** | [`.github/workflows/selfhost-orchestrator.yml`](.github/workflows/selfhost-orchestrator.yml) | 驱动主机基础设施供应、CMDB 记录、Docker Compose / K3s 服务生命周期与平滑滚动更新 | UAT / PROD |
+| **Hybrid Orchestrator** | [`.github/workflows/hybrid-orchestrator.yml`](.github/workflows/hybrid-orchestrator.yml) | 跨边缘节点弹性调度、混合容灾切换与高可用链路演练 | UAT |
+| **IaC Orchestrator** | [`.github/workflows/iac-orchestrator.yml`](.github/workflows/iac-orchestrator.yml) | 声明式调用 IaC Modules 供应多云（GCP、AWS、Cloudflare 等）基础设施 | 多云环境 |
+| **Daily Main Snapshot** | [`.github/workflows/daily-main-snapshot.yaml`](.github/workflows/daily-main-snapshot.yaml) | 每日主干不可变快照解析、跨组织微服务并行构建与集成验证 | Daily CI |
+| **Environment Data Operations** | [`.github/workflows/environment-data-operations.yml`](.github/workflows/environment-data-operations.yml) | 统一数据库快照 Checkpoint、Schema 升级迁移与探针校验调度 | UAT / PROD |
+
+> **文档与知识库归档**：历史参考文档、技术白皮书与阶段任务底账已统一迁移归档至知识库仓库：[`ai-workspace-services/knowledge: docs/reference/platform-ops-toolkit/`](https://github.com/ai-workspace-services/knowledge/tree/main/docs/reference/platform-ops-toolkit)。编排器专用指南见 [docs/README.md](docs/README.md)。
+
+---
 
 ## 🚀 快速开始
 

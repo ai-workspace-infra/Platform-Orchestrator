@@ -1,6 +1,27 @@
-# platform-ops-toolkit — English guide
+# Platform Orchestrator (platform-ops-toolkit) — English Guide
+
+> **Unified Platform Delivery Orchestrator**: Focused on multi-environment (UAT / PROD / SIT) workflow orchestration, quality gating, cloud provider abstraction, and immutable delivery receipt verification.
 
 This file is the explicit English alternate entry point. The canonical English guide is [`README.md`](README.md); the Chinese guide is [`README_zh.md`](README_zh.md).
+
+---
+
+## 🧭 Core Delivery Orchestrators
+
+As the unified control plane for platform engineering, this repository focuses purely on orchestrating multi-environment delivery pipelines:
+
+| Orchestrator | Workflow Entrypoint | Responsibility | Environments |
+| :--- | :--- | :--- | :--- |
+| **Serverless Orchestrator** | [`.github/workflows/serverless-orchestrator.yml`](.github/workflows/serverless-orchestrator.yml) | Unified serverless delivery (6 stages: Prepare → Database → Backend Matrix → Frontend Matrix → Configure → Summary) | UAT / PROD |
+| **Selfhost Orchestrator** | [`.github/workflows/selfhost-orchestrator.yml`](.github/workflows/selfhost-orchestrator.yml) | Multi-cloud VM/K3s provisioning, CMDB tracking, Docker Compose / K3s services rolling upgrades | UAT / PROD |
+| **Hybrid Orchestrator** | [`.github/workflows/hybrid-orchestrator.yml`](.github/workflows/hybrid-orchestrator.yml) | Cross-edge elastic scheduling, multi-cloud failover, and dual-active routing | UAT |
+| **IaC Orchestrator** | [`.github/workflows/iac-orchestrator.yml`](.github/workflows/iac-orchestrator.yml) | Declarative IaC module dispatch across cloud providers (GCP, AWS, Cloudflare) | Multi-cloud |
+| **Daily Main Snapshot** | [`.github/workflows/daily-main-snapshot.yaml`](.github/workflows/daily-main-snapshot.yaml) | Daily immutable snapshot resolution, multi-repo parallel builds, and integration gates | Daily CI |
+| **Environment Data Operations** | [`.github/workflows/environment-data-operations.yml`](.github/workflows/environment-data-operations.yml) | Unified database checkpoints, schema migration dispatch, and health probing | UAT / PROD |
+
+> **Documentation Archive**: Historical reference docs, whitepapers, and operational runbooks have been migrated to the knowledge repository: [`ai-workspace-services/knowledge: docs/reference/platform-ops-toolkit/`](https://github.com/ai-workspace-services/knowledge/tree/main/docs/reference/platform-ops-toolkit). Orchestrator howtos remain in [docs/README.md](docs/README.md).
+
+---
 
 ## Quick start
 
@@ -24,7 +45,7 @@ The selfhost workflow entry point is [`.github/workflows/selfhost-orchestrator.y
 
 ## Vault and permissions
 
-The toolkit authenticates to Vault with GitHub Actions OIDC → Vault JWT. Detailed setup, claims, policies, roles, KV paths, and troubleshooting are documented in [Vault Authentication and Policy Isolation](docs/vault/vault_authentication_and_policy_isolation.md).
+The toolkit authenticates to Vault with GitHub Actions OIDC → Vault JWT. Detailed setup, claims, policies, roles, and KV paths are documented in the [Vault Setup Howto](docs/howto/Vault-Shared-GCP-OIDC-Setup.md) and the [Knowledge Base Archive](https://github.com/ai-workspace-services/knowledge/tree/main/docs/reference/platform-ops-toolkit/04-security-vault-and-iam).
 
 The initializer creates environment policies and two role families:
 
