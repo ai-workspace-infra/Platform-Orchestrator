@@ -25,7 +25,7 @@ class TrustedTest(unittest.TestCase):
     def test_main_image_manifest_binds_authenticated_run_and_source(self):
         source = {'repository': 'example/accounts', 'kind': 'baseline', 'sha': 'a' * 40,
                   'image': 'example/accounts@sha256:' + 'b' * 64}
-        run = {'event': 'push', 'id': 11, 'attempt': 1}
+        run = {'event': 'push', 'head_branch': 'main', 'id': 11, 'attempt': 1}
         proof = {'schema': 'main-image-build/v1', 'source_repository': source['repository'],
                  'source_sha': source['sha'], 'image': source['image'], 'event': 'push',
                  'ref': 'refs/heads/main', 'run_id': 11, 'attempt': 1}
@@ -39,6 +39,8 @@ class TrustedTest(unittest.TestCase):
                     T.verify_build_manifest(changed, run, source)
         with self.assertRaises(T.gate.Blocked):
             T.verify_build_manifest(proof, run, dict(source, kind='feature'))
+        with self.assertRaises(T.gate.Blocked):
+            T.verify_build_manifest(proof, dict(run, head_branch='other'), source)
 
     def setUp(self):
         self.c,self.policy,self.prs,self.receipt,self.run,self.auth=F.fixture()

@@ -158,7 +158,8 @@ def artifact(locator):
     raw = reader.api(f'repos/{repo}/actions/runs/{locator["run_id"]}')
     run = {'repository': raw.get('repository', {}).get('full_name'), 'path': raw.get('path', '').split('@')[0],
            'head_sha': raw.get('head_sha'), 'event': raw.get('event'), 'id': raw.get('id'),
-           'attempt': raw.get('run_attempt'), 'status': raw.get('status'), 'conclusion': raw.get('conclusion')}
+           'attempt': raw.get('run_attempt'), 'status': raw.get('status'), 'conclusion': raw.get('conclusion'),
+           'head_branch': raw.get('head_branch')}
     gate.verify_run(run, locator, locator['sha'], locator['event'])
     gate.require(run['id'] == locator['run_id'] and run['attempt'] == locator['attempt'] and
                  raw.get('head_repository', {}).get('full_name') == repo, 'wrong run/attempt or fork producer')
@@ -174,7 +175,7 @@ def verify_build_manifest(proof, run, source):
     """Validate the reviewed owner's manifest against its authenticated run."""
     gate.require(isinstance(proof, dict), 'invalid build manifest')
     if proof.get('schema') == 'main-image-build/v1':
-        gate.require(source.get('kind') == 'baseline' and run.get('event') == 'push' and
+        gate.require(source.get('kind') == 'baseline' and run.get('event') == 'push' and run.get('head_branch') == 'main' and
                      proof.get('event') == 'push' and proof.get('ref') == 'refs/heads/main' and
                      type(proof.get('run_id')) is int and proof['run_id'] == run.get('id') and
                      type(proof.get('attempt')) is int and proof['attempt'] == run.get('attempt') and
