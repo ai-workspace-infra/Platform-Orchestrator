@@ -381,6 +381,8 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
         result.update(status='VERIFIED_GATE', evidence_kind='github_retrieved', policy_sha=policy_commit)
         if verified_website_content is not None:
             result['verified_website_content'] = verified_website_content
+        if candidate.get('schema') == 2:
+            result['verified_chart_digest'] = candidate['chart_digest']
         if candidate.get('components'):
             result['verified_runtime_components'] = {
                 name: verified_builds[item['source_repository']]
