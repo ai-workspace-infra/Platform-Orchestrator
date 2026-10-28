@@ -62,13 +62,16 @@ def foundation_dependencies(reader,source,repo=REPO):
  require(len(refs)==1 and isinstance(refs[0],str) and SHA.fullmatch(refs[0]),'bootstrap implementation ref must be immutable')
  return iac,refs[0]
 
+def canonical_toolkit_repository(reader):
+ metadata=reader.api(f'repos/{REPO}')
+ require(metadata.get('id')==1284966060 and metadata.get('full_name') in (REPO,'ai-workspace-infra/Platform-Orchestrator'),'unexpected foundation repository identity')
+ return metadata['full_name']
+
 def foundation(reader,run_id,summary_id,bootstrap_id):
  run_id=positive(run_id);summary_id=positive(summary_id);bootstrap_id=positive(bootstrap_id)
  # GitHub reports the canonical repository name after a rename. Authenticate
  # the original fixed repository ID before using its canonical API identity.
- metadata=reader.api(f'repos/{REPO}')
- require(metadata.get('id')==1284966060 and metadata.get('full_name') in (REPO,'ai-workspace-infra/Platform-Orchestrator'),'unexpected foundation repository identity')
- repo=metadata['full_name']
+ repo=canonical_toolkit_repository(reader)
  run=reader.api(f'repos/{repo}/actions/runs/{run_id}')
  source=run.get('head_sha','')
  require(isinstance(source,str) and SHA.fullmatch(source),'foundation workflow commit missing')
@@ -303,16 +306,17 @@ def build_matrix(reader,release,stage='sit'):
 
 def prior_candidate_builds(reader,run_id,artifact_id,current,release):
  run_id=positive(run_id);artifact_id=positive(artifact_id)
- run=reader.api(f'repos/{REPO}/actions/runs/{run_id}');source=run.get('head_sha','')
+ repo=canonical_toolkit_repository(reader)
+ run=reader.api(f'repos/{repo}/actions/runs/{run_id}');source=run.get('head_sha','')
  require(isinstance(source,str) and SHA.fullmatch(source),'candidate evidence workflow SHA missing')
- run_identity(run,REPO,source,'.github/workflows/dev-feature-deploy.yml','workflow_dispatch')
+ run_identity(run,repo,source,'.github/workflows/dev-feature-deploy.yml','workflow_dispatch')
  require(run.get('head_branch')=='main','candidate evidence must originate on main')
- main=reader.api(f'repos/{REPO}/git/ref/heads/main')['object']['sha']
- require(reader.api(f'repos/{REPO}/compare/{source}...{main}').get('status') in ('ahead','identical'),'candidate evidence producer not on main')
+ main=reader.api(f'repos/{repo}/git/ref/heads/main')['object']['sha']
+ require(reader.api(f'repos/{repo}/compare/{source}...{main}').get('status') in ('ahead','identical'),'candidate evidence producer not on main')
  attempt=positive(run.get('run_attempt'))
- jobs=pages(reader,f'repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs','jobs')
+ jobs=pages(reader,f'repos/{repo}/actions/runs/{run_id}/attempts/{attempt}/jobs','jobs')
  require(any(j.get('name')=='resolve' and j.get('conclusion')=='success' for j in jobs),'candidate evidence resolve job not successful')
- raw=reader.artifact_file(REPO,artifact_id,run_id,attempt,f'dev-feature-candidate-{run_id}-{attempt}','receipt.json',source)
+ raw=reader.artifact_file(repo,artifact_id,run_id,attempt,f'dev-feature-candidate-{run_id}-{attempt}','receipt.json',source)
  proof=json.loads(raw)
  for key in ('schema_version','result','repository','stage','candidate_pr','candidate_head','base_ref','base_sha','checks','same_repository','main_ancestry_verified'):
   require(proof.get(key)==current.get(key),'prior candidate evidence no longer matches '+key)
