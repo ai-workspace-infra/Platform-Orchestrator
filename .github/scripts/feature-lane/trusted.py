@@ -119,6 +119,33 @@ def verify_main_rehearsal_sources(candidate, policy):
                      current.get('object', {}).get('sha') == source['sha'], 'rehearsal Main moved or unavailable')
 
 
+def verify_gitops_domain(candidate, policy, stage):
+    """Bind a tagged candidate to reviewed GitOps declaration bytes and ref."""
+    selected = candidate.get('gitops')
+    repo = policy.get('gitops_repository')
+    path = policy.get('gitops_domain_contract_path')
+    gate.require(isinstance(selected, dict) and set(selected) == {'repository', 'sha', 'domain_sha256'} and
+                 isinstance(repo, str) and re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo) and
+                 path == 'docs/features/tagged-sit-domain-contract.yaml' and
+                 selected['repository'] == repo and gate.sha(selected['sha']) and gate.sha(selected['domain_sha256'], 64),
+                 'missing reviewed GitOps domain binding')
+    gate.require(file_at(repo, selected['sha'], path) == selected['domain_sha256'],
+                 'GitOps domain declaration differs from candidate')
+    configurations = [row for row in candidate.get('configurations', []) if row.get('repository') == repo]
+    if configurations:
+        gate.require(any(row.get('sha') == selected['sha'] and
+                         row.get('paths', {}).get(path) == selected['domain_sha256'] for row in configurations),
+                     'GitOps candidate declaration is not bound to selected configuration PR')
+    else:
+        main = reader.api(f'repos/{repo}/git/ref/heads/main').get('object', {})
+        gate.require(main.get('type') == 'commit' and gate.sha(main.get('sha')), 'GitOps Main unavailable')
+        if stage in ('sit', 'merge'):
+            gate.require(main['sha'] == selected['sha'], 'GitOps Main moved; require new candidate')
+        else:
+            comparison = reader.api(f'repos/{repo}/compare/{selected["sha"]}...{main["sha"]}')
+            gate.require(comparison.get('status') in ('ahead', 'identical'), 'GitOps snapshot not reachable from Main')
+
+
 def verify_feature_tag(candidate, policy):
     """Check a reviewed tag binding against GitHub; never authorize execution."""
     tag = candidate.get('feature_tag')
@@ -265,6 +292,7 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
         if candidate.get('schema') == 2:
             gate.require(task.get('kind') == 'issue', 'feature tag requires a tracked Issue')
             verify_feature_tag(candidate, policy)
+            verify_gitops_domain(candidate, policy, stage)
             frontend_repo = policy.get('feature_sit_frontend_repository')
             gate.require(frontend_repo in sources and frontend_repo in policy.get('repositories', []),
                          'missing reviewed Feature SIT frontend source')
@@ -299,6 +327,8 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
         if candidate.get('schema') == 2 and candidate.get('candidate_mode') == 'main-rehearsal' and stage == 'sit':
             verify_main_rehearsal_sources(candidate, policy)
             verify_feature_tag(candidate, policy)
+        if candidate.get('schema') == 2 and stage == 'sit':
+            verify_gitops_domain(candidate, policy, stage)
         receipt = run = auth = None
         if stage in ('merge', 'uat'):
             receipt, run = artifact(locator(policy['acceptance_owner'], evidence_selectors['acceptance'], policy['acceptance_owner']['sha']))
