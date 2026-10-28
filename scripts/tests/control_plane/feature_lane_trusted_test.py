@@ -22,6 +22,16 @@ F=load('gate_fixture',ROOT/'scripts/tests/control_plane/feature_lane_gate_test.p
 
 
 class TrustedTest(unittest.TestCase):
+    def test_caddy_evidence_binds_original_build_run(self):
+        source={'repository':'ai-workspace-infra/artifacts','sha':'a'*40}
+        proof={'evidence_kind':'github-run-and-registry','producer_workflow':'.github/workflows/build-ci-image-caddy.yml','producer_run_id':123,'producer_attempt':1}
+        raw={'id':123,'run_attempt':1,'head_sha':'a'*40,'head_branch':'main','event':'workflow_dispatch','path':proof['producer_workflow'],'status':'completed','conclusion':'success','head_repository':{'full_name':source['repository']}}
+        with patch.object(T.reader,'api',return_value=raw):
+            self.assertEqual(T.build_run_identity(proof,{'id':456},source),123)
+            raw['head_sha']='b'*40
+            with self.assertRaisesRegex(T.gate.Blocked,'original build run'):
+                T.build_run_identity(proof,{'id':456},source)
+
     def test_configuration_diff_rejects_undeclared_and_deleted_files(self):
         row={'repository':'example/config','pr':7,'paths':{'lane/values.yaml':'a'*64}}
         for files in ([{'filename':'lane/values.yaml','status':'modified'},{'filename':'prod/values.yaml','status':'modified'}],

@@ -269,6 +269,24 @@ def verify_build_manifest(proof, run, source):
                  'build manifest source/image mismatch')
 
 
+def build_run_identity(proof, evidence_run, source):
+    if source['repository'] != 'ai-workspace-infra/artifacts':
+        return evidence_run['id']
+    build_id=proof.get('producer_run_id');attempt=proof.get('producer_attempt')
+    gate.require(proof.get('evidence_kind')=='github-run-and-registry' and
+                 proof.get('producer_workflow')=='.github/workflows/build-ci-image-caddy.yml' and
+                 type(build_id) is int and build_id>0 and type(attempt) is int and attempt>0,
+                 'Caddy build producer identity missing')
+    raw=reader.api(f'repos/{source["repository"]}/actions/runs/{build_id}')
+    gate.require(raw.get('id')==build_id and raw.get('run_attempt')==attempt and
+                 raw.get('head_sha')==source['sha'] and raw.get('head_branch')=='main' and
+                 raw.get('event')=='workflow_dispatch' and raw.get('path','').split('@')[0]==proof['producer_workflow'] and
+                 raw.get('status')=='completed' and raw.get('conclusion')=='success' and
+                 raw.get('head_repository',{}).get('full_name')==source['repository'],
+                 'Caddy original build run differs')
+    return build_id
+
+
 def authorization(policy, fingerprint, stage, task, selectors):
     auth = policy.get('authorization')
     gate.require(isinstance(auth, dict) and auth.get('kind') == 'issue_comment',
@@ -359,7 +377,7 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
             verified_builds[source['repository']] = {'source_repository': source['repository'],
                                                        'source_sha': source['sha'],
                                                        'image': source['image'],
-                                                       'build_run_id': str(producer['id'])}
+                                                       'build_run_id': str(build_run_identity(proof, producer, source))}
             if candidate.get('schema') == 2 and source['repository'] == frontend_repo:
                 content_repo = source.get('website_content_repository')
                 content_sha = source.get('website_content_sha')
