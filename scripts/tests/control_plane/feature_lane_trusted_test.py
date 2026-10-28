@@ -22,6 +22,17 @@ F=load('gate_fixture',ROOT/'scripts/tests/control_plane/feature_lane_gate_test.p
 
 
 class TrustedTest(unittest.TestCase):
+    def test_evidence_transport_selects_token_by_fixed_api_owner(self):
+        with patch.dict('os.environ', {'FEATURE_GH_TOKEN_INFRA': 'infra-token',
+                                       'FEATURE_GH_TOKEN_SERVICES': 'services-token'}, clear=True):
+            with patch.object(T, '_authenticated_api', return_value={}) as api:
+                T.feature_api('repos/ai-workspace-services/accounts/actions/artifacts/1/zip', binary=True)
+                self.assertEqual(api.call_args.kwargs, {'binary': True, 'token': 'services-token'})
+                T.feature_api('repos/ai-workspace-infra/gitops/git/ref/heads/main')
+                self.assertEqual(api.call_args.kwargs, {'binary': False, 'token': 'infra-token'})
+                T.feature_api('repos/example/accounts/actions/runs/1')
+                self.assertEqual(api.call_args.kwargs, {'binary': False, 'token': None})
+
     def test_main_image_manifest_binds_authenticated_run_and_source(self):
         source = {'repository': 'example/accounts', 'kind': 'baseline', 'sha': 'a' * 40,
                   'image': 'example/accounts@sha256:' + 'b' * 64}
