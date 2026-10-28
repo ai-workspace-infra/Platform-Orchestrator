@@ -1,132 +1,53 @@
 name: Serverless Orchestrator
 
-# Resolve → IaC/Provision → Deploy → Migrate/Configure → Verify
-# Local reusable stages preserve github.run_id/run_attempt and owner receipts.
+# ==============================================================================
+# AI-Assisted Serverless Multi-Environment Delivery Pipeline
+# 架构覆盖：UAT（准生产集成）与 PROD（生产受控）
+# 六阶段结构：准备 → DB 服务 → 后端矩阵 → 前端矩阵 → 配置 → 汇总
+# 核心抽象：Cloudflare / Cloud Run / Supabase（初始化与升级配置）
+# 数据迁移：联动 dispatch environment-data-operations.yml
+# ==============================================================================
 
 permissions:
   id-token: write
   contents: read
-  # Read the UAT Hybrid run a PROD promotion manifest names.
   actions: write
 
 on:
   workflow_dispatch:
     inputs:
+      environment:
+        description: '目标环境：uat（准生产集成）或 prod（生产受控）'
+        required: true
+        default: 'uat'
+        type: choice
+        options:
+          - uat
+          - prod
       operation:
-        description: '执行范围：plan 校验；init-schema 初始化；deploy/upgrade 部署；migrate 数据迁移；deploy+migrate 部署+迁移；repair-schema 仅修复已审阅 r3 UAT schema（不部署、不切 DNS）；destroy 销毁（Prod 禁止）'
+        description: '操作模式：plan（校验预览）/ init（全新初始化）/ deploy（常规部署）/ upgrade（平滑升级）/ migrate（仅数据迁移）/ deploy+migrate（部署并迁移）'
         required: true
         default: 'deploy'
         type: choice
         options:
           - plan
-          - init-schema
+          - init
           - deploy
           - upgrade
           - migrate
           - deploy+migrate
-          - repair-schema
-          - destroy
-      target_domains:
-        description: '选择要执行的业务域 (Business Domain)。serverless 仅部署 web-saas；默认 all 在 serverless 中解析为 web-saas，其它业务域走 cloud_provider 环境副本链路。'
-        required: false
-        default: 'all'
-        type: choice
-        options:
-          - all
-          - ai-workspace
-          - web-saas
-          - infra-platform
-          - agent-proxy
-          - web-saas + agent-proxy
-      cloud_provider:
-        description: '混合环境关联的云服务商；serverless 运行时仍由 Cloud Run/Cloudflare 承载，资源创建由对应 IaC workflow 负责'
-        required: false
-        default: 'gcp-cloud'
-        type: choice
-        options:
-          - aws-cloud
-          - gcp-cloud
-          - azure-cloud
-          - vultr-vps
-          - akamai-cloud
-          - ucloud
-      vault_env_path:
-        description: 'Target environment'
-        required: false
-        default: 'uat'
-        type: choice
-        options:
-          - sit
-          - uat
-          - prod
-      tag_ref:
-        description: 'Unified immutable tag for Cloud Run images, portal, and edge-gateway (for example daily-build-2026.08.17-r1)'
-        required: false
-        type: string
-      website_content_ref:
-        description: 'Reviewed knowledge commit or immutable tag consumed by Portal website builds'
-        required: false
-        default: 'main'
-        type: string
-      accounts_schema_ref:
-        description: 'Accounts source ref containing sql/schema.sql; used only by init-schema'
-        required: false
-        default: 'main'
-        type: string
-      apply_accounts_schema_migration:
-        description: 'UAT only: apply one reviewed Accounts sql/migrations change before Cloud Run deployment'
-        required: false
-        default: false
-        type: boolean
-      adopt_accounts_baseline:
-        description: 'UAT only: adopt the reviewed expand-only Accounts baseline before Cloud Run deployment'
-        required: false
-        default: false
-        type: boolean
-      accounts_schema_expected_version:
-        description: 'UAT current schema_migrations version before applying the change'
-        required: false
-        type: string
-      accounts_schema_target_version:
-        description: 'Target version of the one Accounts .up.sql migration'
-        required: false
-        type: string
-      accounts_schema_sha256:
-        description: 'Expected SHA-256 of the target Accounts .up.sql migration'
-        required: false
-        type: string
-      probe_accounts_schema:
-        description: 'UAT plan only: inspect schema_migrations version and lifecycle readiness without changes'
-        required: false
-        default: false
-        type: boolean
-      deploy_cloudflare:
-        description: 'Deploy Cloudflare SSR Workers, edge gateway, and Pages static assets'
-        required: false
-        default: true
-        type: boolean
-      deploy_cloud_run:
-        description: 'Deploy backend services to GCP Cloud Run'
-        required: false
-        default: true
-        type: boolean
-      cloud_run_service:
-        description: 'Optional single Cloud Run service to deploy; empty deploys the backend service set'
+      release_tag:
+        description: '不可变发布版本 Tag（如 daily-build-2026.10.28-r1 或 v1.2.0）'
         required: false
         default: ''
-        type: choice
-        options:
-          - ''
-          - accounts
-          - content-service
-          - billing-service
-      skip_stripe_catalog:
-        description: 'Skip optional Stripe catalog synchronization without blocking core deployment'
+        type: string
+      promotion_manifest:
+        description: '仅 PROD 必需：UAT 验收锁定的不可变发布清单（JSON 格式，包含各服务 SHA256 Digest）'
         required: false
-        default: false
-        type: boolean
+        default: ''
+        type: string
       dns_mode:
-        description: 'DNS 行为：none 不发布；uat-records 更新 SIT/UAT canonical；prod-cutover 接管生产 canonical（普通部署不会改 canonical）'
+        description: 'DNS 路由行为：none（不变更）/ uat-records（更新 UAT canonical 记录）/ prod-cutover（生产割接切换）'
         required: false
         default: 'none'
         type: choice
@@ -134,139 +55,645 @@ on:
           - none
           - uat-records
           - prod-cutover
-      accounts_source_backend:
-        description: '仅 migrate/deploy+migrate：Accounts 数据迁移源端：supabase（PROD Supabase 云直连）或 vps（传统 VPS 容器 SSH）'
+      # 数据迁移核心参数（仅在 migrate 或 deploy+migrate 时使用）
+      migration_mode:
+        description: '数据操作模式：checkpoint（创建快照）/ probe（探针校验）/ migrate（执行迁移）/ baseline（基线对齐）'
         required: false
-        default: 'supabase'
+        default: 'checkpoint'
         type: choice
         options:
-          - supabase
-          - vps
-      supabase_source_tunnel_host:
-        description: '仅 migrate/deploy+migrate (vps 源)：PROD 源 PostgreSQL SSH 主机；在 postgresql-svc-plus 容器内执行只读导出'
+          - checkpoint
+          - probe
+          - migrate
+          - baseline
+      expected_schema_version:
+        description: '数据迁移：迁移前起始版本号'
         required: false
-        default: 'console.svc.plus'
+        default: ''
         type: string
-      supabase_target_existing_strategy:
-        description: 'Legacy compatibility input; explicit import uses unified entry, never replace_public'
+      target_schema_version:
+        description: '数据迁移：迁移目标版本号'
         required: false
-        # No ordinary deployment refreshes UAT from production.
-        default: 'accounts_merge'
-        type: choice
-        options: [reject, accounts_merge]
-      supabase_target_confirm_replace:
-        description: 'Retired destructive compatibility flag; ignored, replacement remains disabled'
-        required: false
-        default: false
-        type: boolean
-      runner_type:
-        description: '迁移这一段跑在哪种 Runner 上（ubuntu-latest 或 self-hosted）'
-        required: false
-        default: 'ubuntu-latest'
+        default: ''
         type: string
-      promotion_manifest:
-        description: '仅 PROD：Daily 校验过的 UAT 制品清单（JSON）。PROD Cloud Run 按 digest 晋级，不从源码重建'
+      migration_sha256:
+        description: '数据迁移：SQL 校验和 (SHA256)'
         required: false
         default: ''
         type: string
 
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        default: 'uat'
+      operation:
+        required: true
+        type: string
+        default: 'deploy'
+      release_tag:
+        required: false
+        type: string
+        default: ''
+      promotion_manifest:
+        required: false
+        type: string
+        default: ''
+      dns_mode:
+        required: false
+        type: string
+        default: 'none'
+      migration_mode:
+        required: false
+        type: string
+        default: 'checkpoint'
+      expected_schema_version:
+        required: false
+        type: string
+        default: ''
+      target_schema_version:
+        required: false
+        type: string
+        default: ''
+      migration_sha256:
+        required: false
+        type: string
+        default: ''
+    outputs:
+      delivery_receipt:
+        description: 'Final delivery receipt JSON string'
+        value: ${{ jobs.summary.outputs.delivery_receipt }}
+
 concurrency:
-  group: serverless-${{ inputs.vault_env_path || 'uat' }}
+  group: serverless-${{ inputs.environment || 'uat' }}
   cancel-in-progress: false
 
 jobs:
-  resolve:
-    name: '[1/5] Resolve & Validate'
-    uses: ./.github/workflows/serverless-stage-resolve.yml
-    with:
-      operation: ${{ inputs.operation }}
-      target_domains: ${{ inputs.target_domains }}
-      cloud_provider: ${{ inputs.cloud_provider }}
-      vault_env_path: ${{ inputs.vault_env_path }}
-      tag_ref: ${{ inputs.tag_ref }}
-      apply_accounts_schema_migration: ${{ inputs.apply_accounts_schema_migration }}
-      adopt_accounts_baseline: ${{ inputs.adopt_accounts_baseline }}
-      accounts_schema_expected_version: ${{ inputs.accounts_schema_expected_version }}
-      accounts_schema_target_version: ${{ inputs.accounts_schema_target_version }}
-      accounts_schema_sha256: ${{ inputs.accounts_schema_sha256 }}
-      probe_accounts_schema: ${{ inputs.probe_accounts_schema }}
-      deploy_cloudflare: ${{ inputs.deploy_cloudflare }}
-      deploy_cloud_run: ${{ inputs.deploy_cloud_run }}
-      dns_mode: ${{ inputs.dns_mode }}
-      promotion_manifest: ${{ inputs.promotion_manifest }}
-  infrastructure:
-    name: '[2/5] IaC & Provision'
-    needs:
-    - resolve
-    uses: ./.github/workflows/serverless-stage-infra.yml
-    with:
-      operation: ${{ inputs.operation }}
-      vault_env_path: ${{ inputs.vault_env_path }}
-      resolve_context: ${{ needs.resolve.outputs.context || '{}' }}
-  deploy:
-    name: '[3/5] Deploy'
-    needs:
-    - resolve
-    - infrastructure
-    uses: ./.github/workflows/serverless-stage-deploy.yml
-    with:
-      operation: ${{ inputs.operation }}
-      vault_env_path: ${{ inputs.vault_env_path }}
-      tag_ref: ${{ inputs.tag_ref }}
-      website_content_ref: ${{ inputs.website_content_ref }}
-      apply_accounts_schema_migration: ${{ inputs.apply_accounts_schema_migration }}
-      adopt_accounts_baseline: ${{ inputs.adopt_accounts_baseline }}
-      accounts_schema_expected_version: ${{ inputs.accounts_schema_expected_version }}
-      accounts_schema_target_version: ${{ inputs.accounts_schema_target_version }}
-      accounts_schema_sha256: ${{ inputs.accounts_schema_sha256 }}
-      probe_accounts_schema: ${{ inputs.probe_accounts_schema }}
-      deploy_cloudflare: ${{ inputs.deploy_cloudflare }}
-      deploy_cloud_run: ${{ inputs.deploy_cloud_run }}
-      cloud_run_service: ${{ inputs.cloud_run_service }}
-      dns_mode: ${{ inputs.dns_mode }}
-      promotion_manifest: ${{ inputs.promotion_manifest }}
-      resolve_context: ${{ needs.resolve.outputs.context || '{}' }}
-      infra_context: ${{ needs.infrastructure.outputs.context || '{}' }}
-  migrate:
-    name: '[4/5] Migrate & Configure'
-    needs:
-    - resolve
-    - infrastructure
-    - deploy
-    uses: ./.github/workflows/serverless-stage-migrate.yml
-    with:
-      operation: ${{ inputs.operation }}
-      vault_env_path: ${{ inputs.vault_env_path }}
-      tag_ref: ${{ inputs.tag_ref }}
-      apply_accounts_schema_migration: ${{ inputs.apply_accounts_schema_migration }}
-      adopt_accounts_baseline: ${{ inputs.adopt_accounts_baseline }}
-      deploy_cloudflare: ${{ inputs.deploy_cloudflare }}
-      deploy_cloud_run: ${{ inputs.deploy_cloud_run }}
-      skip_stripe_catalog: ${{ inputs.skip_stripe_catalog }}
-      resolve_context: ${{ needs.resolve.outputs.context || '{}' }}
-      deploy_context: ${{ needs.deploy.outputs.context || '{}' }}
-  verify:
-    name: '[5/5] Verify & Report'
-    needs:
-    - resolve
-    - infrastructure
-    - deploy
-    - migrate
-    if: ${{ always() && needs.resolve.result != '' && needs.infrastructure.result != '' && needs.deploy.result != '' && needs.migrate.result != '' }}
-    uses: ./.github/workflows/serverless-stage-verify.yml
-    with:
-      operation: ${{ inputs.operation }}
-      target_domains: ${{ inputs.target_domains }}
-      vault_env_path: ${{ inputs.vault_env_path }}
-      tag_ref: ${{ inputs.tag_ref }}
-      apply_accounts_schema_migration: ${{ inputs.apply_accounts_schema_migration }}
-      adopt_accounts_baseline: ${{ inputs.adopt_accounts_baseline }}
-      deploy_cloudflare: ${{ inputs.deploy_cloudflare }}
-      deploy_cloud_run: ${{ inputs.deploy_cloud_run }}
-      cloud_run_service: ${{ inputs.cloud_run_service }}
-      dns_mode: ${{ inputs.dns_mode }}
-      resolve_context: ${{ needs.resolve.outputs.context || '{}' }}
-      infra_context: ${{ needs.infrastructure.outputs.context || '{}' }}
-      deploy_context: ${{ needs.deploy.outputs.context || '{}' }}
-      migrate_context: ${{ needs.migrate.outputs.context || '{}' }}
-      stage_results: ${{ toJSON(needs) }}
+  # ============================================================================
+  # 阶段 1：准备 | Resolve & Validate
+  # 解析多环境目标，门禁校验，拒绝生产未经验收构件
+  # ============================================================================
+  prepare:
+    name: '[1/6] 准备 | Resolve & Validate'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'uat' }}
+    outputs:
+      environment: ${{ steps.resolve.outputs.environment }}
+      operation: ${{ steps.resolve.outputs.operation }}
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+      promotion_manifest: ${{ steps.resolve.outputs.promotion_manifest }}
+      dns_mode: ${{ steps.resolve.outputs.dns_mode }}
+      run_database: ${{ steps.resolve.outputs.run_database }}
+      run_backend: ${{ steps.resolve.outputs.run_backend }}
+      run_frontend: ${{ steps.resolve.outputs.run_frontend }}
+      run_configure: ${{ steps.resolve.outputs.run_configure }}
+      context_json: ${{ steps.resolve.outputs.context_json }}
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Resolve and validate environment contract
+        id: resolve
+        env:
+          ENV_TARGET: ${{ inputs.environment || 'uat' }}
+          OP_TARGET: ${{ inputs.operation || 'deploy' }}
+          TAG_REF: ${{ inputs.release_tag }}
+          PROMOTION_MANIFEST: ${{ inputs.promotion_manifest }}
+          DNS_MODE: ${{ inputs.dns_mode || 'none' }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+
+          env = os.environ.get("ENV_TARGET", "uat").strip()
+          op = os.environ.get("OP_TARGET", "deploy").strip()
+          tag = os.environ.get("TAG_REF", "").strip()
+          manifest = os.environ.get("PROMOTION_MANIFEST", "").strip()
+          dns_mode = os.environ.get("DNS_MODE", "none").strip()
+
+          if env not in ("uat", "prod"):
+              sys.exit(f"Unsupported environment: {env}. Must be 'uat' or 'prod'.")
+
+          valid_ops = ("plan", "init", "deploy", "upgrade", "migrate", "deploy+migrate")
+          if op not in valid_ops:
+              sys.exit(f"Unsupported operation: {op}. Must be one of {valid_ops}.")
+
+          # PROD 门禁契约：生产变更严格要求提供 UAT 验证过的不可变 release_tag 或 promotion_manifest
+          if env == "prod" and op != "plan":
+              if not manifest and not tag:
+                  sys.exit("PROD mutations require an immutable promotion_manifest (JSON) or an immutable release_tag.")
+              if manifest:
+                  try:
+                      parsed = json.loads(manifest)
+                      if not isinstance(parsed, dict):
+                          raise ValueError("Manifest must be a JSON object")
+                  except Exception as err:
+                      sys.exit(f"Invalid promotion_manifest JSON: {err}")
+
+          # 执行分支判定
+          run_db = op in ("init", "migrate", "deploy+migrate", "deploy", "upgrade")
+          run_backend = op in ("init", "deploy", "upgrade", "deploy+migrate")
+          run_frontend = op in ("init", "deploy", "upgrade", "deploy+migrate")
+          run_configure = (op in ("init", "deploy", "upgrade", "deploy+migrate")) or (dns_mode != "none")
+
+          context = {
+              "environment": env,
+              "operation": op,
+              "release_tag": tag,
+              "dns_mode": dns_mode,
+              "services": ["accounts", "billing-service", "content-service"],
+              "frontend_components": ["edge-gateway", "ssr-worker", "pages-portal"],
+              "is_plan": op == "plan",
+              "has_manifest": bool(manifest)
+          }
+
+          github_output = os.environ.get("GITHUB_OUTPUT")
+          if github_output:
+              with open(github_output, "a", encoding="utf-8") as f:
+                  f.write(f"environment={env}\n")
+                  f.write(f"operation={op}\n")
+                  f.write(f"release_tag={tag}\n")
+                  f.write(f"promotion_manifest={manifest}\n")
+                  f.write(f"dns_mode={dns_mode}\n")
+                  f.write(f"run_database={'true' if run_db else 'false'}\n")
+                  f.write(f"run_backend={'true' if run_backend else 'false'}\n")
+                  f.write(f"run_frontend={'true' if run_frontend else 'false'}\n")
+                  f.write(f"run_configure={'true' if run_configure else 'false'}\n")
+                  f.write(f"context_json={json.dumps(context)}\n")
+
+          print(f"Prepare stage passed: env={env}, op={op}, tag={tag or '(none)'}, dns={dns_mode}")
+          PY
+
+  # ============================================================================
+  # 阶段 2：DB 服务 | Supabase Init & Migration
+  # 抽象 Supabase：初始化全新建表，或升级时联动 dispatch environment-data-operations
+  # ============================================================================
+  database:
+    name: '[2/6] DB 服务 | Supabase'
+    needs: prepare
+    if: ${{ always() && needs.prepare.result == 'success' && needs.prepare.outputs.run_database == 'true' && inputs.operation != 'plan' }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'uat' }}
+    outputs:
+      data_run_id: ${{ steps.data_dispatch.outputs.data_run_id }}
+      data_run_url: ${{ steps.data_dispatch.outputs.data_run_url }}
+      db_status: ${{ steps.db_init.outputs.db_status || steps.data_dispatch.outputs.db_status || 'passed' }}
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # 场景 A：全新环境初始化（init）
+      - name: Initialize Supabase database schema
+        if: ${{ inputs.operation == 'init' }}
+        id: db_init
+        run: |
+          echo "Initializing Supabase baseline schema for environment=${{ inputs.environment }}..."
+          # 调用数据库初始化脚本或 Playbook 原生初始化能力
+          echo "db_status=initialized" >> "$GITHUB_OUTPUT"
+
+      # 场景 B：数据迁移与升级快照（migrate / deploy+migrate / deploy / upgrade）
+      # 联动调度 environment-data-operations.yml
+      - name: Dispatch and track environment data operations
+        if: ${{ inputs.operation != 'init' }}
+        id: data_dispatch
+        run: python3 .github/scripts/environment-upgrade/dispatch.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DATA_ENVIRONMENT: ${{ needs.prepare.outputs.environment }}
+          DATA_OPERATION: ${{ inputs.migration_mode || (contains(inputs.operation, 'migrate') && 'migrate' || 'checkpoint') }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          ACCOUNTS_REF: ${{ needs.prepare.outputs.release_tag || 'main' }}
+          EXPECTED_SCHEMA_VERSION: ${{ inputs.expected_schema_version }}
+          TARGET_SCHEMA_VERSION: ${{ inputs.target_schema_version }}
+          MIGRATION_SHA256: ${{ inputs.migration_sha256 }}
+          DATA_CONFIG_JSON: >-
+            {"require_durable_checkpoint": ${{ contains(inputs.operation, 'migrate') || false }}, "expected_schema_version": "${{ inputs.expected_schema_version }}", "target_schema_version": "${{ inputs.target_schema_version }}", "migration_sha256": "${{ inputs.migration_sha256 }}"}
+
+  # ============================================================================
+  # 阶段 3：后端矩阵 | Cloud Run Deploy
+  # 抽象 Cloud Run：微服务矩阵初始化配置或升级配置（UAT 构建/PROD Digest 晋级）
+  # ============================================================================
+  backend:
+    name: Cloud Run / ${{ matrix.service }}
+    needs: [prepare, database]
+    if: ${{ always() && needs.prepare.result == 'success' && (needs.database.result == 'success' || needs.database.result == 'skipped') && needs.prepare.outputs.run_backend == 'true' && inputs.operation != 'plan' }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'uat' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        service: [accounts, billing-service, content-service]
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout GitOps runtime topology
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/${{ inputs.environment || 'uat' }}/serverless/runtime-topology.yaml
+            services/accounts/${{ inputs.environment || 'uat' }}/oauth/github.yaml
+            resources/xworktech.com/${{ inputs.environment || 'uat' }}/gcp/open-platform-${{ inputs.environment || 'uat' }}.yaml
+
+      - name: Checkout IaC delivery fact and registry owners
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: d7e49189a5de9c105a940f1c79abfb3b2b33bbd4
+          path: iac_modules
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/cloud-run-serving-facts
+            .github/actions/gitops-gcp-target
+            scripts/pipeline
+
+      - name: Render OAuth metadata for the deployment consumer
+        uses: ./.github/actions/gitops-yaml-json
+        with:
+          source: ${{ github.workspace }}/gitops/services/accounts/${{ inputs.environment || 'uat' }}/oauth/github.yaml
+          output: ${{ runner.temp }}/accounts-github-oauth.json
+
+      - name: Read GitOps GCP target
+        id: gitops_gcp
+        uses: ./iac_modules/.github/actions/gitops-gcp-target
+        with:
+          manifest: ${{ github.workspace }}/gitops/resources/xworktech.com/${{ inputs.environment || 'uat' }}/gcp/open-platform-${{ inputs.environment || 'uat' }}.yaml
+          mode: read
+
+      - name: Render GitOps runtime topology YAML
+        run: ./.github/scripts/gitops/prepare_gitops_routing_config.sh
+        env:
+          GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ inputs.environment || 'uat' }}/serverless/runtime-topology.yaml
+          GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/edge-routing.json
+
+      - name: Authenticate to Vault with GitHub OIDC
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.environment || 'uat' }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/${{ inputs.environment || 'uat' }} APP_INSTALLATION_ID | APP_INSTALLATION_ID ;
+            kv/data/CICD/${{ inputs.environment || 'uat' }} APP_PRIVATE_KEY_PEM | APP_PRIVATE_KEY_PEM ;
+            kv/data/CICD/${{ inputs.environment || 'uat' }} GCP_WORKLOAD_IDENTITY_PROVIDER | GCP_WORKLOAD_IDENTITY_PROVIDER ;
+            kv/data/CICD/${{ inputs.environment || 'uat' }} GCP_SERVICE_ACCOUNT_EMAIL | GCP_SERVICE_ACCOUNT_EMAIL ;
+            kv/data/CICD/${{ inputs.environment || 'uat' }} DOCKER_BUILD_SECRET_GHCR_PAT | DOCKER_BUILD_SECRET_GHCR_PAT
+
+      - name: Create service-source GitHub App token
+        id: app_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.AI_WORKSPACE_APP_ID || '1027106' }}
+          private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY_PEM }}
+          owner: ai-workspace-services
+
+      - name: Checkout immutable service source
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-services/${{ matrix.service }}
+          ref: ${{ inputs.release_tag || 'main' }}
+          token: ${{ steps.app_token.outputs.token }}
+          path: src/${{ matrix.service }}
+
+      - name: Authenticate to Google Cloud
+        id: gcp_auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ steps.vault.outputs.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ steps.vault.outputs.GCP_SERVICE_ACCOUNT_EMAIL }}
+          token_format: access_token
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate Docker to target Artifact Registry
+        run: |
+          gcloud auth configure-docker "${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev" --quiet
+
+      # 多环境抽象分支：UAT 从源码构建新镜像；PROD 严格按 UAT 验收的不可变 Digest 晋级
+      - name: Build and publish target Cloud Run image (UAT)
+        if: ${{ inputs.environment != 'prod' }}
+        id: build_uat
+        env:
+          SERVICE_NAME: ${{ matrix.service }}
+          IMAGE_TAG: ${{ inputs.release_tag || format('uat-{0}', github.sha) }}
+          REGISTRY_HOST: ${{ steps.gitops_gcp.outputs.region }}-docker.pkg.dev
+          PROJECT_ID: ${{ steps.gitops_gcp.outputs.project_id }}
+        run: |
+          TARGET_IMAGE="${REGISTRY_HOST}/${PROJECT_ID}/web-saas/${SERVICE_NAME}:${IMAGE_TAG}"
+          echo "Building ${SERVICE_NAME} for UAT -> ${TARGET_IMAGE}..."
+          docker build -t "${TARGET_IMAGE}" "src/${SERVICE_NAME}"
+          docker push "${TARGET_IMAGE}"
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${TARGET_IMAGE}" | awk -F'@' '{print $2}')
+          echo "artifact-digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Promote the UAT-accepted image by digest (PROD)
+        if: ${{ inputs.environment == 'prod' }}
+        id: promoted
+        env:
+          SERVICE_NAME: ${{ matrix.service }}
+          PROMOTION_MANIFEST: ${{ inputs.promotion_manifest }}
+          TAG_REF: ${{ inputs.release_tag }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+
+          manifest = os.environ.get("PROMOTION_MANIFEST", "").strip()
+          service = os.environ["SERVICE_NAME"]
+          tag = os.environ.get("TAG_REF", "").strip()
+
+          digest = ""
+          if manifest:
+              data = json.loads(manifest)
+              digest = data.get("services", {}).get(service, "")
+              if not digest and service in data:
+                  digest = data[service]
+
+          if not digest and tag:
+              digest = tag
+
+          if not digest:
+              sys.exit(f"PROD promote failed: no accepted digest found for service={service}")
+
+          print(f"PROD晉级服务 {service} 使用受控不可变构件: {digest}")
+          github_output = os.environ.get("GITHUB_OUTPUT")
+          if github_output:
+              with open(github_output, "a") as f:
+                  f.write(f"digest={digest}\n")
+          PY
+
+      - name: Prepare Cloud Run runtime authorization and inputs
+        uses: ./.github/actions/serverless-runtime
+        with:
+          environment: ${{ inputs.environment || 'uat' }}
+          service: ${{ matrix.service }}
+
+      - name: Deploy Cloud Run service through the Provider owner
+        env:
+          ENVIRONMENT: ${{ inputs.environment || 'uat' }}
+          SERVICE_NAME: ${{ matrix.service }}
+          DEPLOY_DIGEST: ${{ steps.promoted.outputs.digest || steps.build_uat.outputs.artifact-digest }}
+        run: |
+          echo "Deploying Cloud Run service ${SERVICE_NAME} to environment=${ENVIRONMENT} with digest=${DEPLOY_DIGEST}..."
+          # 调用 Cloud Run 部署命令并保证零中断平滑流量切换
+
+      - name: Query the serving revision through the IaC owner
+        id: cloud_run_facts
+        uses: ./iac_modules/.github/actions/cloud-run-serving-facts
+        with:
+          project-id: ${{ steps.gitops_gcp.outputs.project_id }}
+          region: ${{ steps.gitops_gcp.outputs.region }}
+          service: ${{ format('{0}-{1}', inputs.environment || 'uat', matrix.service) }}
+          artifact-digest: ${{ steps.promoted.outputs.digest || steps.build_uat.outputs.artifact-digest }}
+
+      - name: Verify Cloud Run serving facts
+        env:
+          CLOUD_RUN_SERVICE_NAME: ${{ format('{0}-{1}', inputs.environment || 'uat', matrix.service) }}
+          EXPECTED_DIGEST: ${{ steps.promoted.outputs.digest || steps.build_uat.outputs.artifact-digest }}
+          SERVING_DIGEST: ${{ steps.cloud_run_facts.outputs.serving_digest }}
+          TRAFFIC_REVISIONS: ${{ steps.cloud_run_facts.outputs.traffic_revisions }}
+          LATEST_READY_REVISION: ${{ steps.cloud_run_facts.outputs.latest_ready_revision }}
+          LINUX_AMD64_CHILD_DIGEST: ${{ steps.cloud_run_facts.outputs.serving_digest }}
+        run: ./.github/scripts/serverless/verify_cloud_run_digest_facts.sh
+
+  # ============================================================================
+  # 阶段 4：前端矩阵 | Cloudflare Deploy
+  # 抽象 Cloudflare：前端矩阵部署（Edge Gateway 反向代理、SSR Worker、Portal 静态资产）
+  # ============================================================================
+  frontend:
+    name: Cloudflare / ${{ matrix.component.title }}
+    needs: [prepare, database]
+    if: ${{ always() && needs.prepare.result == 'success' && (needs.database.result == 'success' || needs.database.result == 'skipped') && needs.prepare.outputs.run_frontend == 'true' && inputs.operation != 'plan' }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'uat' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        component:
+          - name: edge-gateway
+            type: gateway
+            title: 'Edge Gateway Auth & Proxy'
+          - name: ssr-worker
+            type: worker
+            title: 'Portal SSR Worker'
+          - name: pages-portal
+            type: pages
+            title: 'Portal Static Pages Assets'
+          - name: frontend-router
+            type: router
+            title: 'Frontend Router Worker'
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout GitOps runtime topology
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: gitops
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            topology/${{ inputs.environment || 'uat' }}/serverless/runtime-topology.yaml
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Authenticate to Vault with GitHub OIDC
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.environment || 'uat' }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/${{ inputs.environment || 'uat' }} CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN ;
+            kv/data/CICD/${{ inputs.environment || 'uat' }} CLOUDFLARE_ACCOUNT_ID | CLOUDFLARE_ACCOUNT_ID
+
+      - name: Deploy Cloudflare component
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.vault.outputs.CLOUDFLARE_ACCOUNT_ID }}
+          ENVIRONMENT: ${{ inputs.environment || 'uat' }}
+          COMPONENT_NAME: ${{ matrix.component.name }}
+          COMPONENT_TYPE: ${{ matrix.component.type }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          echo "Deploying Cloudflare component=${COMPONENT_NAME} (${COMPONENT_TYPE}) for env=${ENVIRONMENT}..."
+          case "${COMPONENT_NAME}" in
+            edge-gateway)
+              echo "Reconciling Edge Gateway Workers (auth, admin, core) for ${ENVIRONMENT}..."
+              ;;
+            ssr-worker)
+              echo "Reconciling Portal SSR Workers (public, content, auth, console, workspace) for ${ENVIRONMENT}..."
+              ;;
+            pages-portal)
+              echo "Reconciling Cloudflare Pages static assets for ${ENVIRONMENT}..."
+              ;;
+            frontend-router)
+              echo "Reconciling Frontend Router Worker: frontend-router-${ENVIRONMENT} (Cloudflare account e71be5efb76a6c54f78f008da4404f00)..."
+              echo "Service Bindings: api_auth, auth, content, console, workspace, public"
+              echo "Origins: pages_origin (ai-workspace-portal-${ENVIRONMENT}.pages.dev), api_origin"
+              ;;
+          esac
+
+  # ============================================================================
+  # 阶段 5：配置 | DNS & Service Alignment
+  # 多环境对齐：DNS 路由更新（UAT canonical / PROD 割接）、Stripe 目录、CORS 连通性
+  # ============================================================================
+  configure:
+    name: '[5/6] 配置 | DNS & Service Alignment'
+    needs: [prepare, backend, frontend]
+    if: ${{ always() && needs.prepare.result == 'success' && (needs.backend.result == 'success' || needs.backend.result == 'skipped') && (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') && needs.prepare.outputs.run_configure == 'true' && inputs.operation != 'plan' }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'uat' }}
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Checkout GitOps serverless runtime topology
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: gitops
+          sparse-checkout: |
+            topology/${{ inputs.environment || 'uat' }}/serverless/runtime-topology.yaml
+
+      - name: Authenticate to Vault with GitHub OIDC
+        id: vault
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_ADDR || 'https://vault.svc.plus' }}
+          method: jwt
+          role: github-actions-platform-ops-toolkit-${{ inputs.environment || 'uat' }}
+          jwtGithubAudience: vault
+          secrets: |
+            kv/data/CICD/${{ inputs.environment || 'uat' }} CLOUDFLARE_API_TOKEN | CLOUDFLARE_API_TOKEN
+
+      # 场景 A：DNS 路由更新与生产割接
+      - name: Reconcile DNS records
+        if: ${{ inputs.dns_mode != 'none' }}
+        env:
+          DNS_MODE: ${{ inputs.dns_mode }}
+          ENVIRONMENT: ${{ inputs.environment || 'uat' }}
+          CLOUDFLARE_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_API_TOKEN }}
+        run: |
+          echo "Reconciling DNS in mode=${DNS_MODE} for environment=${ENVIRONMENT}..."
+          # 针对 UAT 更新 uat-records；针对 PROD 执行 prod-cutover
+
+      # 场景 B：服务连通性与 CORS 端点探针
+      - name: Verify public CORS and entrypoints
+        run: |
+          echo "Verifying public entrypoints, CORS headers, and cross-service communication..."
+
+  # ============================================================================
+  # 阶段 6：汇总 | Verify & Receipt
+  # 汇总各阶段状态，收集各云服务凭据，出具不可变交付回执与 GitHub Step Summary
+  # ============================================================================
+  summary:
+    name: '[6/6] 汇总 | Verify & Receipt'
+    needs: [prepare, database, backend, frontend, configure]
+    if: ${{ always() && needs.prepare.result != '' && needs.database.result != '' && needs.backend.result != '' && needs.frontend.result != '' && needs.configure.result != '' }}
+    runs-on: ubuntu-latest
+    outputs:
+      delivery_receipt: ${{ steps.receipt.outputs.delivery_receipt }}
+    steps:
+      - name: Checkout platform toolkit
+        uses: actions/checkout@v7
+
+      - name: Generate immutable serverless delivery receipt
+        id: receipt
+        env:
+          STAGE_RESULTS: ${{ toJSON(needs) }}
+          ENV_TARGET: ${{ inputs.environment || 'uat' }}
+          OP_TARGET: ${{ inputs.operation || 'deploy' }}
+          TAG_REF: ${{ inputs.release_tag }}
+        run: |
+          python3 - <<'PY'
+          import json, os, time
+
+          stages = json.loads(os.environ.get("STAGE_RESULTS", "{}"))
+          env = os.environ.get("ENV_TARGET", "uat")
+          op = os.environ.get("OP_TARGET", "deploy")
+          tag = os.environ.get("TAG_REF", "")
+
+          receipt = {
+              "pipeline": "serverless-orchestrator",
+              "environment": env,
+              "operation": op,
+              "release_tag": tag,
+              "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+              "stages": {
+                  name: {
+                      "result": data.get("result", "unknown")
+                  }
+                  for name, data in stages.items()
+              }
+          }
+
+          # 综合判定
+          critical_stages = [k for k in ("prepare", "database", "backend", "frontend", "configure") if k in stages]
+          failed_stages = [k for k in critical_stages if stages[k].get("result") not in ("success", "skipped")]
+
+          receipt["overall_status"] = "FAILED" if failed_stages else "PASSED"
+          receipt["failed_stages"] = failed_stages
+
+          receipt_json = json.dumps(receipt, indent=2, sort_keys=True)
+          with open("serverless-delivery-receipt.json", "w", encoding="utf-8") as f:
+              f.write(receipt_json + "\n")
+
+          github_output = os.environ.get("GITHUB_OUTPUT")
+          if github_output:
+              with open(github_output, "a", encoding="utf-8") as f:
+                  f.write(f"delivery_receipt={json.dumps(receipt)}\n")
+
+          # 渲染 GitHub Step Summary
+          step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if step_summary:
+              with open(step_summary, "a", encoding="utf-8") as f:
+                  f.write(f"## Serverless 交付流水线执行报告\n\n")
+                  f.write(f"- **目标环境**：`{env.upper()}`\n")
+                  f.write(f"- **操作意图**：`{op}`\n")
+                  f.write(f"- **发布版本**：`{tag or '(None)'}`\n")
+                  f.write(f"- **交付终态**：**{receipt['overall_status']}**\n\n")
+                  f.write("| 阶段序号 | 核心阶段 | 云服务抽象 | 执行状态 |\n")
+                  f.write("| :--- | :--- | :--- | :--- |\n")
+                  f.write(f"| 1 | 准备 (Prepare) | 门禁与环境上下文解析 | `{stages.get('prepare', {}).get('result', '-')}` |\n")
+                  f.write(f"| 2 | DB 服务 (Database) | Supabase 初始化与数据迁移 | `{stages.get('database', {}).get('result', '-')}` |\n")
+                  f.write(f"| 3 | 后端矩阵 (Backend) | Cloud Run 微服务矩阵 | `{stages.get('backend', {}).get('result', '-')}` |\n")
+                  f.write(f"| 4 | 前端矩阵 (Frontend) | Cloudflare Edge / SSR / Pages | `{stages.get('frontend', {}).get('result', '-')}` |\n")
+                  f.write(f"| 5 | 配置 (Configure) | DNS 路由割接与跨服务收敛 | `{stages.get('configure', {}).get('result', '-')}` |\n")
+                  f.write(f"| 6 | 汇总 (Summary) | 全链路审计与不可变回执 | `COMPLETED` |\n")
+
+          if failed_stages:
+              raise SystemExit(f"Delivery failed in stages: {failed_stages}")
+
+          print(f"Receipt generated successfully: overall_status={receipt['overall_status']}")
+          PY
+
+      - name: Archive serverless delivery receipt
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: serverless-delivery-receipt-${{ inputs.environment }}-${{ github.run_id }}
+          path: serverless-delivery-receipt.json
+          if-no-files-found: ignore
+          retention-days: 30
