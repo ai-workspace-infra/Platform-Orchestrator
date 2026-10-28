@@ -182,6 +182,7 @@ class TrustedTest(unittest.TestCase):
             result = T.verified(self.c, 'sit', 'f' * 40, self.selectors)
             self.assertEqual(result['status'], 'VERIFIED_GATE')
             self.assertEqual(result['verified_website_content'], {'repository':'example/content','sha':'e'*40,'repository_id':7})
+            self.assertEqual(result['verified_runtime_components']['accounts'], {'source_repository':'example/accounts','source_sha':'a'*40,'image':self.c['sources'][0]['image'],'build_run_id':'11'})
             self.assertFalse(result['dispatch_authorized'])
             self.assertEqual(tag_check.call_count, 2)
             self.assertEqual(gitops_check.call_count, 2)

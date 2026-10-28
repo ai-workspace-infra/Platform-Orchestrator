@@ -319,6 +319,7 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
         prs = {}
         config_prs = {}
         verified_website_content = None
+        verified_builds = {}
         for row in candidate.get('configurations', []):
             key = row['repository']+'#'+str(row['pr'])
             primary = len(candidate['configurations']) == 1 or candidate.get('configuration_entrypoint') == key
@@ -334,6 +335,10 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
             gate.require(owner['repository'] == source['repository'], 'foreign source build owner')
             proof, producer = artifact(locator(owner, evidence_selectors['builds'][source['repository']], source['sha']))
             verify_build_manifest(proof, producer, source)
+            verified_builds[source['repository']] = {'source_repository': source['repository'],
+                                                       'source_sha': source['sha'],
+                                                       'image': source['image'],
+                                                       'build_run_id': str(producer['id'])}
             if candidate.get('schema') == 2 and source['repository'] == frontend_repo:
                 content_repo = source.get('website_content_repository')
                 content_sha = source.get('website_content_sha')
@@ -374,6 +379,11 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
         result.update(status='VERIFIED_GATE', evidence_kind='github_retrieved', policy_sha=policy_commit)
         if verified_website_content is not None:
             result['verified_website_content'] = verified_website_content
+        if candidate.get('components'):
+            result['verified_runtime_components'] = {
+                name: verified_builds[item['source_repository']]
+                for name, item in candidate['components'].items()
+            }
         return result
     except gate.Blocked:
         raise
