@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "source": "github-actions",
-  "updatedAt": "2026-10-27T23:57:43.469977+00:00",
+  "updatedAt": "2026-10-28T00:22:07.987206+00:00",
   "timezone": "Asia/Shanghai",
   "coverage": {
     "since": "2026-09-04T02:53:34Z",
@@ -703,7 +703,8 @@
     "40522758261": "1:2026-10-27T14:43:10Z",
     "40533733265": "1:2026-10-27T15:44:33Z",
     "40578192589": "1:2026-10-27T20:35:19Z",
-    "40605477060": "1:2026-10-27T23:57:33Z"
+    "40605477060": "1:2026-10-27T23:57:33Z",
+    "40608212861": "1:2026-10-28T00:22:00Z"
   },
   "gaps": [
     {
@@ -949,6 +950,12 @@
     {
       "runId": 36372234327,
       "workflow": "daily-main-snapshot.yaml",
+      "status": "completed",
+      "reason": "No immutable release evidence"
+    },
+    {
+      "runId": 40608212861,
+      "workflow": "serverless-orchestrator.yml",
       "status": "completed",
       "reason": "No immutable release evidence"
     },
