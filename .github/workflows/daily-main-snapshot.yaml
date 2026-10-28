@@ -38,9 +38,9 @@ on:
         required: false
         type: string
       deploy_after_build:
-        description: "构建通过后是否部署环境；默认 false，仅生成完整快照与构件。"
+        description: "构建通过后是否部署 web-saas；关闭时仅生成快照与构件。"
         required: false
-        default: false
+        default: true
         type: boolean
       skip_stripe_catalog:
         description: "可选：跳过 Stripe 目录同步，仅验证核心 UAT/PROD 部署"
@@ -98,6 +98,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       snapshot_tag: ${{ steps.resolve.outputs.snapshot_tag }}
+      repositories: ${{ steps.auto-scope.outputs.repositories || inputs.repositories }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -161,7 +162,7 @@ jobs:
 
       - name: Select automatic Serverless source scope
         id: auto-scope
-        if: ${{ github.event_name != 'workflow_dispatch' }}
+        if: ${{ github.event_name != 'workflow_dispatch' || ((inputs.deploy_env || 'uat') == 'uat' && inputs.repositories == '') }}
         run: python3 ./.github/scripts/snapshots/serverless-main-release.py scope
 
       - name: Resolve snapshot tag across all organizations
@@ -186,7 +187,7 @@ jobs:
       fail-fast: false
       matrix:
         organization:
-          ${{ fromJSON(github.event_name != 'workflow_dispatch' && '["ai-workspace-services"]' || '["ai-workspace-infra","ai-workspace-lab","ai-workspace-services","ai-workspace-xstream"]') }}
+          ${{ fromJSON((github.event_name != 'workflow_dispatch' || ((inputs.deploy_env || 'uat') == 'uat' && inputs.repositories == '')) && '["ai-workspace-services"]' || '["ai-workspace-infra","ai-workspace-lab","ai-workspace-services","ai-workspace-xstream"]') }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -227,8 +228,8 @@ jobs:
           DEPLOY_ENV: ${{ inputs.deploy_env || 'uat' }}
           SNAPSHOT_TAG: ${{ needs.resolve-snapshot-tag.outputs.snapshot_tag }}
           SNAPSHOT_ORGS: ${{ matrix.organization }}
-          SNAPSHOT_REPOS: ${{ steps.auto-scope.outputs.repositories || inputs.repositories }}
-          SNAPSHOT_FILTER_BY_ORG: ${{ (steps.auto-scope.outputs.repositories || inputs.repositories) != '' && 'true' || 'false' }}
+          SNAPSHOT_REPOS: ${{ needs.resolve-snapshot-tag.outputs.repositories }}
+          SNAPSHOT_FILTER_BY_ORG: ${{ needs.resolve-snapshot-tag.outputs.repositories != '' && 'true' || 'false' }}
           SNAPSHOT_REF: ${{ inputs.snapshot_source_ref || 'main' }}
           # Fail before the first tag if this installation cannot access one
           # of the selected repositories. This prevents partial snapshots.
@@ -336,19 +337,11 @@ jobs:
               topology_mode='serverless'
               ;;
             uat)
-              if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-                name='Hybrid Orchestrator'
-                workflow='hybrid-orchestrator.yml'
-                operation='deploy'
-                target_domains='all'
-                topology_mode='hybrid'
-              else
-                name='Serverless Orchestrator'
-                workflow='serverless-orchestrator.yml'
-                operation='deploy'
-                target_domains='web-saas'
-                topology_mode='serverless'
-              fi
+              name='Serverless Orchestrator'
+              workflow='serverless-orchestrator.yml'
+              operation='deploy'
+              target_domains='web-saas'
+              topology_mode='serverless'
               ;;
             prod)
               name='Selfhost Orchestrator'
@@ -430,7 +423,7 @@ jobs:
         run: ./.github/scripts/snapshots/resolve-dispatch-gitops-target.sh
 
       - name: Download source-owned snapshot evidence
-        if: ${{ github.event_name != 'workflow_dispatch' && matrix.environment == 'uat' && matrix.workflow == 'serverless-orchestrator.yml' }}
+        if: ${{ matrix.environment == 'uat' && matrix.workflow == 'serverless-orchestrator.yml' }}
         uses: actions/download-artifact@v8
         with:
           name: daily-snapshot-status-ai-workspace-services
@@ -439,7 +432,7 @@ jobs:
 
       - name: Create read-only service source token
         id: source-token
-        if: ${{ github.event_name != 'workflow_dispatch' && matrix.environment == 'uat' && matrix.workflow == 'serverless-orchestrator.yml' }}
+        if: ${{ matrix.environment == 'uat' && matrix.workflow == 'serverless-orchestrator.yml' }}
         uses: actions/create-github-app-token@v3
         with:
           client-id: Iv23liNwStpQIiXajhpb
@@ -450,7 +443,7 @@ jobs:
 
       - name: Freeze current Main source combination before UAT dispatch
         id: release
-        if: ${{ github.event_name != 'workflow_dispatch' && matrix.environment == 'uat' && matrix.workflow == 'serverless-orchestrator.yml' }}
+        if: ${{ matrix.environment == 'uat' && matrix.workflow == 'serverless-orchestrator.yml' }}
         env:
           GH_TOKEN: ${{ steps.source-token.outputs.token }}
           GH_GITOPS_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -462,7 +455,7 @@ jobs:
         run: python3 ./.github/scripts/snapshots/serverless-main-release.py verify
 
       - name: Preserve UAT source combination
-        if: ${{ github.event_name != 'workflow_dispatch' && steps.release.outcome == 'success' }}
+        if: ${{ steps.release.outcome == 'success' }}
         uses: actions/upload-artifact@v7
         with:
           name: serverless-main-release-${{ github.run_id }}-${{ github.run_attempt }}
@@ -481,7 +474,7 @@ jobs:
           DISPATCH_TARGET_DOMAINS: ${{ matrix.target_domains }}
           TARGET_DOMAIN_BASE: ${{ steps.gitops.outputs.target_domain_base }}
           SKIP_STRIPE_CATALOG: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_stripe_catalog }}
-          WEBSITE_CONTENT_REF: ${{ (github.event_name == 'workflow_dispatch' || steps.release.outcome == 'success') && needs.snapshot-gate.outputs.snapshot_tag || '' }}
+          WEBSITE_CONTENT_REF: ${{ steps.release.outcome == 'success' && needs.snapshot-gate.outputs.snapshot_tag || '' }}
         run: ./.github/scripts/snapshots/dispatch-environment-combined.sh
 
       - name: Write dispatch receipt
