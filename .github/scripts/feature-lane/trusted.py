@@ -158,7 +158,8 @@ def artifact(locator):
     raw = reader.api(f'repos/{repo}/actions/runs/{locator["run_id"]}')
     run = {'repository': raw.get('repository', {}).get('full_name'), 'path': raw.get('path', '').split('@')[0],
            'head_sha': raw.get('head_sha'), 'event': raw.get('event'), 'id': raw.get('id'),
-           'attempt': raw.get('run_attempt'), 'status': raw.get('status'), 'conclusion': raw.get('conclusion')}
+           'attempt': raw.get('run_attempt'), 'status': raw.get('status'), 'conclusion': raw.get('conclusion'),
+           'head_branch': raw.get('head_branch')}
     gate.verify_run(run, locator, locator['sha'], locator['event'])
     gate.require(run['id'] == locator['run_id'] and run['attempt'] == locator['attempt'] and
                  raw.get('head_repository', {}).get('full_name') == repo, 'wrong run/attempt or fork producer')
@@ -168,6 +169,23 @@ def artifact(locator):
                                    locator['filename'], locator['sha'])
     run.update(artifact_id=locator['artifact_id'], document_sha256=hashlib.sha256(payload).hexdigest())
     return json.loads(payload), run
+
+
+def verify_build_manifest(proof, run, source):
+    """Validate the reviewed owner's manifest against its authenticated run."""
+    gate.require(isinstance(proof, dict), 'invalid build manifest')
+    if proof.get('schema') == 'main-image-build/v1':
+        gate.require(source.get('kind') == 'baseline' and run.get('event') == 'push' and run.get('head_branch') == 'main' and
+                     proof.get('event') == 'push' and proof.get('ref') == 'refs/heads/main' and
+                     type(proof.get('run_id')) is int and proof['run_id'] == run.get('id') and
+                     type(proof.get('attempt')) is int and proof['attempt'] == run.get('attempt') and
+                     proof.get('source_repository') == source['repository'] and
+                     ('repository' not in proof or proof['repository'] == source['repository']),
+                     'main build manifest run or repository mismatch')
+    else:
+        gate.require(proof.get('repository') == source['repository'], 'build manifest repository mismatch')
+    gate.require(proof.get('source_sha') == source['sha'] and proof.get('image') == source['image'],
+                 'build manifest source/image mismatch')
 
 
 def authorization(policy, fingerprint, stage, task, selectors):
@@ -246,9 +264,8 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
                 prs[source['repository']] = pull(source, stage, candidate['task_url'])
             owner = policy['build_owners'][source['repository']]
             gate.require(owner['repository'] == source['repository'], 'foreign source build owner')
-            proof, _ = artifact(locator(owner, evidence_selectors['builds'][source['repository']], source['sha']))
-            gate.require(proof.get('repository') == source['repository'] and proof.get('source_sha') == source['sha'] and
-                         proof.get('image') == source['image'], 'build manifest source/image mismatch')
+            proof, producer = artifact(locator(owner, evidence_selectors['builds'][source['repository']], source['sha']))
+            verify_build_manifest(proof, producer, source)
             if candidate.get('schema') == 2 and source['repository'] == frontend_repo:
                 content_repo = source.get('website_content_repository')
                 content_sha = source.get('website_content_sha')
