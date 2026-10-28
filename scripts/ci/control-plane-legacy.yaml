@@ -91,7 +91,7 @@ legacy:
   sha256: 49c136844b123515765e6763f2402eea96ec3eeccc7100d198b39be358cfae14
 - path: scripts/serverless_uat/deploy_cloudrun_services.sh
   owner: iac_modules
-  sha256: 9535a2f7c33d7a871c8549804fafa62e0094cba19844f3d003308977690b98f2
+  sha256: 304c5aae7332e95eca001d12e12e6d01cb86f7245901951f9bb9d7f235b21db5
 - path: scripts/serverless_uat/deploy_frontend_router.sh
   owner: iac_modules
   sha256: 72f357230245323d0d7114783764b2c41a264382fb147a4c02be36d9ad5bf747
