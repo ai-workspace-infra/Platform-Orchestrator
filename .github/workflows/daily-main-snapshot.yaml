@@ -305,13 +305,16 @@ jobs:
 
       - name: Check Shared platform readiness (read-only)
         if: ${{ (github.event_name != 'workflow_dispatch' || inputs.deploy_after_build == true) }}
-        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@6715fb0d3c52ca817f89792404ffa86ac9bd7555
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@fa7bf856b6ed89c15a317007bf0f7a57e0fad126
         with:
           operation: shared-readiness
           environment: shared
         env:
           SHARED_VAULT_ENDPOINT: ${{ inputs.shared_vault_endpoint || 'https://vault.svc.plus' }}
           SHARED_OBSERVABILITY_ENDPOINT: ${{ inputs.shared_observability_endpoint || 'https://observability.svc.plus' }}
+          # IAM is temporarily offline; retain its endpoint and issuer for restoration.
+          SHARED_IAM_READINESS_MODE: offline
+          SHARED_IAM_OFFLINE_REASON: temporarily-offline
           SHARED_IAM_ENDPOINT: ${{ inputs.shared_iam_endpoint || 'https://iam.svc.plus' }}
           SHARED_IAM_ISSUER: ${{ inputs.shared_iam_issuer || 'https://iam.svc.plus' }}
           SHARED_READINESS_TIMEOUT_SECONDS: ${{ inputs.shared_readiness_timeout_seconds || '20' }}
