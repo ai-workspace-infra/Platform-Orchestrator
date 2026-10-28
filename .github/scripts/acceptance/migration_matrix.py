@@ -12,13 +12,14 @@ import time
 import zipfile
 
 
-def api(path, binary=False):
+def api(path, binary=False, token=None):
     # Authenticated gh handles GitHub's signed archive redirect. Never consume a
     # caller URL or archive_download_url, and never buffer unbounded stdout.
     if not isinstance(path,str) or not path.startswith('repos/') or any(part in ('.','..') for part in path.split('/')) or '://' in path:
         raise ValueError('invalid GitHub API path')
     limit=2_000_000 if binary else 4_000_000
-    process=subprocess.Popen(['gh','api','--hostname','github.com',path],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+    env = None if token is None else dict(os.environ, GH_TOKEN=token)
+    process=subprocess.Popen(['gh','api','--hostname','github.com',path],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,env=env)
     output=bytearray();deadline=time.monotonic()+120
     try:
         while True:
