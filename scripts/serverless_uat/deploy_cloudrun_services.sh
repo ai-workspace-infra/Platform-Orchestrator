@@ -126,6 +126,20 @@ for svc in "${SERVICES[@]}"; do
       )
       ;;
   esac
+
+  # Inject OpenTelemetry standard environment variables for direct DataWay ingest
+  if [[ -n "${OTEL_EXPORTER_OTLP_HEADERS:-}" || -n "${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-}" ]]; then
+    echo "==> [Cloud Run] Injecting OpenTelemetry DataWay observability variables for ${svc}..."
+    env_vars+=(
+      "OTEL_EXPORTER_OTLP_PROTOCOL=${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}"
+      "OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-}"
+      "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-https://cn3-openway.guance.com/otel/v1/logs}"
+      "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=${OTEL_EXPORTER_OTLP_METRICS_ENDPOINT:-https://cn3-openway.guance.com/otel/v1/metrics}"
+      "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-https://cn3-openway.guance.com/otel/v1/traces}"
+      "OTEL_SERVICE_NAME=${SERVICE_NAME}"
+    )
+  fi
+
   env_delimiter=""
   for candidate in '|' ';' '%' '~' '^' '+' ':'; do
     candidate_used=false
