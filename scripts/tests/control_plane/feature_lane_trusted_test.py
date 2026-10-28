@@ -185,6 +185,7 @@ class TrustedTest(unittest.TestCase):
             self.assertEqual(result['verified_website_content'], {'repository':'example/content','sha':'e'*40,'repository_id':7})
             self.assertEqual(result['verified_chart_digest'], self.c['chart_digest'])
             self.assertEqual(result['verified_runtime_components']['accounts'], {'source_repository':'example/accounts','source_sha':'a'*40,'image':self.c['sources'][0]['image'],'build_run_id':'11'})
+            self.assertEqual(result['verified_projection'], {'tagged_lane':{'feature_id':self.c['feature_id'],'feature_tag':self.c['feature_tag'],'candidate_sha256':T.gate.identity(self.c)},'chart_digest':self.c['chart_digest'],'knowledge':{'repository':'example/content','sha':'e'*40},'components':result['verified_runtime_components']})
             self.assertFalse(result['dispatch_authorized'])
             self.assertEqual(tag_check.call_count, 2)
             self.assertEqual(gitops_check.call_count, 2)

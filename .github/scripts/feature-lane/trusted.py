@@ -388,6 +388,15 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
                 name: verified_builds[item['source_repository']]
                 for name, item in candidate['components'].items()
             }
+        if candidate.get('schema') == 2 and stage == 'sit':
+            content = result['verified_website_content']
+            result['verified_projection'] = {
+                'tagged_lane': {'feature_id': candidate['feature_id'], 'feature_tag': candidate['feature_tag'],
+                                'candidate_sha256': result['candidate_sha256']},
+                'chart_digest': result['verified_chart_digest'],
+                'knowledge': {'repository': content['repository'], 'sha': content['sha']},
+                'components': result['verified_runtime_components'],
+            }
         return result
     except gate.Blocked:
         raise
