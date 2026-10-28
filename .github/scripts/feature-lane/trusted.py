@@ -116,6 +116,10 @@ def verify_feature_tag(candidate, policy):
     gate.require(obj.get('sha') == object_sha and obj.get('tag') == tag and
                  obj.get('object', {}).get('type') == 'commit' and obj.get('object', {}).get('sha') == target_sha,
                  'tag object target differs from reviewed binding')
+    main = reader.api(f'repos/{repo}/git/ref/heads/main').get('object', {}).get('sha')
+    gate.require(gate.sha(main), 'tag repository Main unavailable')
+    comparison = reader.api(f'repos/{repo}/compare/{target_sha}...{main}')
+    gate.require(comparison.get('status') in ('ahead', 'identical'), 'tag target is not reachable from Main')
     return {'tag': tag, 'repository': repo, 'tag_object_sha': object_sha, 'target_sha': target_sha}
 
 
@@ -222,6 +226,9 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
         if candidate.get('schema') == 2:
             gate.require(task.get('kind') == 'issue', 'feature tag requires a tracked Issue')
             verify_feature_tag(candidate, policy)
+            frontend_repo = policy.get('feature_sit_frontend_repository')
+            gate.require(frontend_repo in sources and frontend_repo in policy.get('repositories', []),
+                         'missing reviewed Feature SIT frontend source')
             if candidate.get('candidate_mode') == 'main-rehearsal' and stage == 'sit':
                 verify_main_rehearsal_sources(candidate, policy)
         prs = {}
@@ -242,6 +249,15 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
             proof, _ = artifact(locator(owner, evidence_selectors['builds'][source['repository']], source['sha']))
             gate.require(proof.get('repository') == source['repository'] and proof.get('source_sha') == source['sha'] and
                          proof.get('image') == source['image'], 'build manifest source/image mismatch')
+            if candidate.get('schema') == 2 and source['repository'] == frontend_repo:
+                content_repo = source.get('website_content_repository')
+                content_sha = source.get('website_content_sha')
+                gate.require(content_repo in policy.get('website_content_repositories', []) and gate.sha(content_sha) and
+                             proof.get('website_content_repository') == content_repo and
+                             proof.get('website_content_sha') == content_sha and
+                             proof.get('environment') == 'sit' and proof.get('build_mode') == 'feature-sit' and
+                             proof.get('candidate_hostname') == candidate['domains']['sit'],
+                             'frontend SIT build inputs differ from candidate')
         if candidate.get('schema') == 2 and candidate.get('candidate_mode') == 'main-rehearsal' and stage == 'sit':
             verify_main_rehearsal_sources(candidate, policy)
             verify_feature_tag(candidate, policy)

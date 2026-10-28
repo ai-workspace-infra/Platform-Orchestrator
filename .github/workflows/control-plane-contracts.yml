@@ -86,6 +86,9 @@ jobs:
       - name: Verify feature candidate preflight failures
         run: python3 scripts/tests/control_plane/feature_lane_preflight_test.py
 
+      - name: Verify feature tag event candidate binding
+        run: python3 scripts/tests/control_plane/feature_lane_event_test.py
+
       - name: Verify authenticated feature evidence adapter with hostile offline fixtures
         run: python3 scripts/tests/control_plane/feature_lane_trusted_test.py
 

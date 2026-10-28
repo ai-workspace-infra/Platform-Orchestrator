@@ -102,7 +102,13 @@ class TrustedTest(unittest.TestCase):
         self.c.update(schema=2, candidate_mode='main-rehearsal', feature_tag='smoke-' + self.c['feature_id'])
         self.c['domains']['sit'] = self.c['feature_tag'] + '-sit.' + self.policy['domain_suffix']
         self.c['sources'][0].update(kind='baseline', pr=None)
+        self.c['sources'][0].update(website_content_repository='example/content', website_content_sha='e' * 40)
         self.policy['main_rehearsal_tasks'] = [self.c['task_url']]
+        self.policy['feature_sit_frontend_repository'] = 'example/accounts'
+        self.policy['website_content_repositories'] = ['example/content']
+        self.documents[102].update(website_content_repository='example/content', website_content_sha='e' * 40,
+                                   environment='sit', build_mode='feature-sit', candidate_hostname=self.c['domains']['sit'])
+        self.archive(102, 'manifest.json', json.dumps(self.documents[102]))
         F.bind_fixture_components(self.c, self.policy)
         self.selectors = {'builds': self.selectors['builds']}
         with patch.object(T.reader, 'api', side_effect=self.api), \
@@ -113,6 +119,12 @@ class TrustedTest(unittest.TestCase):
             self.assertFalse(result['dispatch_authorized'])
             self.assertEqual(tag_check.call_count, 2)
             self.assertEqual(main_check.call_count, 2)
+            self.documents[102]['website_content_sha'] = 'b' * 40
+            self.archive(102, 'manifest.json', json.dumps(self.documents[102]))
+            with self.assertRaisesRegex(T.gate.Blocked, 'frontend SIT build inputs'):
+                T.verified(self.c, 'sit', 'f' * 40, self.selectors)
+            self.documents[102]['website_content_sha'] = 'e' * 40
+            self.archive(102, 'manifest.json', json.dumps(self.documents[102]))
             main_check.side_effect = T.gate.Blocked('Main moved')
             with self.assertRaisesRegex(T.gate.Blocked, 'Main moved'):
                 T.verified(self.c, 'sit', 'f' * 40, self.selectors)
@@ -136,6 +148,10 @@ class TrustedTest(unittest.TestCase):
         def api(path):
             if '/git/ref/tags/' in path:
                 return {'ref': 'refs/tags/' + tag, 'object': {'type': 'tag', 'sha': 'a' * 40}}
+            if path.endswith('/git/ref/heads/main'):
+                return {'object': {'sha': 'c' * 40}}
+            if '/compare/' in path:
+                return {'status': 'ahead'}
             return {'sha': 'a' * 40, 'tag': tag, 'object': {'type': 'commit', 'sha': 'b' * 40}}
         with patch.object(T.reader, 'api', side_effect=api):
             T.verify_feature_tag(self.c, self.policy)
@@ -143,6 +159,11 @@ class TrustedTest(unittest.TestCase):
             with self.assertRaisesRegex(T.gate.Blocked, 'invalid reviewed tag binding'):
                 T.verify_feature_tag(self.c, self.policy)
         self.c['task_url'] = self.c['task_url'][:-1]
+        def divergent(path):
+            return {'status': 'diverged'} if '/compare/' in path else api(path)
+        with patch.object(T.reader, 'api', side_effect=divergent):
+            with self.assertRaisesRegex(T.gate.Blocked, 'not reachable from Main'):
+                T.verify_feature_tag(self.c, self.policy)
         with patch.object(T.reader, 'api', return_value={'ref': 'refs/tags/' + tag, 'object': {'type': 'tag', 'sha': 'c' * 40}}):
             with self.assertRaisesRegex(T.gate.Blocked, 'tag ref moved'):
                 T.verify_feature_tag(self.c, self.policy)
