@@ -22,6 +22,24 @@ F=load('gate_fixture',ROOT/'scripts/tests/control_plane/feature_lane_gate_test.p
 
 
 class TrustedTest(unittest.TestCase):
+    def test_main_image_manifest_binds_authenticated_run_and_source(self):
+        source = {'repository': 'example/accounts', 'kind': 'baseline', 'sha': 'a' * 40,
+                  'image': 'example/accounts@sha256:' + 'b' * 64}
+        run = {'event': 'push', 'id': 11, 'attempt': 1}
+        proof = {'schema': 'main-image-build/v1', 'source_repository': source['repository'],
+                 'source_sha': source['sha'], 'image': source['image'], 'event': 'push',
+                 'ref': 'refs/heads/main', 'run_id': 11, 'attempt': 1}
+        T.verify_build_manifest(proof, run, source)
+        for key, value in [('source_repository', 'example/other'), ('source_sha', 'c' * 40),
+                           ('image', 'other'), ('event', 'pull_request'), ('ref', 'refs/heads/dev'),
+                           ('run_id', 12), ('attempt', 2), ('repository', 'example/other')]:
+            with self.subTest(key=key):
+                changed = dict(proof, **{key: value})
+                with self.assertRaises(T.gate.Blocked):
+                    T.verify_build_manifest(changed, run, source)
+        with self.assertRaises(T.gate.Blocked):
+            T.verify_build_manifest(proof, run, dict(source, kind='feature'))
+
     def setUp(self):
         self.c,self.policy,self.prs,self.receipt,self.run,self.auth=F.fixture()
         self.policy['authorization_url_prefix']=self.c['task_url']+'#'

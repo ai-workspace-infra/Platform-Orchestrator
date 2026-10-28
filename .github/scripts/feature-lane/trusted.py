@@ -170,6 +170,23 @@ def artifact(locator):
     return json.loads(payload), run
 
 
+def verify_build_manifest(proof, run, source):
+    """Validate the reviewed owner's manifest against its authenticated run."""
+    gate.require(isinstance(proof, dict), 'invalid build manifest')
+    if proof.get('schema') == 'main-image-build/v1':
+        gate.require(source.get('kind') == 'baseline' and run.get('event') == 'push' and
+                     proof.get('event') == 'push' and proof.get('ref') == 'refs/heads/main' and
+                     type(proof.get('run_id')) is int and proof['run_id'] == run.get('id') and
+                     type(proof.get('attempt')) is int and proof['attempt'] == run.get('attempt') and
+                     proof.get('source_repository') == source['repository'] and
+                     ('repository' not in proof or proof['repository'] == source['repository']),
+                     'main build manifest run or repository mismatch')
+    else:
+        gate.require(proof.get('repository') == source['repository'], 'build manifest repository mismatch')
+    gate.require(proof.get('source_sha') == source['sha'] and proof.get('image') == source['image'],
+                 'build manifest source/image mismatch')
+
+
 def authorization(policy, fingerprint, stage, task, selectors):
     auth = policy.get('authorization')
     gate.require(isinstance(auth, dict) and auth.get('kind') == 'issue_comment',
@@ -246,9 +263,8 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
                 prs[source['repository']] = pull(source, stage, candidate['task_url'])
             owner = policy['build_owners'][source['repository']]
             gate.require(owner['repository'] == source['repository'], 'foreign source build owner')
-            proof, _ = artifact(locator(owner, evidence_selectors['builds'][source['repository']], source['sha']))
-            gate.require(proof.get('repository') == source['repository'] and proof.get('source_sha') == source['sha'] and
-                         proof.get('image') == source['image'], 'build manifest source/image mismatch')
+            proof, producer = artifact(locator(owner, evidence_selectors['builds'][source['repository']], source['sha']))
+            verify_build_manifest(proof, producer, source)
             if candidate.get('schema') == 2 and source['repository'] == frontend_repo:
                 content_repo = source.get('website_content_repository')
                 content_sha = source.get('website_content_sha')
