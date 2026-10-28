@@ -9,12 +9,16 @@ permissions:
   pull-requests: read
   issues: read
 jobs:
-  verify:
+  event:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      tag: ${{ steps.event.outputs.tag }}
+      infra_repositories: ${{ steps.event.outputs.infra_repositories }}
+      services_repositories: ${{ steps.event.outputs.services_repositories }}
     steps:
       - name: Checkout the trusted default branch revision
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -23,9 +27,64 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 .github/scripts/feature-lane/main-event.py
+  verify:
+    needs: event
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      issues: read
+      id-token: write
+    steps:
+      - name: Checkout the trusted default branch revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read dedicated Feature evidence App identity
+        id: vault
+        uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-feature-lane-read-sit
+          jwtGithubAudience: vault
+          exportEnv: false
+          secrets: |
+            kv/data/sit/platform/github-app/feature-lane app_id | FEATURE_APP_ID ;
+            kv/data/sit/platform/github-app/feature-lane app_private_key | FEATURE_APP_PRIVATE_KEY
+      - name: Create scoped infra read token
+        id: infra
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          client-id: ${{ steps.vault.outputs.FEATURE_APP_ID }}
+          private-key: ${{ steps.vault.outputs.FEATURE_APP_PRIVATE_KEY }}
+          owner: ai-workspace-infra
+          repositories: ${{ needs.event.outputs.infra_repositories }}
+          permission-actions: read
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+      - name: Create scoped services read token
+        id: services
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          client-id: ${{ steps.vault.outputs.FEATURE_APP_ID }}
+          private-key: ${{ steps.vault.outputs.FEATURE_APP_PRIVATE_KEY }}
+          owner: ai-workspace-services
+          repositories: ${{ needs.event.outputs.services_repositories }}
+          permission-actions: read
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
       - name: Verify fixed candidate and evidence
         env:
           GH_TOKEN: ${{ github.token }}
-          FEATURE_EVENT_TAG: ${{ steps.event.outputs.tag }}
+          FEATURE_GH_TOKEN_INFRA: ${{ steps.infra.outputs.token }}
+          FEATURE_GH_TOKEN_SERVICES: ${{ steps.services.outputs.token }}
+          FEATURE_EVENT_TAG: ${{ needs.event.outputs.tag }}
           FEATURE_POLICY_COMMIT: ${{ github.sha }}
         run: python3 .github/scripts/feature-lane/event-preflight.py

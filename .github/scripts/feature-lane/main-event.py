@@ -15,6 +15,29 @@ def load_trusted():
     return module
 
 
+def installation_repositories(candidate, policy, binding):
+    """Resolve the bounded repository set after tag and policy authentication."""
+    match = re.fullmatch(r'https://github.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/[1-9][0-9]*', candidate['task_url'])
+    if not match or match.group(1) not in policy.get('task_repositories', []):
+        raise ValueError('issue repository is outside reviewed policy')
+    gitops = candidate.get('gitops', {}).get('repository')
+    if gitops != policy.get('gitops_repository'):
+        raise ValueError('GitOps repository differs from policy')
+    repositories = {match.group(1), binding['repository'], gitops}
+    repositories.update(row['repository'] for row in candidate['sources'])
+    repositories.update(row['repository'] for row in candidate.get('configurations', []))
+    result = {'ai-workspace-infra': set(), 'ai-workspace-services': set()}
+    for repository in repositories:
+        parts = repository.split('/') if isinstance(repository, str) else []
+        if (len(parts) != 2 or parts[0] not in result or
+                not re.fullmatch(r'[A-Za-z0-9_.-]+', parts[1]) or parts[1] in ('.', '..')):
+            raise ValueError('repository outside approved installations')
+        result[parts[0]].add(parts[1])
+    if any(not names or len(names) > 50 for names in result.values()):
+        raise ValueError('missing or oversized installation scope')
+    return {owner: sorted(names, key=str.lower) for owner, names in result.items()}
+
+
 def authenticate(event, env, trusted):
     repo = env.get('GITHUB_REPOSITORY', '')
     if repo.lower() not in ('ai-workspace-infra/platform-orchestrator', 'ai-workspace-infra/platform-ops-toolkit'):
@@ -61,16 +84,19 @@ def authenticate(event, env, trusted):
     binding = trusted.verify_feature_tag(candidate, policy)
     if binding['repository'].lower() != repo.lower() or binding['target_sha'] != run.get('head_sha'):
         raise ValueError('tag target differs from source event')
-    return tag
+    trusted.gate.validate_candidate(candidate, policy)
+    return tag, installation_repositories(candidate, policy, binding)
 
 
 def main():
     try:
         env = os.environ
         event = json.loads(Path(env['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'))
-        tag = authenticate(event, env, load_trusted())
+        tag, repos = authenticate(event, env, load_trusted())
         with Path(env['GITHUB_OUTPUT']).open('a', encoding='utf-8') as output:
             output.write(f'tag={tag}\n')
+            for owner, key in (('ai-workspace-infra', 'infra_repositories'), ('ai-workspace-services', 'services_repositories')):
+                output.write(f'{key}<<FEATURE_REPOSITORIES\n' + '\n'.join(repos[owner]) + '\nFEATURE_REPOSITORIES\n')
         return 0
     except Exception:
         print('::error::Feature event cannot be authenticated against reviewed Main policy', file=sys.stderr)
