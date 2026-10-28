@@ -4,6 +4,7 @@ import base64
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 
@@ -21,6 +22,26 @@ def load(name, path):
 
 reader = load('feature_shared_artifact_reader', ROOT / '.github/scripts/acceptance/migration_matrix.py')
 gate = load('feature_contract', Path(__file__).with_name('gate.py'))
+
+_authenticated_api = reader.api
+
+
+def feature_api(path, binary=False):
+    """Select a short-lived installation token by API repository owner.
+
+    Callers supply credentials; this adapter never obtains them or grants
+    execution. Without an owner-specific token the existing gh identity applies.
+    """
+    match = re.match(r'^repos/([^/]+)/[^/]+/', path) if isinstance(path, str) else None
+    owner = match.group(1).lower() if match else ''
+    key = {'ai-workspace-infra': 'FEATURE_GH_TOKEN_INFRA',
+           'ai-workspace-services': 'FEATURE_GH_TOKEN_SERVICES'}.get(owner)
+    token = os.environ.get(key) if key else None
+    return _authenticated_api(path, binary=binary, token=token or None)
+
+
+# artifact_file resolves its metadata, run and archive through this same adapter.
+reader.api = feature_api
 
 
 def policy_at(commit):
