@@ -105,6 +105,22 @@ def fixture():
 
 
 class GateTest(unittest.TestCase):
+    def test_tagged_merge_requires_explicit_full_acceptance(self):
+        values=fixture();c,policy,prs,receipt,run,auth=values
+        c.update(schema=2,feature_tag='smoke-'+c['feature_id'])
+        c['domains']['sit']=c['feature_tag']+'-sit.'+policy['domain_suffix']
+        c['sources'][0]['base_sha']='d'*40;prs[c['sources'][0]['repository']]['base_sha']='d'*40
+        bind_fixture_components(c,policy)
+        receipt.update(candidate_sha256=gate.identity(c),domain=c['domains']['sit'],image_ids={'accounts':c['sources'][0]['image']})
+        auth['candidate_sha256']=gate.identity(c)
+        with self.assertRaisesRegex(gate.Blocked,'DNS, TLS'):
+            self.decide(values)
+        receipt['acceptance']={'dns':'PASS','tls':'PASS','service_health':'PASS','integration':'NOT_RUN'}
+        with self.assertRaisesRegex(gate.Blocked,'DNS, TLS'):
+            self.decide(values)
+        receipt['acceptance']['integration']='PASS'
+        self.assertEqual(self.decide(values)['status'],'REHEARSAL')
+
     def decide(self, values, stage='merge'):
         c, policy, prs, receipt, run, auth = values
         return gate.rehearse(c, policy, stage, prs, receipt, run, auth)

@@ -219,6 +219,11 @@ def _evaluate(c, policy, stage, prs, receipt=None, run=None, authorization=None,
         require(receipt is not None and run is not None, 'missing structured SIT evidence')
         verify_run(run, policy['acceptance_owner'], policy['acceptance_owner']['sha'], 'workflow_dispatch')
         require(receipt.get('schema') == 1 and receipt.get('evidence_kind') == 'live', 'synthetic evidence cannot pass')
+        if c['schema'] == 2:
+            acceptance = receipt.get('acceptance')
+            require(isinstance(acceptance, dict) and set(acceptance) == {'dns', 'tls', 'service_health', 'integration'} and
+                    all(value == 'PASS' for value in acceptance.values()),
+                    'tagged SIT requires DNS, TLS, service health and integration acceptance')
         require(type(receipt.get('run_id')) is int and type(receipt.get('run_attempt')) is int and
                 receipt['run_id'] == run['id'] and receipt['run_attempt'] == run['attempt'], 'receipt/run mismatch')
         require(receipt.get('candidate_sha256') == fingerprint and receipt.get('stage') == 'sit', 'stale SIT candidate')
