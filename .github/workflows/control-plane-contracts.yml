@@ -92,6 +92,9 @@ jobs:
       - name: Verify authenticated feature evidence adapter with hostile offline fixtures
         run: python3 scripts/tests/control_plane/feature_lane_trusted_test.py
 
+      - name: Verify trusted Main Feature event
+        run: python3 scripts/tests/control_plane/feature_lane_main_event_test.py
+
       - name: Verify release and workflow input contracts
         run: |
           bash scripts/tests/control_plane/daily_snapshot_tag_routing_test.sh

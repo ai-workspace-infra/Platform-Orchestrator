@@ -1,0 +1,31 @@
+name: Feature tag trusted Main verification
+on:
+  workflow_run:
+    workflows: [Feature tag preflight]
+    types: [completed]
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+  issues: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout the trusted default branch revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Authenticate source event and reviewed tag
+        id: event
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/feature-lane/main-event.py
+      - name: Verify fixed candidate and evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FEATURE_EVENT_TAG: ${{ steps.event.outputs.tag }}
+          FEATURE_POLICY_COMMIT: ${{ github.sha }}
+        run: python3 .github/scripts/feature-lane/event-preflight.py
