@@ -29,6 +29,14 @@ class FeatureTagTests(unittest.TestCase):
         with self.assertRaisesRegex(gate.Blocked, 'unapproved temporary SIT domain'):
             gate.validate_candidate(candidate, policy)
 
+    def test_service_hostname_lengths_are_validated_before_acceptance(self):
+        candidate, policy, *_ = fixture()
+        candidate['schema'] = 2
+        candidate['feature_tag'] = 'a' * 40 + '-' + candidate['feature_id']
+        candidate['domains']['sit'] = candidate['feature_tag'] + '-sit.' + policy['domain_suffix']
+        with self.assertRaisesRegex(gate.Blocked, 'DNS label exceeds'):
+            gate.validate_candidate(candidate, policy)
+
     def test_main_rehearsal_requires_task_allowlist_and_baselines(self):
         candidate, policy, *_ = fixture()
         candidate.update(schema=2, feature_tag='smoke-' + candidate['feature_id'], candidate_mode='main-rehearsal')

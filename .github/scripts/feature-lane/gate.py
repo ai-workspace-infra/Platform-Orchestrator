@@ -109,7 +109,8 @@ def validate_candidate(c, policy):
         tag = c.get('feature_tag')
         validate_feature_tag(tag, feature)
         label = tag + '-sit'
-        require(len(label) <= 63, 'SIT DNS label exceeds 63 characters')
+        require(all(len(prefix + label) <= 63 for prefix in ('', 'accounts-', 'billing-')),
+                'SIT DNS label exceeds 63 characters')
         require(domains.get('sit') == label + '.' + policy['domain_suffix'], 'unapproved temporary SIT domain')
     else:
         require(domains.get('sit') == feature + '-sit.' + policy['domain_suffix'], 'unapproved temporary SIT domain')
