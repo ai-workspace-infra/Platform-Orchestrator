@@ -459,7 +459,6 @@ jobs:
           GITOPS_SHA: ${{ steps.gitops.outputs.gitops_sha }}
           GITOPS_DIRECTORY: ${{ github.workspace }}/gitops
           RELEASE_MANIFEST_OUTPUT: ${{ runner.temp }}/serverless-main-release.json
-          GITHUB_OUTPUT: ${{ runner.temp }}/serverless-main-release-output
         run: python3 ./.github/scripts/snapshots/serverless-main-release.py verify
 
       - name: Preserve UAT source combination

@@ -62,6 +62,19 @@ class MainReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "duplicate"):
                 RELEASE.read_status(directory, "daily-build-2026.10.27-r1")
 
+    def test_tag_records_are_matched_to_successful_builds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write_status(directory)
+            path = Path(directory) / "services.jsonl"
+            builds = [json.loads(line) for line in path.read_text().splitlines()]
+            tags = [dict(record, status="unchanged") for record in builds]
+            path.write_text("".join(json.dumps(record) + "\n" for record in tags + builds))
+            self.assertEqual(len(RELEASE.read_status(directory, builds[0]["tag"])), len(builds))
+            tags[0]["sha"] = "f" * 40
+            path.write_text("".join(json.dumps(record) + "\n" for record in tags + builds))
+            with self.assertRaisesRegex(ValueError, "tag and build evidence mismatch"):
+                RELEASE.read_status(directory, builds[0]["tag"])
+
     def test_automatic_snapshot_tags_are_required(self):
         with patch.dict(os.environ, {"SNAPSHOT_TAG": "v2026.10.27"}, clear=False):
             with self.assertRaisesRegex(ValueError, "immutable daily snapshot tag"):
