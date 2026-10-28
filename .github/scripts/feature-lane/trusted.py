@@ -252,9 +252,13 @@ def artifact(locator):
     return json.loads(payload), run
 
 
-def verify_build_manifest(proof, run, source):
+def verify_build_manifest(proof, run, source, *, strict_schema=False):
     """Validate the reviewed owner's manifest against its authenticated run."""
     gate.require(isinstance(proof, dict), 'invalid build manifest')
+    if strict_schema:
+        gate.require((type(proof.get('schema')) is int and proof['schema'] == 1) or
+                     proof.get('schema') == 'main-image-build/v1',
+                     'unsupported build manifest schema')
     if proof.get('schema') == 'main-image-build/v1':
         gate.require(source.get('kind') == 'baseline' and run.get('event') == 'push' and run.get('head_branch') == 'main' and
                      proof.get('event') == 'push' and proof.get('ref') == 'refs/heads/main' and
@@ -373,7 +377,7 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
             owner = policy['build_owners'][source['repository']]
             gate.require(owner['repository'] == source['repository'], 'foreign source build owner')
             proof, producer = artifact(locator(owner, evidence_selectors['builds'][source['repository']], source['sha']))
-            verify_build_manifest(proof, producer, source)
+            verify_build_manifest(proof, producer, source, strict_schema=candidate.get('schema') == 2)
             verified_builds[source['repository']] = {'source_repository': source['repository'],
                                                        'source_sha': source['sha'],
                                                        'image': source['image'],

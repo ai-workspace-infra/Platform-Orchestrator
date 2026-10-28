@@ -83,6 +83,17 @@ class TrustedTest(unittest.TestCase):
                 T.feature_api('repos/example/accounts/actions/runs/1')
                 self.assertEqual(api.call_args.kwargs, {'binary': False, 'token': None})
 
+    def test_schema_two_rejects_unknown_build_manifest_formats(self):
+        source = {'repository': 'example/accounts', 'kind': 'feature', 'sha': 'a' * 40,
+                  'image': 'example/accounts@sha256:' + 'b' * 64}
+        proof = {'repository': source['repository'], 'source_sha': source['sha'],
+                 'image': source['image'], 'schema': 1}
+        T.verify_build_manifest(proof, {}, source, strict_schema=True)
+        for bad in (None, True, 2, 'unexpected'):
+            with self.subTest(schema=bad):
+                with self.assertRaises(T.gate.Blocked):
+                    T.verify_build_manifest(dict(proof, schema=bad), {}, source, strict_schema=True)
+
     def test_main_image_manifest_binds_authenticated_run_and_source(self):
         source = {'repository': 'example/accounts', 'kind': 'baseline', 'sha': 'a' * 40,
                   'image': 'example/accounts@sha256:' + 'b' * 64}
@@ -111,7 +122,7 @@ class TrustedTest(unittest.TestCase):
             artifact_name='acceptance-42-1',filename='receipt.json')
         self.policy['builds']={'example/accounts':dict(repository='example/accounts',workflow='build.yml',sha='a'*40,
             event='pull_request',run_id=11,attempt=1,artifact_id=102,artifact_name='build-11-1',filename='manifest.json')}
-        self.documents={101:self.receipt,102:{'repository':'example/accounts','source_sha':'a'*40,'image':self.c['sources'][0]['image']}}
+        self.documents={101:self.receipt,102:{'schema':1,'repository':'example/accounts','source_sha':'a'*40,'image':self.c['sources'][0]['image']}}
         self.metadata={};self.archives={};self.rawruns={};self.files={};self.config_rawpr=None
         for loc in [self.policy['acceptance_owner'],*self.policy['builds'].values()]:
             self.rawruns[loc['run_id']]=dict(repository={'full_name':loc['repository']},head_repository={'full_name':loc['repository']},
