@@ -32,7 +32,7 @@ def feature_api(path, binary=False):
     Callers supply credentials; this adapter never obtains them or grants
     execution. Without an owner-specific token the existing gh identity applies.
     """
-    match = re.match(r'^repos/([^/]+)/[^/]+/', path) if isinstance(path, str) else None
+    match = re.match(r'^repos/([^/]+)/[^/]+(?:/|$)', path) if isinstance(path, str) else None
     owner = match.group(1).lower() if match else ''
     key = {'ai-workspace-infra': 'FEATURE_GH_TOKEN_INFRA',
            'ai-workspace-services': 'FEATURE_GH_TOKEN_SERVICES'}.get(owner)
@@ -76,6 +76,24 @@ def file_at(repo, commit, path):
     raw = base64.b64decode(record['content'])
     gate.require(len(raw) <= 1_000_000, 'oversized fixed content bytes')
     return hashlib.sha256(raw).hexdigest()
+
+
+def verified_content_identity(repo, commit, policy):
+    canonical = policy.get('website_content_canonical_repository')
+    valid_repo = r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
+    gate.require(isinstance(repo, str) and re.fullmatch(valid_repo, repo) and
+                 isinstance(canonical, str) and re.fullmatch(valid_repo, canonical) and
+                 repo in policy.get('website_content_repositories', []) and gate.sha(commit),
+                 'reviewed content repository and commit required')
+    original = reader.api(f'repos/{repo}')
+    resolved = reader.api(f'repos/{canonical}')
+    gate.require(type(original.get('id')) is int and original['id'] > 0 and
+                 original.get('id') == resolved.get('id') and
+                 resolved.get('full_name', '').lower() == canonical.lower(),
+                 'content repository aliases do not resolve to the reviewed identity')
+    record = reader.api(f'repos/{canonical}/commits/{commit}')
+    gate.require(record.get('sha') == commit, 'verified content commit unavailable')
+    return {'repository': canonical, 'sha': commit, 'repository_id': original['id']}
 
 
 def task_at(candidate, policy):
@@ -325,7 +343,7 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
                              proof.get('environment') == 'sit' and proof.get('build_mode') == 'feature-sit' and
                              proof.get('candidate_hostname') == candidate['domains']['sit'],
                              'frontend SIT build inputs differ from candidate')
-                verified_website_content = {'repository': content_repo, 'sha': content_sha}
+                verified_website_content = verified_content_identity(content_repo, content_sha, policy)
         if candidate.get('schema') == 2 and candidate.get('candidate_mode') == 'main-rehearsal' and stage == 'sit':
             verify_main_rehearsal_sources(candidate, policy)
             verify_feature_tag(candidate, policy)

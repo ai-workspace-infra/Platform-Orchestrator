@@ -22,6 +22,16 @@ F=load('gate_fixture',ROOT/'scripts/tests/control_plane/feature_lane_gate_test.p
 
 
 class TrustedTest(unittest.TestCase):
+    def test_content_alias_must_match_repository_id_and_commit(self):
+        policy={'website_content_repositories':['old/content'],'website_content_canonical_repository':'new/content'}
+        records={'repos/old/content':{'id':7},'repos/new/content':{'id':7,'full_name':'new/content'},'repos/new/content/commits/'+'e'*40:{'sha':'e'*40}}
+        with patch.object(T.reader,'api',side_effect=lambda path:records[path]):
+            self.assertEqual(T.verified_content_identity('old/content','e'*40,policy)['repository_id'],7)
+            records['repos/new/content']['id']=8
+            with self.assertRaises(T.gate.Blocked):T.verified_content_identity('old/content','e'*40,policy)
+            records['repos/new/content']['id']=7
+            records['repos/new/content/commits/'+'e'*40]['sha']='f'*40
+            with self.assertRaises(T.gate.Blocked):T.verified_content_identity('old/content','e'*40,policy)
     def test_gitops_domain_binding_rejects_moved_main_and_changed_bytes(self):
         path = 'docs/features/tagged-sit-domain-contract.yaml'
         candidate = {'gitops': {'repository': 'example/gitops', 'sha': 'd' * 40, 'domain_sha256': 'a' * 64},
@@ -158,6 +168,7 @@ class TrustedTest(unittest.TestCase):
         self.policy['main_rehearsal_tasks'] = [self.c['task_url']]
         self.policy['feature_sit_frontend_repository'] = 'example/accounts'
         self.policy['website_content_repositories'] = ['example/content']
+        self.policy['website_content_canonical_repository'] = 'example/content'
         self.documents[102].update(website_content_repository='example/content', website_content_sha='e' * 40,
                                    environment='sit', build_mode='feature-sit', candidate_hostname=self.c['domains']['sit'])
         self.archive(102, 'manifest.json', json.dumps(self.documents[102]))
@@ -166,10 +177,11 @@ class TrustedTest(unittest.TestCase):
         with patch.object(T.reader, 'api', side_effect=self.api), \
              patch.object(T, 'verify_feature_tag') as tag_check, \
              patch.object(T, 'verify_gitops_domain') as gitops_check, \
-             patch.object(T, 'verify_main_rehearsal_sources') as main_check:
+             patch.object(T, 'verify_main_rehearsal_sources') as main_check, \
+             patch.object(T, 'verified_content_identity', return_value={'repository':'example/content','sha':'e'*40,'repository_id':7}):
             result = T.verified(self.c, 'sit', 'f' * 40, self.selectors)
             self.assertEqual(result['status'], 'VERIFIED_GATE')
-            self.assertEqual(result['verified_website_content'], {'repository':'example/content','sha':'e'*40})
+            self.assertEqual(result['verified_website_content'], {'repository':'example/content','sha':'e'*40,'repository_id':7})
             self.assertFalse(result['dispatch_authorized'])
             self.assertEqual(tag_check.call_count, 2)
             self.assertEqual(gitops_check.call_count, 2)
