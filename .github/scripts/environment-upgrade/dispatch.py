@@ -51,11 +51,7 @@ def gh(*arguments, payload=None, timeout=30):
     if payload is None and environment.get("RUN_STATUS_TOKEN"):
         environment["GH_TOKEN"] = environment["RUN_STATUS_TOKEN"]
     result = subprocess.run(["gh", *arguments], input=json.dumps(payload) if payload else None,
-                            text=True, capture_output=True, env=environment, timeout=timeout)
-    if result.returncode != 0:
-        if result.stderr:
-            print(f"::error::gh {' '.join(arguments)} failed (code {result.returncode}): {result.stderr.strip()}", flush=True)
-        raise subprocess.CalledProcessError(result.returncode, ["gh", *arguments], output=result.stdout, stderr=result.stderr)
+                            text=True, capture_output=True, check=True, env=environment, timeout=timeout)
     return json.loads(result.stdout) if result.stdout.strip() else {}
 
 

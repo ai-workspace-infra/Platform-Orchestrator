@@ -8,10 +8,7 @@
   ],
   "bound_claims_type": "glob",
   "bound_claims": {
-    "repository": [
-      "ai-workspace-infra/platform-ops-toolkit",
-      "ai-workspace-infra/Platform-Orchestrator"
-    ],
+    "repository": "ai-workspace-infra/platform-ops-toolkit",
     "job_workflow_ref": [
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-orchestrator.yml@*",
       "ai-workspace-infra/Platform-Orchestrator/.github/workflows/selfhost-orchestrator.yml@*",
