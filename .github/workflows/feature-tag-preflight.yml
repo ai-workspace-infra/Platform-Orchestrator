@@ -1,0 +1,27 @@
+name: Feature tag preflight
+on:
+  push:
+    tags:
+      - '*-*'
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+  issues: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout trusted Main
+        id: main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Verify event against reviewed candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FEATURE_EVENT_TAG: ${{ github.ref_name }}
+          FEATURE_POLICY_COMMIT: ${{ steps.main.outputs.commit }}
+        run: python3 .github/scripts/feature-lane/event-preflight.py
