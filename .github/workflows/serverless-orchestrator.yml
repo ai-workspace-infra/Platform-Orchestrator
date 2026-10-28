@@ -155,6 +155,13 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Reject unimplemented execution before credentials or dispatch
+        env:
+          ENV_TARGET: ${{ inputs.environment || 'uat' }}
+          OP_TARGET: ${{ inputs.operation || 'deploy' }}
+          DNS_MODE: ${{ inputs.dns_mode || 'none' }}
+        run: python3 .github/scripts/serverless/acceptance_gate.py admit
+
       - name: Resolve and validate environment contract
         id: resolve
         env:
@@ -653,74 +660,13 @@ jobs:
           ENV_TARGET: ${{ inputs.environment || 'uat' }}
           OP_TARGET: ${{ inputs.operation || 'deploy' }}
           TAG_REF: ${{ inputs.release_tag }}
-        run: |
-          python3 - <<'PY'
-          import json, os, time
-
-          stages = json.loads(os.environ.get("STAGE_RESULTS", "{}"))
-          env = os.environ.get("ENV_TARGET", "uat")
-          op = os.environ.get("OP_TARGET", "deploy")
-          tag = os.environ.get("TAG_REF", "")
-
-          receipt = {
-              "pipeline": "serverless-orchestrator",
-              "environment": env,
-              "operation": op,
-              "release_tag": tag,
-              "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-              "stages": {
-                  name: {
-                      "result": data.get("result", "unknown")
-                  }
-                  for name, data in stages.items()
-              }
-          }
-
-          # 综合判定
-          critical_stages = [k for k in ("prepare", "database", "backend", "frontend", "configure") if k in stages]
-          failed_stages = [k for k in critical_stages if stages[k].get("result") not in ("success", "skipped")]
-
-          receipt["overall_status"] = "FAILED" if failed_stages else "PASSED"
-          receipt["failed_stages"] = failed_stages
-
-          receipt_json = json.dumps(receipt, indent=2, sort_keys=True)
-          with open("serverless-delivery-receipt.json", "w", encoding="utf-8") as f:
-              f.write(receipt_json + "\n")
-
-          github_output = os.environ.get("GITHUB_OUTPUT")
-          if github_output:
-              with open(github_output, "a", encoding="utf-8") as f:
-                  f.write(f"delivery_receipt={json.dumps(receipt)}\n")
-
-          # 渲染 GitHub Step Summary
-          step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
-          if step_summary:
-              with open(step_summary, "a", encoding="utf-8") as f:
-                  f.write(f"## Serverless 交付流水线执行报告\n\n")
-                  f.write(f"- **目标环境**：`{env.upper()}`\n")
-                  f.write(f"- **操作意图**：`{op}`\n")
-                  f.write(f"- **发布版本**：`{tag or '(None)'}`\n")
-                  f.write(f"- **交付终态**：**{receipt['overall_status']}**\n\n")
-                  f.write("| 阶段序号 | 核心阶段 | 云服务抽象 | 执行状态 |\n")
-                  f.write("| :--- | :--- | :--- | :--- |\n")
-                  f.write(f"| 1 | 准备 (Prepare) | 门禁与环境上下文解析 | `{stages.get('prepare', {}).get('result', '-')}` |\n")
-                  f.write(f"| 2 | DB 服务 (Database) | Supabase 初始化与数据迁移 | `{stages.get('database', {}).get('result', '-')}` |\n")
-                  f.write(f"| 3 | 后端矩阵 (Backend) | Cloud Run 微服务矩阵 | `{stages.get('backend', {}).get('result', '-')}` |\n")
-                  f.write(f"| 4 | 前端矩阵 (Frontend) | Cloudflare Edge / SSR / Pages | `{stages.get('frontend', {}).get('result', '-')}` |\n")
-                  f.write(f"| 5 | 配置 (Configure) | DNS 路由割接与跨服务收敛 | `{stages.get('configure', {}).get('result', '-')}` |\n")
-                  f.write(f"| 6 | 汇总 (Summary) | 全链路审计与不可变回执 | `COMPLETED` |\n")
-
-          if failed_stages:
-              raise SystemExit(f"Delivery failed in stages: {failed_stages}")
-
-          print(f"Receipt generated successfully: overall_status={receipt['overall_status']}")
-          PY
+        run: python3 .github/scripts/serverless/acceptance_gate.py summary
 
       - name: Archive serverless delivery receipt
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
-          name: serverless-delivery-receipt-${{ inputs.environment }}-${{ github.run_id }}
+          name: serverless-delivery-receipt-${{ inputs.environment }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: serverless-delivery-receipt.json
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 30

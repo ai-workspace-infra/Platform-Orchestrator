@@ -8,7 +8,7 @@ workflow="${DISPATCH_WORKFLOW:?DISPATCH_WORKFLOW must be set}"
 operation="${DISPATCH_OPERATION:-deploy}"
 target_domains="${DISPATCH_TARGET_DOMAINS:-web-saas}"
 target_domain_base="${TARGET_DOMAIN_BASE:?TARGET_DOMAIN_BASE must be set}"
-target_repo="${TARGET_REPOSITORY:-ai-workspace-infra/platform-ops-toolkit}"
+target_repo="${TARGET_REPOSITORY:-ai-workspace-infra/Platform-Orchestrator}"
 skip_stripe_catalog="${SKIP_STRIPE_CATALOG:-false}"
 wait_interval_seconds="${DISPATCH_WAIT_INTERVAL_SECONDS:-30}"
 wait_timeout_seconds="${DISPATCH_WAIT_TIMEOUT_SECONDS:-10800}"
@@ -85,19 +85,14 @@ case "${workflow}" in
     )
     ;;
   serverless-orchestrator.yml)
-    [[ "${deploy_env}" =~ ^(sit|uat)$ ]] || {
-      echo "::error::Serverless Orchestrator is only declared for SIT or UAT mode." >&2
+    [[ "${deploy_env}" == uat ]] || {
+      echo "::error::Automatic Serverless snapshots only target UAT; SIT uses feature lanes and PROD requires controlled promotion." >&2
       exit 2
     }
-    args+=(
-      -f "target_domains=${target_domains}"
-      -f "tag_ref=${snapshot_tag}"
-      -f "website_content_ref=${WEBSITE_CONTENT_REF:-${snapshot_tag}}"
-      -f deploy_cloudflare=true
-      -f deploy_cloud_run=true
-      -f "skip_stripe_catalog=${skip_stripe_catalog}"
-      -f supabase_target_existing_strategy=accounts_merge
-      -f supabase_target_confirm_replace=false
+    args=(workflow run "${workflow}" --repo "${target_repo}" --ref main
+      -f "operation=${operation}"
+      -f "environment=${deploy_env}"
+      -f "release_tag=${snapshot_tag}"
       -f dns_mode=none
     )
     ;;
