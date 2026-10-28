@@ -33,7 +33,8 @@ def validate_feature_tag(tag, feature_id):
     This is a naming check only; callers must separately authenticate the event,
     tag object, candidate and policy before authorizing any deployment.
     """
-    require(isinstance(feature_id, str) and re.fullmatch(r'[a-z][a-z0-9-]{1,45}', feature_id) is not None,
+    require(isinstance(feature_id, str) and re.fullmatch(r'[a-z][a-z0-9-]{1,45}', feature_id) is not None and
+            not feature_id.endswith('-'),
             'invalid feature id')
     require(isinstance(tag, str) and tag.endswith('-' + feature_id), 'tag does not match feature id')
     name = tag[:-(len(feature_id) + 1)]
@@ -109,7 +110,8 @@ def validate_candidate(c, policy):
         tag = c.get('feature_tag')
         validate_feature_tag(tag, feature)
         label = tag + '-sit'
-        require(len(label) <= 63, 'SIT DNS label exceeds 63 characters')
+        require(all(len(prefix + label) <= 63 for prefix in ('', 'accounts-', 'billing-')),
+                'SIT DNS label exceeds 63 characters')
         require(domains.get('sit') == label + '.' + policy['domain_suffix'], 'unapproved temporary SIT domain')
     else:
         require(domains.get('sit') == feature + '-sit.' + policy['domain_suffix'], 'unapproved temporary SIT domain')
@@ -153,7 +155,8 @@ def validate_candidate(c, policy):
         require(c.get('candidate_mode') in (None, 'feature') and (features > 0 or bool(configs)),
                 'already merged baseline alone cannot establish premerge SIT')
     components = c.get('components')
-    require(not configs or components is not None, 'configuration candidate requires independent runtime components')
+    require((not configs and c['schema'] != 2) or components is not None,
+            'candidate requires independent runtime components')
     if components is not None:
         require(isinstance(components, dict) and bool(components), 'runtime components required')
         expected = policy.get('runtime_components')

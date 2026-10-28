@@ -18,15 +18,28 @@ class FeatureTagTests(unittest.TestCase):
         for tag in ('sit-test-1483', 'smoke-sit-test-1484', 'smoke--sit-test-1483', 'Smoke-sit-test-1483'):
             with self.subTest(tag=tag), self.assertRaises(gate.Blocked):
                 gate.validate_feature_tag(tag, 'sit-test-1483')
+        with self.assertRaisesRegex(gate.Blocked, 'invalid feature id'):
+            gate.validate_feature_tag('smoke-sit-test-', 'sit-test-')
 
     def test_candidate_domain_is_bound_to_full_tag(self):
         candidate, policy, *_ = fixture()
         candidate['schema'] = 2
         candidate['feature_tag'] = 'smoke-' + candidate['feature_id']
         candidate['domains']['sit'] = candidate['feature_tag'] + '-sit.' + policy['domain_suffix']
+        with self.assertRaisesRegex(gate.Blocked, 'runtime components'):
+            gate.validate_candidate(candidate, policy)
+        bind_fixture_components(candidate, policy)
         gate.validate_candidate(candidate, policy)
         candidate['domains']['sit'] = 'other-' + candidate['domains']['sit']
         with self.assertRaisesRegex(gate.Blocked, 'unapproved temporary SIT domain'):
+            gate.validate_candidate(candidate, policy)
+
+    def test_service_hostname_lengths_are_validated_before_acceptance(self):
+        candidate, policy, *_ = fixture()
+        candidate['schema'] = 2
+        candidate['feature_tag'] = 'a' * 40 + '-' + candidate['feature_id']
+        candidate['domains']['sit'] = candidate['feature_tag'] + '-sit.' + policy['domain_suffix']
+        with self.assertRaisesRegex(gate.Blocked, 'DNS label exceeds'):
             gate.validate_candidate(candidate, policy)
 
     def test_main_rehearsal_requires_task_allowlist_and_baselines(self):
@@ -37,10 +50,17 @@ class FeatureTagTests(unittest.TestCase):
         with self.assertRaisesRegex(gate.Blocked, 'explicitly allowed'):
             gate.validate_candidate(candidate, policy)
         policy['main_rehearsal_tasks'] = [candidate['task_url']]
+        bind_fixture_components(candidate, policy)
         gate.validate_candidate(candidate, policy)
         candidate['candidate_mode'] = 'feature'
         with self.assertRaisesRegex(gate.Blocked, 'baseline alone'):
             gate.validate_candidate(candidate, policy)
+
+
+def bind_fixture_components(candidate, policy):
+    source = candidate['sources'][0]
+    policy['runtime_components'] = {'accounts': source['repository']}
+    candidate['components'] = {'accounts': {'source_repository': source['repository'], 'image': source['image']}}
 
 
 def fixture():
