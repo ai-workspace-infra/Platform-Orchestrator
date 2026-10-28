@@ -90,6 +90,7 @@ class TrustedTest(unittest.TestCase):
 
     def test_new_tag_candidate_is_blocked_without_trusted_provenance(self):
         self.c['schema'] = 2
+        self.c['sources'][0]['base_sha'] = 'd' * 40
         self.c['feature_tag'] = 'smoke-' + self.c['feature_id']
         self.c['domains']['sit'] = self.c['feature_tag'] + '-sit.' + self.policy['domain_suffix']
         F.bind_fixture_components(self.c, self.policy)

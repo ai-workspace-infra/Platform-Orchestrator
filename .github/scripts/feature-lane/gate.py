@@ -141,6 +141,8 @@ def validate_candidate(c, policy):
         require(isinstance(source.get('image'), str) and re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}', source['image']), 'image must use digest')
         if source.get('kind') == 'feature':
             require(type(source.get('pr')) is int and source['pr'] > 0, 'feature source requires real PR')
+            if c['schema'] == 2:
+                require(sha(source.get('base_sha')), 'feature source requires fixed Main base SHA')
             features += 1
         else:
             require(source.get('kind') == 'baseline' and source.get('pr') is None,
@@ -178,6 +180,8 @@ def verify_pr(source, snapshot, stage):
     require(snapshot.get('head_repository') == source['repository'], 'fork PR is not a trusted deployment source')
     if stage == 'sit':
         require(snapshot.get('state') == 'OPEN' and snapshot.get('merged') is False, 'SIT needs a real unmerged PR')
+        if source.get('base_sha') is not None:
+            require(snapshot.get('base_sha') == source['base_sha'], 'PR Main base moved; require new candidate')
     else:
         require(snapshot.get('merged') is True and sha(snapshot.get('merge_sha')), 'UAT needs merged main evidence')
         mapping = snapshot.get('merge_artifact')
