@@ -305,7 +305,7 @@ jobs:
 
       - name: Check Shared platform readiness (read-only)
         if: ${{ (github.event_name != 'workflow_dispatch' || inputs.deploy_after_build == true) }}
-        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@8b29bd81f03c7726f28698ea7c78471827d3c961
+        uses: ai-workspace-infra/playbooks/.github/actions/service-probes@6715fb0d3c52ca817f89792404ffa86ac9bd7555
         with:
           operation: shared-readiness
           environment: shared
