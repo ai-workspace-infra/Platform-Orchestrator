@@ -14,11 +14,14 @@ class ReceiptTest(unittest.TestCase):
     def setUp(self):
         repo = 'ai-workspace-infra/Platform-Orchestrator'
         self.env = {'GITHUB_REPOSITORY': repo, 'GITHUB_WORKFLOW_REF': repo + '/.github/workflows/feature-lane-deploy.yml@refs/heads/main', 'GITHUB_REF': 'refs/heads/main', 'GITHUB_SHA': 'a'*40, 'GITHUB_RUN_ID': '123', 'GITHUB_RUN_ATTEMPT': '2'}
-        self.candidate = {'gitops': {'repository': 'ai-workspace-infra/gitops', 'sha': 'b'*40}}
+        self.candidate = {'feature_id':'sit-test-1483','feature_tag':'smoke-sit-test-1483','chart_digest':'sha256:'+'d'*64,'gitops': {'repository': 'ai-workspace-infra/gitops', 'sha': 'b'*40}}
         self.gate = Mock()
         self.gate.sha.side_effect = lambda x: isinstance(x, str) and len(x) == 40 and all(c in '0123456789abcdef' for c in x)
         self.gate.identity.return_value = 'c'*64
-        self.gate.gate.return_value = {'status': 'VERIFIED_GATE', 'dispatch_authorized': False, 'execution': 'NOT_RUN', 'candidate_sha256': 'c'*64, 'verified_projection': {'tagged_lane': {'candidate_sha256': 'c'*64}}}
+        components={name:{} for name in ('caddy','postgresql','console','accounts','billing','content')}
+        knowledge={'repository':'ai-workspace-services/knowledge','sha':'e'*40}
+        projection={'tagged_lane':{'feature_id':'sit-test-1483','feature_tag':'smoke-sit-test-1483','candidate_sha256':'c'*64},'chart_digest':self.candidate['chart_digest'],'knowledge':knowledge,'components':components}
+        self.gate.gate.return_value = {'status': 'VERIFIED_GATE', 'dispatch_authorized': False, 'execution': 'NOT_RUN', 'candidate_sha256': 'c'*64, 'verified_projection': projection,'verified_runtime_components':components,'verified_chart_digest':self.candidate['chart_digest'],'verified_website_content':knowledge}
 
     def test_receipt_revalidates_in_same_run_without_deploy(self):
         receipt = module.build_receipt(self.candidate, {}, self.env, self.gate)
@@ -31,6 +34,11 @@ class ReceiptTest(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 module.build_receipt(self.candidate, {}, dict(self.env, **{key: value}), self.gate)
         self.gate.gate.return_value['verified_projection']['tagged_lane']['candidate_sha256'] = 'd'*64
+        with self.assertRaises(ValueError):
+            module.build_receipt(self.candidate, {}, self.env, self.gate)
+
+    def test_incomplete_or_inconsistent_projection_rejected(self):
+        self.gate.gate.return_value['verified_projection']['components'].pop('billing')
         with self.assertRaises(ValueError):
             module.build_receipt(self.candidate, {}, self.env, self.gate)
 

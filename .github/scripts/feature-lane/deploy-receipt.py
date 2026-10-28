@@ -36,6 +36,21 @@ def build_receipt(candidate, selectors, env, gate):
         candidate.get('gitops', {}).get('repository') != 'ai-workspace-infra/gitops' or
         not gate.sha(candidate.get('gitops', {}).get('sha'))):
         raise ValueError('fresh candidate verification required')
+    if (set(projection) != {'tagged_lane', 'chart_digest', 'knowledge', 'components'} or
+        projection['tagged_lane'] != {'feature_id': candidate.get('feature_id'),
+                                      'feature_tag': candidate.get('feature_tag'),
+                                      'candidate_sha256': result['candidate_sha256']} or
+        projection['chart_digest'] != candidate.get('chart_digest') or
+        not isinstance(projection['knowledge'], dict) or
+        set(projection['knowledge']) != {'repository', 'sha'} or
+        projection['knowledge']['repository'] != 'ai-workspace-services/knowledge' or
+        not gate.sha(projection['knowledge']['sha']) or
+        not isinstance(projection['components'], dict) or
+        set(projection['components']) != {'caddy', 'postgresql', 'console', 'accounts', 'billing', 'content'} or
+        projection['components'] != result.get('verified_runtime_components') or
+        projection['chart_digest'] != result.get('verified_chart_digest') or
+        projection['knowledge'] != {key: result.get('verified_website_content', {}).get(key) for key in ('repository', 'sha')}):
+        raise ValueError('incomplete or inconsistent deployment projection')
     return {'schema_version': 'dev-feature-candidate/v2', 'result': 'verified',
             'repository': 'ai-workspace-infra/gitops', 'stage': 'sit',
             'candidate_head': candidate['gitops']['sha'], 'candidate_sha256': result['candidate_sha256'],
