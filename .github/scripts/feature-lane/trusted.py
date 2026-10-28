@@ -22,6 +22,7 @@ def load(name, path):
 
 reader = load('feature_shared_artifact_reader', ROOT / '.github/scripts/acceptance/migration_matrix.py')
 gate = load('feature_contract', Path(__file__).with_name('gate.py'))
+chart = load('feature_chart_provenance', Path(__file__).with_name('chart.py'))
 
 _authenticated_api = reader.api
 
@@ -284,7 +285,7 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
         policy = policy_at(policy_commit)
         gate.require(stage in ('sit', 'merge', 'uat'), 'unsupported stage')
         task = task_at(candidate, policy)
-        required = {'builds'} | ({'acceptance', 'authorization'} if stage in ('merge', 'uat') else set()) | ({'merge_builds'} if stage == 'uat' else set())
+        required = {'builds'} | ({'chart'} if candidate.get('schema') == 2 else set()) | ({'acceptance', 'authorization'} if stage in ('merge', 'uat') else set()) | ({'merge_builds'} if stage == 'uat' else set())
         gate.require(isinstance(evidence_selectors, dict) and set(evidence_selectors) == required, 'wrong evidence selector set')
         sources = {source['repository'] for source in candidate.get('sources', [])}
         gate.require(isinstance(evidence_selectors['builds'], dict) and set(evidence_selectors['builds']) == sources, 'build selector source set differs')
@@ -293,6 +294,7 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
             gate.require(task.get('kind') == 'issue', 'feature tag requires a tracked Issue')
             verify_feature_tag(candidate, policy)
             verify_gitops_domain(candidate, policy, stage)
+            chart.verify(candidate, policy, evidence_selectors['chart'], reader, file_at)
             frontend_repo = policy.get('feature_sit_frontend_repository')
             gate.require(frontend_repo in sources and frontend_repo in policy.get('repositories', []),
                          'missing reviewed Feature SIT frontend source')
