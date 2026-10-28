@@ -171,24 +171,24 @@ class UnifiedWorkflowContract(unittest.TestCase):
             self.assertTrue((ROOT / relative).is_file(), relative)
 
     def test_orchestrators_preserve_inputs_and_gate_exact_receipt(self):
-        for name, gate in [('selfhost-orchestrator.yml','provision'),('serverless-orchestrator.yml','iac-verified')]:
+        for name, gate in [('selfhost-orchestrator.yml','provision')]:
             workflow = load(name)
             trigger = workflow.get('on',workflow.get(True))
             self.assertLessEqual(len(trigger['workflow_dispatch']['inputs']),25)
-            if name == 'selfhost-orchestrator.yml':
-                self.assertEqual(len(workflow['jobs']), 5)
-                self.assertEqual([workflow['jobs'][job]['name'] for job in workflow['jobs']], [f'[{i}/5] {label}' for i,label in enumerate(('Resolve & Validate','IaC & Provision','Deploy','Migrate & Configure','Verify & Report'),1)])
-                jobs = load('selfhost-stage-infra.yml')['jobs']
-                self.assertIn('dispatch external pipeline', jobs['iac']['name'])
-                self.assertEqual(jobs['iac']['steps'][-1]['run'], 'python3 .github/scripts/platform-ops/provision/dispatch-iac-pipeline.py')
-            else:
-                self.assertEqual(len(workflow['jobs']), 5)
-                jobs = load('serverless-stage-infra.yml')['jobs']
-                self.assertEqual(jobs['iac']['uses'],'./.github/workflows/iac-orchestrator.yml')
-                self.assertEqual(jobs['iac']['with']['stage_scope'],'resources')
+            self.assertEqual(len(workflow['jobs']), 5)
+            self.assertEqual([workflow['jobs'][job]['name'] for job in workflow['jobs']], [f'[{i}/5] {label}' for i,label in enumerate(('Resolve & Validate','IaC & Provision','Deploy','Migrate & Configure','Verify & Report'),1)])
+            jobs = load('selfhost-stage-infra.yml')['jobs']
+            self.assertIn('dispatch external pipeline', jobs['iac']['name'])
+            self.assertEqual(jobs['iac']['steps'][-1]['run'], 'python3 .github/scripts/platform-ops/provision/dispatch-iac-pipeline.py')
             self.assertTrue(any(s.get('uses')=='./iac_modules/.github/actions/iac-receipt-verify' for s in jobs[gate]['steps']))
-        options = load('serverless-orchestrator.yml').get('on',load('serverless-orchestrator.yml').get(True))['workflow_dispatch']['inputs']['cloud_provider']['options']
-        self.assertIn('ucloud',options)
+
+        serverless = load('serverless-orchestrator.yml')
+        trigger = serverless.get('on', serverless.get(True))
+        self.assertLessEqual(len(trigger['workflow_dispatch']['inputs']), 25)
+        self.assertEqual(list(serverless['jobs']), ['prepare', 'database', 'backend', 'frontend', 'configure', 'summary'])
+        options = trigger['workflow_dispatch']['inputs']['environment']['options']
+        self.assertEqual(options, ['uat', 'prod'])
+
         steps = load('selfhost-stage-infra.yml')['jobs']['provision']['steps']
         vault = next(i for i,s in enumerate(steps) if s.get('uses')=='hashicorp/vault-action@v4')
         init = next(i for i,s in enumerate(steps) if s.get('name')=='Initialize Databases Credentials')

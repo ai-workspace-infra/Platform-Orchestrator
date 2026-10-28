@@ -476,8 +476,8 @@ jobs:
   # ============================================================================
   frontend:
     name: Cloudflare / ${{ matrix.component.title }}
-    needs: [prepare, database, backend]
-    if: ${{ always() && needs.prepare.result == 'success' && (needs.database.result == 'success' || needs.database.result == 'skipped') && (needs.backend.result == 'success' || needs.backend.result == 'skipped') && needs.prepare.outputs.run_frontend == 'true' && inputs.operation != 'plan' }}
+    needs: [prepare, database]
+    if: ${{ always() && needs.prepare.result == 'success' && (needs.database.result == 'success' || needs.database.result == 'skipped') && needs.prepare.outputs.run_frontend == 'true' && inputs.operation != 'plan' }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment || 'uat' }}
     strategy:
@@ -493,6 +493,9 @@ jobs:
           - name: pages-portal
             type: pages
             title: 'Portal Static Pages Assets'
+          - name: frontend-router
+            type: router
+            title: 'Frontend Router Worker'
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v7
@@ -534,7 +537,22 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           echo "Deploying Cloudflare component=${COMPONENT_NAME} (${COMPONENT_TYPE}) for env=${ENVIRONMENT}..."
-          # 执行特定前端构件部署与绑定配置
+          case "${COMPONENT_NAME}" in
+            edge-gateway)
+              echo "Reconciling Edge Gateway Workers (auth, admin, core) for ${ENVIRONMENT}..."
+              ;;
+            ssr-worker)
+              echo "Reconciling Portal SSR Workers (public, content, auth, console, workspace) for ${ENVIRONMENT}..."
+              ;;
+            pages-portal)
+              echo "Reconciling Cloudflare Pages static assets for ${ENVIRONMENT}..."
+              ;;
+            frontend-router)
+              echo "Reconciling Frontend Router Worker: frontend-router-${ENVIRONMENT} (Cloudflare account e71be5efb76a6c54f78f008da4404f00)..."
+              echo "Service Bindings: api_auth, auth, content, console, workspace, public"
+              echo "Origins: pages_origin (ai-workspace-portal-${ENVIRONMENT}.pages.dev), api_origin"
+              ;;
+          esac
 
   # ============================================================================
   # 阶段 5：配置 | DNS & Service Alignment
@@ -593,7 +611,7 @@ jobs:
   summary:
     name: '[6/6] 汇总 | Verify & Receipt'
     needs: [prepare, database, backend, frontend, configure]
-    if: ${{ always() }}
+    if: ${{ always() && needs.prepare.result != '' && needs.database.result != '' && needs.backend.result != '' && needs.frontend.result != '' && needs.configure.result != '' }}
     runs-on: ubuntu-latest
     outputs:
       delivery_receipt: ${{ steps.receipt.outputs.delivery_receipt }}

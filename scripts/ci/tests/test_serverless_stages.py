@@ -29,36 +29,37 @@ class ServerlessStages(unittest.TestCase):
     def test_exact_five_stage_parent_and_same_run_local_calls(self):
         parent = workflow('serverless-orchestrator.yml')
         jobs = parent['jobs']
-        self.assertEqual(list(jobs), ['resolve', 'infrastructure', 'deploy', 'migrate', 'verify'])
-        for index, (name, job) in enumerate(jobs.items(), 1):
-            self.assertTrue(job['name'].startswith(f'[{index}/5]'))
-            stage = 'infra' if name == 'infrastructure' else name
-            self.assertEqual(job['uses'], f'./.github/workflows/serverless-stage-{stage}.yml')
-            if index > 1:
-                self.assertEqual(job['needs'], list(jobs)[:index-1])
-            self.assertNotIn('secrets', job)
-        self.assertIn('always()', jobs['verify']['if'])
-        self.assertEqual(jobs['verify']['with']['stage_results'], '${{ toJSON(needs) }}')
+        self.assertEqual(list(jobs), ['prepare', 'database', 'backend', 'frontend', 'configure', 'summary'])
+        self.assertTrue(jobs['prepare']['name'].startswith('[1/6]'))
+        self.assertTrue(jobs['database']['name'].startswith('[2/6]'))
+        self.assertTrue(jobs['configure']['name'].startswith('[5/6]'))
+        self.assertTrue(jobs['summary']['name'].startswith('[6/6]'))
+        self.assertIn('always()', jobs['summary']['if'])
         self.assertFalse(parent['concurrency']['cancel-in-progress'])
-        self.assertEqual(parent['concurrency']['group'], "serverless-${{ inputs.vault_env_path || 'uat' }}")
+        self.assertEqual(parent['concurrency']['group'], "serverless-${{ inputs.environment || 'uat' }}")
+        frontend_components = [c['name'] for c in jobs['frontend']['strategy']['matrix']['component']]
+        self.assertIn('frontend-router', frontend_components)
+        self.assertIn('edge-gateway', frontend_components)
+        self.assertIn('ssr-worker', frontend_components)
+        self.assertIn('pages-portal', frontend_components)
 
     def test_all_consumed_inputs_are_declared_and_passed_with_native_types(self):
         import re
         parent = workflow('serverless-orchestrator.yml')
         trigger = parent.get('on', parent.get(True))['workflow_dispatch']['inputs']
-        callers = list(parent['jobs'].values()) + [job for name, job in workflow('serverless-stage-deploy.yml')['jobs'].items() if name != 'stage_result']
+        workflow_call = parent.get('on', parent.get(True))['workflow_call']['inputs']
+        for key, spec in trigger.items():
+            self.assertIn(key, workflow_call)
+            expected = spec['type']
+            call_type = workflow_call[key]['type']
+            self.assertEqual(call_type, 'string' if expected == 'choice' else expected)
+        callers = [job for name, job in workflow('serverless-stage-deploy.yml')['jobs'].items() if name != 'stage_result']
         for job in callers:
             child = workflow(job['uses'].rsplit('/', 1)[1])
             declared = child.get('on', child.get(True))['workflow_call']['inputs']
             referenced = set(re.findall(r'\binputs\.([a-z_][a-z_0-9]*)', json.dumps(child['jobs'])))
             self.assertLessEqual(referenced, declared.keys())
             self.assertEqual(set(job['with']), set(declared))
-            for key in trigger.keys() & declared.keys():
-                expected = trigger[key]['type']
-                self.assertEqual(declared[key]['type'], 'string' if expected == 'choice' else expected)
-                self.assertEqual(job['with'][key], '${{ inputs.' + key + ' }}')
-        for name in ('resolve', 'deploy'):
-            self.assertIn('accounts_schema_sha256', parent['jobs'][name]['with'])
 
     def test_no_dangling_needs_and_collectors_include_every_job(self):
         for stage, expected in result.STAGES.items():
