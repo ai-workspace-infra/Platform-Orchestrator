@@ -344,6 +344,10 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
             snapshot['path_hashes'] = {path: file_at(row['repository'], row['sha'], path) for path in row['paths']}
             if stage == 'uat':
                 snapshot['merged_path_hashes'] = {path: file_at(row['repository'], snapshot['merge_sha'], path) for path in row['paths']}
+            current = pull(row, stage, candidate['task_url'], configuration=True, require_task_link=primary)
+            gate.require(all(current.get(key) == snapshot.get(key) for key in
+                             ('repository', 'number', 'head_sha', 'head_repository', 'base_ref', 'base_sha',
+                              'state', 'merged', 'merge_sha')), 'configuration PR moved during evidence retrieval')
             config_prs[row['repository']+'#'+str(row['pr'])] = snapshot
         for source in candidate['sources']:
             if source['kind'] == 'feature':

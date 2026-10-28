@@ -442,6 +442,13 @@ class TrustedTest(unittest.TestCase):
                            'body':self.c['task_url'],'state':'open','merged':False}
         self.receipt['image_ids']={'accounts':self.c['sources'][0]['image']};self.refresh_candidate_evidence()
         self.assertEqual(self.decide()['status'],'VERIFIED_GATE')
+        def moving_api(request, binary=False):
+            result=self.api(request,binary=binary)
+            if '/pulls/7/files?' in request:self.config_rawpr['head']['sha']='f'*40
+            return result
+        with patch.object(T.reader,'api',side_effect=moving_api), self.assertRaisesRegex(T.gate.Blocked,'moved during'):
+            T.verified(self.c,'merge','f'*40,self.selectors)
+        self.config_rawpr['head']['sha']=head
         self.config_rawpr.update(state='closed',merged=True,merge_commit_sha='9'*40)
         self.file_record('repos/example/config/contents/'+path+'?ref='+'9'*40,path,b'accounts: pinned')
         self.selectors['merge_builds']={};self.comment['body']=self.comment['body'].replace('action=merge','action=uat')
