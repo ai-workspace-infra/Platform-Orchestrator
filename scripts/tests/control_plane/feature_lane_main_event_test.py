@@ -91,6 +91,16 @@ class MainEventTest(unittest.TestCase):
 
 
 class ReadIdentityContractTest(unittest.TestCase):
+    def test_deployment_evidence_role_is_a_separate_exact_main_reader(self):
+        role=json.loads((ROOT/'scripts/vault/roles/github-actions-feature-lane-deploy-evidence-read-sit.json').read_text())
+        base=json.loads((ROOT/'scripts/vault/roles/github-actions-feature-lane-read-sit.json').read_text())
+        self.assertEqual(role['bound_claims']['job_workflow_ref'],'ai-workspace-infra/Platform-Orchestrator/.github/workflows/feature-lane-deploy.yml@refs/heads/main')
+        expected=dict(base['bound_claims']);expected['job_workflow_ref']=role['bound_claims']['job_workflow_ref']
+        self.assertEqual(role['bound_claims'],expected)
+        self.assertEqual(role['token_policies'],['github-actions-feature-lane-read-sit'])
+        self.assertEqual(role['token_max_ttl'],'10m')
+        self.assertTrue(role['token_no_default_policy'])
+
     def test_only_authenticated_main_evidence_job_can_read_dedicated_path(self):
         role = json.loads((ROOT / 'scripts/vault/roles/github-actions-feature-lane-read-sit.json').read_text())
         claims = role['bound_claims']
