@@ -12,6 +12,37 @@ gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
 
 
+class FeatureTagTests(unittest.TestCase):
+    def test_tag_is_bound_to_complete_feature_id(self):
+        self.assertEqual(gate.validate_feature_tag('smoke-sit-test-1483', 'sit-test-1483'), 'smoke')
+        for tag in ('sit-test-1483', 'smoke-sit-test-1484', 'smoke--sit-test-1483', 'Smoke-sit-test-1483'):
+            with self.subTest(tag=tag), self.assertRaises(gate.Blocked):
+                gate.validate_feature_tag(tag, 'sit-test-1483')
+
+    def test_candidate_domain_is_bound_to_full_tag(self):
+        candidate, policy, *_ = fixture()
+        candidate['schema'] = 2
+        candidate['feature_tag'] = 'smoke-' + candidate['feature_id']
+        candidate['domains']['sit'] = candidate['feature_tag'] + '-sit.' + policy['domain_suffix']
+        gate.validate_candidate(candidate, policy)
+        candidate['domains']['sit'] = 'other-' + candidate['domains']['sit']
+        with self.assertRaisesRegex(gate.Blocked, 'unapproved temporary SIT domain'):
+            gate.validate_candidate(candidate, policy)
+
+    def test_main_rehearsal_requires_task_allowlist_and_baselines(self):
+        candidate, policy, *_ = fixture()
+        candidate.update(schema=2, feature_tag='smoke-' + candidate['feature_id'], candidate_mode='main-rehearsal')
+        candidate['domains']['sit'] = candidate['feature_tag'] + '-sit.' + policy['domain_suffix']
+        candidate['sources'][0].update(kind='baseline', pr=None)
+        with self.assertRaisesRegex(gate.Blocked, 'explicitly allowed'):
+            gate.validate_candidate(candidate, policy)
+        policy['main_rehearsal_tasks'] = [candidate['task_url']]
+        gate.validate_candidate(candidate, policy)
+        candidate['candidate_mode'] = 'feature'
+        with self.assertRaisesRegex(gate.Blocked, 'baseline alone'):
+            gate.validate_candidate(candidate, policy)
+
+
 def fixture():
     policy = {'target': 'dev-fixture', 'domain_suffix': 'test.invalid',
               'uat_target': {'namespace': 'web-saas-uat', 'domain': 'console-uat.test.invalid'},
