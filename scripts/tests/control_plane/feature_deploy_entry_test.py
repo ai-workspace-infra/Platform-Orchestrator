@@ -47,6 +47,8 @@ class FeatureDeployEntryTest(unittest.TestCase):
         self.assertEqual(execute['finish']['needs'], ['prepare-evidence', 'sit-submit'])
         self.assertEqual(final['seed-evidence']['needs'], 'seed-initialize')
         self.assertEqual(final['sit-verify']['needs'], 'seed-evidence')
+        self.assertEqual(final['evidence-summary']['needs'], 'sit-verify')
+        self.assertIn("obj.get('business_acceptance')!='NOT_RUN'", final['evidence-summary']['steps'][1]['run'])
         self.assertEqual(execute['seed-admin']['uses'], 'ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@' + sha)
         self.assertEqual(final['seed-initialize']['uses'], 'ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@' + sha)
         self.assertEqual(execute['sit-submit']['uses'], 'ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@' + sha)

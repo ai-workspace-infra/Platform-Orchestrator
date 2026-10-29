@@ -1,4 +1,4 @@
-name: Feature lane SIT preparation
+name: Feature lane SIT deployment and technical verification
 on:
   workflow_dispatch:
   workflow_run:

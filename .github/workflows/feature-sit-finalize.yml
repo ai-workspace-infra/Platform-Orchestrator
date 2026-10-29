@@ -113,3 +113,30 @@ jobs:
       prepare_sha256: ${{ inputs.prepare_sha256 }}
       seed_artifact: dev-lane-seed-sit-initialize-${{ github.run_id }}-${{ github.run_attempt }}
       seed_sha256: ${{ needs.seed-evidence.outputs.sha256 }}
+  evidence-summary:
+    needs: sit-verify
+    runs-on: ubuntu-latest
+    permissions: {contents: read, actions: read}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dev-feature-sit-verify-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sit-verification
+      - name: Report technical verification and outstanding acceptance
+        env:
+          FILE: ${{ runner.temp }}/sit-verification/receipt.json
+          CANDIDATE_SHA256: ${{ inputs.candidate_sha256 }}
+          NAMESPACE_UID: ${{ inputs.namespace_uid }}
+        run: |
+          python3 - <<'PY'
+          import json,os
+          obj=json.load(open(os.environ['FILE']))
+          if (obj.get('result')!='runtime_verified' or obj.get('namespace_uid')!=os.environ['NAMESPACE_UID'] or
+              obj.get('candidate_sha256')!=os.environ['CANDIDATE_SHA256'] or
+              obj.get('business_acceptance')!='NOT_RUN' or
+              str(obj.get('run_id'))!=os.environ['GITHUB_RUN_ID'] or
+              str(obj.get('run_attempt'))!=os.environ['GITHUB_RUN_ATTEMPT']):
+              raise SystemExit('invalid technical verification receipt')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+              out.write('SIT technical verification passed. Business acceptance: NOT_RUN.\n')
+          PY
