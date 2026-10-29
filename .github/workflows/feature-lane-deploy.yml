@@ -202,7 +202,7 @@ jobs:
   seed-identity-probe:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     permissions: {contents: read, actions: read, id-token: write}
-    uses: ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@87b657dbe68c8d3ee16882e6c3138d59e674d3a6
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@805a3bfcf275f2e765f68ff7ee50451c7b3e1d22
     with:
       stage: sit
       phase: identity-probe
