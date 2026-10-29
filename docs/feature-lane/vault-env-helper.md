@@ -20,4 +20,4 @@ scripts/vault/update-feature-lane-vault.sh
 unset GHCR_TOKEN LINODES_TOKEN
 ```
 
-The same GHCR token is placed in two exact KV paths because the baseline producer and the runtime owner have different restricted roles. It must be authorized to read all required images. The helper does not install the Feature GitHub App into Playbooks, initialize a database, or deploy SIT.
+The same GHCR token is placed in two exact KV paths because the baseline producer and the runtime owner have different restricted roles. The baseline fields are `GITHUB_USERNAME` and `GITHUB_TOKEN`; the runtime fields are `GHCR_USERNAME` and `GHCR_TOKEN`. It must be authorized to read all required images. Deploy the baseline consumer change before populating a new path with these fields. The helper does not install the Feature GitHub App into Playbooks, initialize a database, or deploy SIT.

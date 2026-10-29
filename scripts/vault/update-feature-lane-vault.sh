@@ -45,7 +45,7 @@ write_path() {
 }
 if [[ -n "${GHCR_TOKEN:-}" ]]; then
   printf '%s' "$GHCR_TOKEN" > "$tmp_dir/ghcr"
-  write_path kv/sit/platform/ghcr/feature-baseline "username=$GHCR_USERNAME" "token=@$tmp_dir/ghcr"
+  write_path kv/sit/platform/ghcr/feature-baseline "GITHUB_USERNAME=$GHCR_USERNAME" "GITHUB_TOKEN=@$tmp_dir/ghcr"
   write_path kv/sit/platform/ghcr/feature-registry "GHCR_USERNAME=$GHCR_USERNAME" "GHCR_TOKEN=@$tmp_dir/ghcr"
 fi
 if [[ -n "${LINODES_TOKEN:-}" ]]; then

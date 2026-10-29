@@ -55,6 +55,8 @@ class HelperTest(unittest.TestCase):
             calls=log.read_text()
             self.assertIn('kv/sit/platform/ghcr/feature-baseline',calls)
             self.assertIn('kv/sit/platform/ghcr/feature-registry',calls)
+            self.assertIn('GITHUB_USERNAME=example GITHUB_TOKEN=@',calls)
+            self.assertIn('GHCR_USERNAME=example GHCR_TOKEN=@',calls)
             self.assertIn('kv/sit/platform/akamai/feature-target',calls)
             self.assertEqual(calls.count('-cas=0'),3)
             self.assertNotIn('synthetic-secret',calls+result.stdout+result.stderr)
