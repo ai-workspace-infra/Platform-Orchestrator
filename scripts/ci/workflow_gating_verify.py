@@ -117,11 +117,12 @@ def report(wf, job, check, msg):
 def terminal_iac_evidence_gate(cfg, needs):
     """A terminal reporter must run after failure, then reject it in the owner.
 
-    This is narrowly scoped to the two versioned IaC evidence contracts. It
+    This is narrowly scoped to reviewed IaC and V6 terminal evidence contracts. It
     does not exempt ordinary deployment jobs or arbitrary inline scripts.
     Cross-repository checkout/action availability is checked by R2-R4.
     """
     contracts = {
+        "./.github/actions/prod-k3s-summary": {"v6-resolve", "v6-iac", "v6-bootstrap"},
         "./iac_modules/.github/actions/iac-summary": {"prepare", "bootstrap", "account", "resources", "destroy-resources", "destroy-account", "destroy-bootstrap"},
         "./iac_modules/.github/actions/iac-entry-summary": {"prepare", "self-check", "execute-iac"},
     }

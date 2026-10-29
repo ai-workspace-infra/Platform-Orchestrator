@@ -68,4 +68,18 @@ class RequestTests(unittest.TestCase):
             policy=(ROOT/'scripts/vault/policies'/f'{name}.hcl').read_text()
             self.assertNotIn('"write"',policy);self.assertNotIn('"update"',policy)
 
+class TerminalTests(unittest.TestCase):
+    def test_real_failures_cannot_be_reported_successful(self):
+        spec=importlib.util.spec_from_file_location('summary', ROOT/'.github/actions/prod-k3s-summary/summary.py')
+        gate=importlib.util.module_from_spec(spec);spec.loader.exec_module(gate)
+        needs={k:{'result':'success'} for k in ('v6-resolve','v6-iac','v6-bootstrap')}
+        self.assertEqual(('verified_paused_bootstrap',True),gate.classify(needs,'deploy'))
+        for name in needs:
+            for status in ('failure','cancelled','skipped'):
+                failed=copy.deepcopy(needs);failed[name]['result']=status
+                self.assertFalse(gate.classify(failed,'deploy')[1])
+        needs['v6-bootstrap']['result']='skipped'
+        self.assertEqual(('verified_plan',True),gate.classify(needs,'plan'))
+        self.assertFalse(gate.classify({},'deploy')[1])
+
 if __name__=='__main__':unittest.main()

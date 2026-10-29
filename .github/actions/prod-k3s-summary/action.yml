@@ -1,0 +1,13 @@
+name: Verify cold bootstrap terminal results
+description: Report the exact V6 operation boundary and reject any failed or missing stage.
+inputs:
+  needs-json: {required: true, description: Complete current-run V6 needs results}
+  operation: {required: true, description: Requested plan infra or deploy operation}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        V6_NEEDS_JSON: ${{ inputs.needs-json }}
+        V6_OPERATION: ${{ inputs.operation }}
+      run: python3 "$GITHUB_ACTION_PATH/summary.py"

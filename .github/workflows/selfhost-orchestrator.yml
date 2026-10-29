@@ -573,19 +573,11 @@ jobs:
     needs: [v6-resolve, v6-iac, v6-bootstrap]
     runs-on: ubuntu-latest
     steps:
-      - name: Record evidence boundary
-        env:
-          V6_RESULTS: ${{ toJSON(needs) }}
-          V6_OPERATION: ${{ inputs.operation }}
-        run: |
-          python3 - <<'PY'
-          import json, os
-          needs = json.loads(os.environ['V6_RESULTS'])
-          wanted = ['v6-resolve', 'v6-iac'] + (['v6-bootstrap'] if os.environ['V6_OPERATION'] == 'deploy' else [])
-          ok = all(needs[job]['result'] == 'success' for job in wanted)
-          result = 'verified_paused_bootstrap' if ok and os.environ['V6_OPERATION'] == 'deploy' else ('verified_infrastructure' if ok else 'failed_inspect_exact_stage')
-          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
-              out.write('PROD-K3S-V6: ' + result + '\n\nNo data migration, DNS or writer handoff.\n')
-          if not ok:
-              raise SystemExit(1)
-          PY
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/prod-k3s-summary
+        with:
+          needs-json: ${{ toJSON(needs) }}
+          operation: ${{ inputs.operation }}
