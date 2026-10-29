@@ -9,7 +9,7 @@ class OwnerRoleTest(unittest.TestCase):
   self.assertTrue(role['token_no_default_policy']);self.assertEqual(role['token_ttl'],'10m');self.assertEqual(role['token_max_ttl'],'10m')
   c=role['bound_claims'];self.assertEqual(c['environment'],'dev');self.assertEqual(c['ref'],'refs/heads/main')
   self.assertEqual(c['workflow_ref'],'ai-workspace-infra/Platform-Orchestrator/.github/workflows/feature-lane-deploy.yml@refs/heads/main')
-  self.assertEqual(c['job_workflow_ref'],'ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@92cfa9c3bde6b70ae4a70f435a3cee0d2b8e976e')
+  self.assertEqual(c['job_workflow_ref'],'ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@7f57ff7e52beeece5931b1b4122efacbac6de8a1')
   policy=(ROOT/'scripts/vault/policies/github-actions-playbooks-feature-lane-sit.hcl').read_text()
   self.assertEqual(policy.count('path '),2);self.assertIn('kv/data/CICD/dev/k3s-bootstrap',policy);self.assertIn('kv/data/sit/platform/ghcr/feature-registry',policy);self.assertNotIn('kv/data/CICD/dev/ghcr',policy)
 if __name__=='__main__':unittest.main()

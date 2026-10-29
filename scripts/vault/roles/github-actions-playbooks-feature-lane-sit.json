@@ -12,7 +12,7 @@
     "repository_id": "1284966060",
     "repository_owner_id": "292703558",
     "workflow_ref": "ai-workspace-infra/Platform-Orchestrator/.github/workflows/feature-lane-deploy.yml@refs/heads/main",
-    "job_workflow_ref": "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@92cfa9c3bde6b70ae4a70f435a3cee0d2b8e976e",
+    "job_workflow_ref": "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@7f57ff7e52beeece5931b1b4122efacbac6de8a1",
     "ref": "refs/heads/main",
     "environment": "dev"
   },
