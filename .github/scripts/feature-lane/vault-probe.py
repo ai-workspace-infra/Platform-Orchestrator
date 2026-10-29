@@ -19,7 +19,7 @@ def request(url, *, headers=None, body=None):
         return error.code, b''
 
 def main(mode):
-    if mode not in ('allowed', 'denied-environment', 'denied-caller', 'deploy-allowed', 'deploy-denied', 'target-denied', 'lane-owner-denied', 'dns-owner-denied', 'dns-target-denied'):
+    if mode not in ('allowed', 'denied-environment', 'denied-caller', 'deploy-allowed', 'deploy-denied', 'target-denied', 'lane-owner-denied', 'seed-owner-denied', 'dns-owner-denied', 'dns-target-denied'):
         raise ValueError('invalid probe mode')
     oidc_url = os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']
     separator = '&' if '?' in oidc_url else '?'
@@ -30,6 +30,7 @@ def main(mode):
     jwt = json.loads(data)['value']
     denied_roles = {'target-denied':'github-actions-feature-target-read-sit',
                     'lane-owner-denied':'github-actions-playbooks-feature-lane-sit',
+                    'seed-owner-denied':'github-actions-playbooks-feature-seed-sit',
                     'dns-owner-denied':'github-actions-feature-dns-write-sit',
                     'dns-target-denied':'github-actions-feature-dns-target-read-sit'}
     role = ('github-actions-feature-lane-deploy-evidence-read-sit' if mode.startswith('deploy-') else denied_roles.get(mode, ROLE))

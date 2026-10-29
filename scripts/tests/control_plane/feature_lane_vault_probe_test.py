@@ -50,6 +50,7 @@ class ProbeTest(unittest.TestCase):
 
     def test_delivery_denials_use_the_exact_roles(self):
         for mode, role in [('lane-owner-denied','github-actions-playbooks-feature-lane-sit'),
+                           ('seed-owner-denied','github-actions-playbooks-feature-seed-sit'),
                            ('dns-owner-denied','github-actions-feature-dns-write-sit'),
                            ('dns-target-denied','github-actions-feature-dns-target-read-sit')]:
             with self.subTest(mode=mode),patch.object(probe,'request',side_effect=[self.oidc,(403,b'')]) as request:
