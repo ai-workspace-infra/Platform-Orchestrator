@@ -48,5 +48,23 @@ class V6VaultTLSAdminContract(unittest.TestCase):
         self.assertTrue(all('*' not in path and not path.startswith('kv/') for path in paths))
 
 
+class V6VaultTLSAccessContract(unittest.TestCase):
+    def test_access_is_bound_to_identity_workflow_and_two_records(self):
+        import re
+        name = 'github-actions-platform-ops-toolkit-prod-k3s-v6-vault-tls-access'
+        role = json.loads((ROOT / 'scripts/vault/roles' / (name + '.json')).read_text())
+        self.assertEqual(role['token_policies'], [name])
+        self.assertEqual(role['bound_claims']['environment'], 'prod')
+        self.assertEqual(role['bound_claims']['ref'], ['refs/tags/v6.*'])
+        self.assertEqual(role['bound_claims']['ref_protected'], 'true')
+        self.assertEqual(role['bound_claims']['workflow_ref'], 'ai-workspace-infra/Platform-Orchestrator/.github/workflows/v6-vault-tls-identity.yml@refs/tags/v6.*')
+        self.assertTrue(role['token_no_default_policy'])
+        self.assertLessEqual(role['token_explicit_max_ttl'], 1200)
+        policy=(ROOT / 'scripts/vault/policies' / (name + '.hcl')).read_text()
+        self.assertEqual(set(re.findall(r'^path "([^"]+)"',policy,re.MULTILINE)),
+            {'kv/data/prod/platform/prod-k3s-v6/ssh', 'kv/data/CICD/prod/akamai-cloud/manbuzhe2026'})
+        self.assertEqual(policy.count('capabilities = ["read"]'), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
