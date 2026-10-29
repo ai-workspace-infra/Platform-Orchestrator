@@ -27,6 +27,9 @@ class FeatureDeployEntryTest(unittest.TestCase):
         dns = jobs['publish-dns']
         self.assertEqual(dns['needs'], ['verified-candidate', 'observe-target', 'edge-preflight'])
         self.assertEqual(dns['strategy']['matrix']['service'], ['console', 'accounts', 'billing'])
+        self.assertIs(dns['strategy']['fail-fast'], False)
+        self.assertEqual(dns['with']['hostname'], "${{ needs.verified-candidate.outputs[format('{0}_host', matrix.service)] }}")
+        self.assertEqual(dns['with']['candidate_receipt_sha256'], '${{ needs.verified-candidate.outputs.sha256 }}')
         self.assertEqual(dns['uses'], 'ai-workspace-infra/iac_modules/.github/workflows/feature-sit-dns.yml@6cd679bd61abd8777669b6786a378ce014da3884')
         self.assertNotIn('id-token', workflow['permissions'])
         for job in ('identity-allowed', 'identity-denied-environment'):
