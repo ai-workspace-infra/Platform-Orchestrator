@@ -97,6 +97,8 @@ jobs:
 
       - name: Verify Feature App scope probe contract
         run: python3 scripts/tests/control_plane/feature_lane_app_scope_probe_test.py
+      - name: Verify Feature target identity contract
+        run: python3 scripts/tests/control_plane/feature_target_vault_role_test.py
       - name: Verify baseline registry identity contract
         run: python3 scripts/tests/control_plane/feature_baseline_ghcr_role_test.py
       - name: Verify Vault workload probe contract
