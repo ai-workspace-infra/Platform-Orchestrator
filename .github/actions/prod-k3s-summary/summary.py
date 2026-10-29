@@ -11,10 +11,10 @@ def classify(needs, operation):
         return 'preflight_failed', False
     if needs['v6-iac']['result']!='success':
         return 'failed_inspect_iac_mutation_state', False
-    if operation=='deploy':
+    if operation in {'infra','deploy'}:
         if needs['v6-bootstrap']['result']!='success':
             return 'mutated_and_failed', False
-        return 'verified_paused_bootstrap', True
+        return ('verified_paused_bootstrap' if operation=='deploy' else 'verified_infrastructure_and_common'), True
     if needs['v6-bootstrap']['result']!='skipped':
         return 'unexpected_bootstrap_execution', False
     return ('verified_plan' if operation=='plan' else 'verified_infrastructure'), True

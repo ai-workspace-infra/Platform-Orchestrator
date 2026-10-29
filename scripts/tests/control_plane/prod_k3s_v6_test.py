@@ -68,6 +68,19 @@ class RequestTests(unittest.TestCase):
             policy=(ROOT/'scripts/vault/policies'/f'{name}.hcl').read_text()
             self.assertNotIn('"write"',policy);self.assertNotIn('"update"',policy)
 
+class OwnerPhaseContractTests(unittest.TestCase):
+    def test_infra_runs_common_and_deploy_runs_cluster(self):
+        d=yaml.safe_load((ROOT/'.github/workflows/selfhost-orchestrator.yml').read_text())['jobs']['v6-bootstrap']
+        self.assertIn("inputs.operation != 'plan'", d['if'])
+        owner=next(s for s in d['steps'] if s.get('uses')=='./playbooks/.github/actions/prod-k3s-bootstrap')
+        self.assertEqual("${{ inputs.operation == 'infra' && 'common' || 'cluster' }}",owner['with']['phase'])
+    def test_pinned_owner_supports_the_phase_contract(self):
+        import os
+        root=os.environ.get('V6_PLAYBOOKS_CONTRACT_ROOT')
+        if not root:self.skipTest('Owner checkout checked by repository integration job')
+        action=yaml.safe_load((Path(root)/'.github/actions/prod-k3s-bootstrap/action.yml').read_text())
+        self.assertEqual('cluster',action['inputs']['phase']['default'])
+
 class TerminalTests(unittest.TestCase):
     def test_real_failures_cannot_be_reported_successful(self):
         spec=importlib.util.spec_from_file_location('summary', ROOT/'.github/actions/prod-k3s-summary/summary.py')
@@ -78,7 +91,9 @@ class TerminalTests(unittest.TestCase):
             for status in ('failure','cancelled','skipped'):
                 failed=copy.deepcopy(needs);failed[name]['result']=status
                 self.assertFalse(gate.classify(failed,'deploy')[1])
+        self.assertEqual(('verified_infrastructure_and_common',True),gate.classify(needs,'infra'))
         needs['v6-bootstrap']['result']='skipped'
+        self.assertFalse(gate.classify(needs,'infra')[1])
         self.assertEqual(('verified_plan',True),gate.classify(needs,'plan'))
         self.assertFalse(gate.classify({},'deploy')[1])
 
