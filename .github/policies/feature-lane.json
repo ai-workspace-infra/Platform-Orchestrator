@@ -88,6 +88,13 @@
   },
   "feature_sit_frontend_repository": "ai-workspace-services/portal",
   "feature_tags": {
+    "retry-sit-test-1483": {
+      "candidate_sha256": "b78506e1bfab9bb2643b8c1561f235927745ab7e651f374c876453af7d3ad143",
+      "repository": "ai-workspace-infra/Platform-Orchestrator",
+      "tag_object_sha": "9573db47ba1267f31be891b2403df5acfdb25b56",
+      "target_sha": "eb4bba17f98913835a7354f780f031ae2ebbffad",
+      "task_url": "https://github.com/ai-workspace-infra/Platform-Orchestrator/issues/1483"
+    },
     "smoke-sit-test-1483": {
       "candidate_sha256": "c470c495623f45ae0f98bf641bcdd49a42d4459c9c3eec0460ea03980b9d8b23",
       "repository": "ai-workspace-infra/Platform-Orchestrator",
