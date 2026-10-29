@@ -16,4 +16,7 @@ class EdgeTest(unittest.TestCase):
    with self.assertRaises(ValueError):m.check(env,now,lambda *args,**kwargs:conn)
    path.write_text(json.dumps({**row,'candidate_sha256':'c'*64}))
    with self.assertRaises(ValueError):m.check(env,now,lambda *args,**kwargs:conn)
+   for change in ({'ip':'10.0.0.1'},{'observed_at':(now-datetime.timedelta(minutes=21)).isoformat()},{'instance_id':'456'}):
+    path.write_text(json.dumps({**row,**change}))
+    with self.subTest(change=change),self.assertRaises(ValueError):m.check(env,now,lambda *args,**kwargs:conn)
 if __name__=='__main__':unittest.main()
