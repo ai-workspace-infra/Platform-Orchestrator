@@ -1,4 +1,4 @@
-name: Feature lane protected deployment
+name: Feature lane SIT preparation
 on:
   workflow_dispatch:
   workflow_run:
@@ -185,6 +185,7 @@ jobs:
       service: ${{ matrix.service }}
       hostname: ${{ needs.verified-candidate.outputs[format('{0}_host', matrix.service)] }}
   sit-prepare:
+    name: Prepare SIT namespace and registry (acceptance not run)
     needs: [verified-candidate, publish-dns]
     permissions:
       contents: read

@@ -34,6 +34,7 @@ class FeatureDeployEntryTest(unittest.TestCase):
         self.assertEqual(dns['with']['candidate_receipt_sha256'], '${{ needs.verified-candidate.outputs.sha256 }}')
         self.assertEqual(dns['uses'], 'ai-workspace-infra/iac_modules/.github/workflows/feature-sit-dns.yml@6cd679bd61abd8777669b6786a378ce014da3884')
         self.assertEqual(jobs['sit-prepare']['needs'], ['verified-candidate', 'publish-dns'])
+        self.assertIn('acceptance not run', jobs['sit-prepare']['name'])
         self.assertEqual(jobs['sit-prepare']['with']['mode'], 'prepare')
         self.assertEqual(jobs['sit-prepare']['uses'], 'ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@92cfa9c3bde6b70ae4a70f435a3cee0d2b8e976e')
         self.assertNotIn('id-token', workflow['permissions'])
