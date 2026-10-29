@@ -17,7 +17,7 @@
       "ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@ad2cf2a32d5faacbc2a327809c9d91dc8412c910",
       "ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@4562a6e7804999ac482b0dc399c092d75690a283",
       "ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@a30b238424bf6d77eaa9002656d771a3b72ee64f",
-      "ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@ea5050e9ecc93cef21d8671464d6f495f507227e"
+      "ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@e18f112536ce293532dee7b6f7ce0df21b1d7b8f"
     ],
     "ref": "refs/heads/main",
     "environment": "dev"
