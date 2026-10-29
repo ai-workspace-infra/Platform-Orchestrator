@@ -95,6 +95,8 @@ jobs:
       - name: Verify trusted Main Feature event
         run: python3 scripts/tests/control_plane/feature_lane_main_event_test.py
 
+      - name: Verify Feature App scope probe contract
+        run: python3 scripts/tests/control_plane/feature_lane_app_scope_probe_test.py
       - name: Verify Vault workload probe contract
         run: python3 scripts/tests/control_plane/feature_lane_vault_probe_test.py
       - name: Verify same-run Feature deployment receipt contract

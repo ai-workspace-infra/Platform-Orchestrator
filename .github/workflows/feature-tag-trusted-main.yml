@@ -62,7 +62,7 @@ jobs:
         id: infra
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
         with:
-          client-id: ${{ steps.vault.outputs.FEATURE_APP_ID }}
+          app-id: ${{ steps.vault.outputs.FEATURE_APP_ID }}
           private-key: ${{ steps.vault.outputs.FEATURE_APP_PRIVATE_KEY }}
           owner: ai-workspace-infra
           repositories: ${{ needs.event.outputs.infra_repositories }}
@@ -74,7 +74,7 @@ jobs:
         id: services
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
         with:
-          client-id: ${{ steps.vault.outputs.FEATURE_APP_ID }}
+          app-id: ${{ steps.vault.outputs.FEATURE_APP_ID }}
           private-key: ${{ steps.vault.outputs.FEATURE_APP_PRIVATE_KEY }}
           owner: ai-workspace-services
           repositories: ${{ needs.event.outputs.services_repositories }}
@@ -104,6 +104,56 @@ jobs:
           persist-credentials: false
       - name: Verify allowed and adjacent denied paths
         run: python3 .github/scripts/feature-lane/vault-probe.py allowed
+      - name: Read dedicated Feature evidence identity
+        id: identity
+        uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-feature-lane-read-sit
+          jwtGithubAudience: vault
+          exportEnv: false
+          secrets: |
+            kv/data/sit/platform/github-app/feature-lane app_id | FEATURE_APP_ID ;
+            kv/data/sit/platform/github-app/feature-lane app_private_key | FEATURE_APP_PRIVATE_KEY
+      - name: Create scoped infra token
+        id: probe-infra
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          app-id: ${{ steps.identity.outputs.FEATURE_APP_ID }}
+          private-key: ${{ steps.identity.outputs.FEATURE_APP_PRIVATE_KEY }}
+          owner: ai-workspace-infra
+          repositories: |
+            Platform-Orchestrator
+            artifacts
+            gitops
+          permission-actions: read
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+      - name: Create scoped services token
+        id: probe-services
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          app-id: ${{ steps.identity.outputs.FEATURE_APP_ID }}
+          private-key: ${{ steps.identity.outputs.FEATURE_APP_PRIVATE_KEY }}
+          owner: ai-workspace-services
+          repositories: |
+            portal
+            accounts
+            billing-service
+            content-service
+            postgresql
+            knowledge
+          permission-actions: read
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+      - name: Confirm scoped repository access
+        env:
+          INFRA_TOKEN: ${{ steps.probe-infra.outputs.token }}
+          SERVICES_TOKEN: ${{ steps.probe-services.outputs.token }}
+        run: python3 .github/scripts/feature-lane/app-scope-probe.py
   identity-denied-environment:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
