@@ -23,6 +23,11 @@ class FeatureDeployEntryTest(unittest.TestCase):
         self.assertEqual(target['uses'], 'ai-workspace-infra/iac_modules/.github/workflows/feature-sit-target-observe.yml@61f79c73d1c415755989fa55c8a36a3b862b391d')
         self.assertEqual(target['with']['candidate_sha256'], '${{ needs.verified-candidate.outputs.sha256 }}')
         self.assertEqual(target['with']['cmdb_artifact'], '${{ needs.verified-candidate.outputs.cmdb_artifact }}')
+        self.assertEqual(jobs['edge-preflight']['needs'], ['verified-candidate', 'observe-target'])
+        dns = jobs['publish-dns']
+        self.assertEqual(dns['needs'], ['verified-candidate', 'observe-target', 'edge-preflight'])
+        self.assertEqual(dns['strategy']['matrix']['service'], ['console', 'accounts', 'billing'])
+        self.assertEqual(dns['uses'], 'ai-workspace-infra/iac_modules/.github/workflows/feature-sit-dns.yml@6cd679bd61abd8777669b6786a378ce014da3884')
         self.assertNotIn('id-token', workflow['permissions'])
         for job in ('identity-allowed', 'identity-denied-environment'):
             self.assertIn('workflow_dispatch', jobs[job]['if'])
