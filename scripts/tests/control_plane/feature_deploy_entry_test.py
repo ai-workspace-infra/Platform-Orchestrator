@@ -32,7 +32,7 @@ class FeatureDeployEntryTest(unittest.TestCase):
         self.assertIs(dns['strategy']['fail-fast'], False)
         self.assertEqual(dns['with']['hostname'], "${{ needs.verified-candidate.outputs[format('{0}_host', matrix.service)] }}")
         self.assertEqual(dns['with']['candidate_receipt_sha256'], '${{ needs.verified-candidate.outputs.sha256 }}')
-        self.assertEqual(dns['uses'], 'ai-workspace-infra/iac_modules/.github/workflows/feature-sit-dns.yml@6cd679bd61abd8777669b6786a378ce014da3884')
+        self.assertEqual(dns['uses'], 'ai-workspace-infra/iac_modules/.github/workflows/feature-sit-dns.yml@3cfc12d95578885ecd267d7d09e049919ff10464')
         self.assertEqual(jobs['sit-execute']['needs'], ['verified-candidate', 'publish-dns'])
         self.assertEqual(jobs['sit-execute']['uses'], './.github/workflows/feature-sit-execute.yml')
         execute = yaml.safe_load((ROOT / '.github/workflows/feature-sit-execute.yml').read_text())['jobs']
