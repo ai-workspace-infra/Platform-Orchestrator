@@ -19,7 +19,7 @@ def request(url, *, headers=None, body=None):
         return error.code, b''
 
 def main(mode):
-    if mode not in ('allowed', 'denied-environment', 'denied-caller', 'deploy-allowed', 'deploy-denied', 'target-denied'):
+    if mode not in ('allowed', 'denied-environment', 'denied-caller', 'deploy-allowed', 'deploy-denied', 'target-denied', 'lane-owner-denied', 'dns-owner-denied', 'dns-target-denied'):
         raise ValueError('invalid probe mode')
     oidc_url = os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']
     separator = '&' if '?' in oidc_url else '?'
@@ -28,11 +28,14 @@ def main(mode):
     if status != 200:
         raise ValueError('GitHub identity unavailable')
     jwt = json.loads(data)['value']
-    role = ('github-actions-feature-lane-deploy-evidence-read-sit' if mode.startswith('deploy-') else
-            'github-actions-feature-target-read-sit' if mode == 'target-denied' else ROLE)
+    denied_roles = {'target-denied':'github-actions-feature-target-read-sit',
+                    'lane-owner-denied':'github-actions-playbooks-feature-lane-sit',
+                    'dns-owner-denied':'github-actions-feature-dns-write-sit',
+                    'dns-target-denied':'github-actions-feature-dns-target-read-sit'}
+    role = ('github-actions-feature-lane-deploy-evidence-read-sit' if mode.startswith('deploy-') else denied_roles.get(mode, ROLE))
     status, data = request(BASE + 'auth/jwt/login', headers={'Content-Type': 'application/json'},
                            body=json.dumps({'role': role, 'jwt': jwt}).encode())
-    if mode in ('denied-environment', 'denied-caller', 'deploy-denied', 'target-denied'):
+    if mode in ('denied-environment', 'denied-caller', 'deploy-denied', *denied_roles):
         if status not in (400, 403):
             raise ValueError('invalid workload identity was not denied')
         print('PASS: invalid workload identity denied')
