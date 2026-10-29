@@ -24,4 +24,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FEATURE_EVENT_TAG: ${{ github.ref_name }}
           FEATURE_POLICY_COMMIT: ${{ steps.main.outputs.commit }}
-        run: python3 .github/scripts/feature-lane/event-preflight.py
+        run: python3 .github/scripts/feature-lane/tag-push-preflight.py

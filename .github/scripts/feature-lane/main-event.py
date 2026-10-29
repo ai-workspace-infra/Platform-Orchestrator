@@ -64,7 +64,7 @@ def authenticate(event, env, trusted):
             run.get('run_attempt') != event_run['run_attempt'] or
             run.get('id') != run_id or run.get('workflow_id') != workflow.get('id') or
             run.get('path', '').split('@')[0] != '.github/workflows/feature-tag-preflight.yml' or
-            run.get('event') != 'push' or run.get('status') != 'completed' or
+            run.get('event') != 'push' or run.get('status') != 'completed' or run.get('conclusion') != 'success' or
             run.get('repository', {}).get('full_name', '').lower() != repo.lower() or
             run.get('head_repository', {}).get('full_name', '').lower() != repo.lower() or
             not isinstance(run.get('head_sha'), str) or not re.fullmatch(r'[0-9a-f]{40}', run['head_sha']) or
