@@ -1,6 +1,6 @@
 {
-  "role_name": "github-actions-platform-ops-toolkit-prod-akamai-oidc-bootstrap-__ACCOUNT__",
-  "description": "Akamai Cloud/Linode PROD IaC role for the concrete account __ACCOUNT__.",
+  "role_name": "prod-akamai-iac",
+  "description": "PROD Akamai IaC GitHub OIDC role.",
   "role_type": "jwt",
   "user_claim": "sub",
   "bound_audiences": [
@@ -10,28 +10,13 @@
   "bound_claims": {
     "repository": "ai-workspace-infra/platform-ops-toolkit",
     "job_workflow_ref": [
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/akamai-cloud-iac.yml@*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/ai-aggregator-v1.yml@*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-orchestrator.yml@*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-stage-resolve.yml@*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-stage-infra.yml@*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-stage-deploy.yml@*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-stage-migrate.yml@*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-stage-verify.yml@*",
       "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/heads/main",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/tags/v*",
-      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/heads/release/v*"
+      "ai-workspace-infra/platform-ops-toolkit/.github/workflows/ai-aggregator-v1.yml@refs/heads/main"
     ],
-    "ref": [
-      "refs/heads/main",
-      "refs/tags/v*",
-      "refs/heads/release/v*"
-    ],
+    "ref": "refs/heads/main",
     "environment": "prod"
   },
-  "token_policies": [
-    "github-actions-platform-ops-toolkit-prod-akamai-oidc-bootstrap-__ACCOUNT__"
-  ],
+  "token_policies": ["__POLICY__"],
   "token_no_default_policy": true,
   "token_type": "batch",
   "token_ttl": "20m",

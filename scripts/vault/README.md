@@ -115,8 +115,8 @@ export VAULT_TOKEN='hvs.***'
 bash scripts/create_vault_service_repo_roles.sh
 ```
 
-The same entrypoint can also manage the account-specific Akamai Cloud/Linode
-OIDC role. Set the concrete account name or ID and select the environment:
+The same entrypoint can also manage the Akamai Cloud/Linode OIDC role. Set the
+concrete account name or ID and select the environment:
 
 ```bash
 export AKAMAI_ACCOUNT_PROD='actual-account'
@@ -133,17 +133,17 @@ bash scripts/create_vault_service_repo_roles.sh --check --env prod
 
 When no `AKAMAI_ACCOUNT_UAT` or `AKAMAI_ACCOUNT_PROD` is provided, the entrypoint
 keeps its previous behavior and skips dynamic Akamai role management. The
-account-specific role name is:
+PROD role name is `prod-akamai-iac` (15 characters). The account remains part
+of the attached policy name and secret path; it is not concatenated into the
+role name. UAT retains its existing account-scoped role naming.
 
-```text
-github-actions-platform-ops-toolkit-<env>-akamai-oidc-bootstrap-<account>
-```
+## Akamai Cloud/Linode environment-scoped roles
 
-## Akamai Cloud/Linode account-specific role
-
-The Akamai Cloud/Linode workflow uses the concrete account name or ID in both
-the Vault path and the JWT role name. `primary`, `default`, and `main` are not
-valid account values. Render and publish only the requested Akamai roles with:
+The PROD role is `prod-akamai-iac`, bound to the `prod` GitHub Environment and
+the IaC stage and AI Aggregator workflows on `main`. Its attached policy reads
+only the selected account's `LINODE_TOKEN` and the PROD IaC state. `primary`,
+`default`, and `main` are not valid account values. Render and publish only
+the requested Akamai roles with:
 
 ```bash
 export VAULT_ADDR=https://vault.svc.plus
