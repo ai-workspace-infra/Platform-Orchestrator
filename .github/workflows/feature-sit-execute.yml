@@ -1,0 +1,146 @@
+name: Feature SIT staged execution
+on:
+  workflow_call:
+    inputs:
+      artifact:
+        type: string
+        required: true
+      sha256:
+        type: string
+        required: true
+      cmdb_artifact:
+        type: string
+        required: true
+      cmdb_sha256:
+        type: string
+        required: true
+      instance_id:
+        type: string
+        required: true
+      gitops_sha:
+        type: string
+        required: true
+      platform_sha:
+        type: string
+        required: true
+      node_uid:
+        type: string
+        required: true
+      cluster_uid:
+        type: string
+        required: true
+      candidate_sha256:
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+jobs:
+  sit-prepare:
+    name: Prepare SIT namespace and registry (acceptance not run)
+    
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@32bcb683d7bfb79e0c01587426252f3f0d8c76a2
+    with:
+      stage: sit
+      mode: prepare
+      candidate_artifact: ${{ inputs.artifact }}
+      candidate_sha256: ${{ inputs.sha256 }}
+      cmdb_artifact: ${{ inputs.cmdb_artifact }}
+      cmdb_sha256: ${{ inputs.cmdb_sha256 }}
+      target_artifact: feature-sit-target-${{ github.run_id }}-${{ github.run_attempt }}
+      instance_id: ${{ inputs.instance_id }}
+      gitops_sha: ${{ inputs.gitops_sha }}
+      platform_sha: ${{ inputs.platform_sha }}
+      node_uid: ${{ inputs.node_uid }}
+      cluster_uid: ${{ inputs.cluster_uid }}
+  prepare-evidence:
+    needs: sit-prepare
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      sha256: ${{ steps.proof.outputs.sha256 }}
+      namespace_uid: ${{ steps.proof.outputs.namespace_uid }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dev-feature-sit-prepare-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/seed-prepare
+      - name: Bind prepare evidence to this run
+        id: proof
+        env:
+          FILE: ${{ runner.temp }}/seed-prepare/receipt.json
+          CANDIDATE_SHA256: ${{ inputs.candidate_sha256 }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,re
+          raw=open(os.environ['FILE'],'rb').read(); obj=json.loads(raw)
+          uid=obj.get('namespace_uid','')
+          if (obj.get('result')!='prepared' or obj.get('mode')!='prepare' or
+              obj.get('candidate_sha256')!=os.environ['CANDIDATE_SHA256'] or
+              str(obj.get('run_id'))!=os.environ['GITHUB_RUN_ID'] or
+              str(obj.get('run_attempt'))!=os.environ['GITHUB_RUN_ATTEMPT'] or
+              not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',uid)):
+              raise SystemExit('invalid prepare receipt')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as out:
+              out.write('sha256='+hashlib.sha256(raw).hexdigest()+'\nnamespace_uid='+uid+'\n')
+          PY
+  seed-admin:
+    needs: prepare-evidence
+    permissions: {contents: read, actions: read, id-token: write}
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@32bcb683d7bfb79e0c01587426252f3f0d8c76a2
+    with:
+      stage: sit
+      phase: seed-admin
+      candidate_artifact: ${{ inputs.artifact }}
+      candidate_sha256: ${{ inputs.sha256 }}
+      cmdb_artifact: ${{ inputs.cmdb_artifact }}
+      cmdb_sha256: ${{ inputs.cmdb_sha256 }}
+      instance_id: ${{ inputs.instance_id }}
+      gitops_sha: ${{ inputs.gitops_sha }}
+      platform_sha: ${{ inputs.platform_sha }}
+      node_uid: ${{ inputs.node_uid }}
+      cluster_uid: ${{ inputs.cluster_uid }}
+      namespace_uid: ${{ needs.prepare-evidence.outputs.namespace_uid }}
+      prepare_artifact: dev-feature-sit-prepare-${{ github.run_id }}-${{ github.run_attempt }}
+      prepare_sha256: ${{ needs.prepare-evidence.outputs.sha256 }}
+  sit-submit:
+    needs: seed-admin
+    permissions: {contents: read, actions: read, id-token: write}
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@32bcb683d7bfb79e0c01587426252f3f0d8c76a2
+    with:
+      stage: sit
+      mode: submit
+      candidate_artifact: ${{ inputs.artifact }}
+      candidate_sha256: ${{ inputs.sha256 }}
+      cmdb_artifact: ${{ inputs.cmdb_artifact }}
+      cmdb_sha256: ${{ inputs.cmdb_sha256 }}
+      target_artifact: feature-sit-target-${{ github.run_id }}-${{ github.run_attempt }}
+      instance_id: ${{ inputs.instance_id }}
+      gitops_sha: ${{ inputs.gitops_sha }}
+      platform_sha: ${{ inputs.platform_sha }}
+      node_uid: ${{ inputs.node_uid }}
+      cluster_uid: ${{ inputs.cluster_uid }}
+  finish:
+    needs: [prepare-evidence, sit-submit]
+    permissions: {contents: read, actions: read, id-token: write}
+    uses: ./.github/workflows/feature-sit-finalize.yml
+    with:
+      artifact: ${{ inputs.artifact }}
+      sha256: ${{ inputs.sha256 }}
+      cmdb_artifact: ${{ inputs.cmdb_artifact }}
+      cmdb_sha256: ${{ inputs.cmdb_sha256 }}
+      instance_id: ${{ inputs.instance_id }}
+      gitops_sha: ${{ inputs.gitops_sha }}
+      platform_sha: ${{ inputs.platform_sha }}
+      node_uid: ${{ inputs.node_uid }}
+      cluster_uid: ${{ inputs.cluster_uid }}
+      candidate_sha256: ${{ inputs.candidate_sha256 }}
+      namespace_uid: ${{ needs.prepare-evidence.outputs.namespace_uid }}
+      prepare_sha256: ${{ needs.prepare-evidence.outputs.sha256 }}
