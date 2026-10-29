@@ -109,6 +109,10 @@ jobs:
         run: python3 scripts/tests/control_plane/feature_foundation_projection_test.py
       - name: Verify dedicated Feature DNS workload roles
         run: python3 scripts/tests/control_plane/feature_dns_vault_role_test.py
+      - name: Verify candidate-derived Feature DNS inputs
+        run: python3 scripts/tests/control_plane/feature_dns_inputs_test.py
+      - name: Verify Feature ingress preflight
+        run: python3 scripts/tests/control_plane/feature_edge_preflight_test.py
       - name: Verify tagged SIT execution workload role
         run: python3 scripts/tests/control_plane/feature_lane_owner_vault_role_test.py
       - name: Verify same-run Feature deployment receipt contract
