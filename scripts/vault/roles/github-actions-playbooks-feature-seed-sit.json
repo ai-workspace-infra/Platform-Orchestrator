@@ -1,0 +1,22 @@
+{
+  "role_name": "github-actions-playbooks-feature-seed-sit",
+  "description": "Read the exact Dev management binding for the pinned SIT seed owner.",
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": ["vault"],
+  "bound_claims_type": "string",
+  "bound_claims": {
+    "repository": "ai-workspace-infra/Platform-Orchestrator",
+    "repository_id": "1284966060",
+    "repository_owner_id": "292703558",
+    "workflow_ref": "ai-workspace-infra/Platform-Orchestrator/.github/workflows/feature-lane-deploy.yml@refs/heads/main",
+    "job_workflow_ref": "ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@32bcb683d7bfb79e0c01587426252f3f0d8c76a2",
+    "ref": "refs/heads/main",
+    "environment": "dev"
+  },
+  "token_policies": ["github-actions-playbooks-feature-seed-sit"],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "10m",
+  "token_max_ttl": "10m"
+}
