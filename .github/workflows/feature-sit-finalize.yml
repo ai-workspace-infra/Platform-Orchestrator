@@ -46,7 +46,7 @@ jobs:
   seed-initialize:
     
     permissions: {contents: read, actions: read, id-token: write}
-    uses: ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@e18f112536ce293532dee7b6f7ce0df21b1d7b8f
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@3ceec2cc15f76f8a65e38b6779b416eb68d29de1
     with:
       stage: sit
       phase: initialize
@@ -95,7 +95,7 @@ jobs:
   sit-verify:
     needs: seed-evidence
     permissions: {contents: read, actions: read, id-token: write}
-    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@e18f112536ce293532dee7b6f7ce0df21b1d7b8f
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@3ceec2cc15f76f8a65e38b6779b416eb68d29de1
     with:
       stage: sit
       mode: verify
