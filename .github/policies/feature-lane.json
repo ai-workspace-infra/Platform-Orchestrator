@@ -63,6 +63,16 @@
     "workflow": ".github/workflows/feature-baseline-1483.yml"
   },
   "domain_suffix": "onwalk.net",
+  "feature_build_owners": {
+    "ai-workspace-services/accounts": {
+      "artifact_prefix": "accounts-pr-image-evidence",
+      "event": "workflow_dispatch",
+      "filename": "accounts-pr-image-evidence.json",
+      "repository": "ai-workspace-services/accounts",
+      "sha": "38c3a3c2e19b7d177e6cb5e019a49c1b35027e95",
+      "workflow": ".github/workflows/accounts-pr-image-evidence.yml"
+    }
+  },
   "feature_sit_frontend_repository": "ai-workspace-services/portal",
   "feature_tags": {
     "smoke-sit-test-1483": {
