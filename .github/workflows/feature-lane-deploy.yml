@@ -10,26 +10,8 @@ permissions:
   issues: read
   pull-requests: read
 jobs:
-  authenticate-event:
-    if: github.event_name == 'workflow_run'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    outputs:
-      tag: ${{ steps.event.outputs.tag }}
-      infra_repositories: ${{ steps.event.outputs.infra_repositories }}
-      services_repositories: ${{ steps.event.outputs.services_repositories }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Authenticate pushed tag and reviewed Main candidate
-        id: event
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 .github/scripts/feature-lane/main-event.py
   verified-candidate:
-    needs: authenticate-event
+    if: github.event_name == 'workflow_run'
     runs-on: ubuntu-latest
     environment: dev
     timeout-minutes: 15
@@ -60,6 +42,11 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Authenticate pushed tag and reviewed Main candidate
+        id: event
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/feature-lane/main-event.py
       - name: Read scoped evidence App identity
         id: vault
         uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4
@@ -79,7 +66,7 @@ jobs:
           app-id: ${{ steps.vault.outputs.FEATURE_APP_ID }}
           private-key: ${{ steps.vault.outputs.FEATURE_APP_PRIVATE_KEY }}
           owner: ai-workspace-infra
-          repositories: ${{ needs.authenticate-event.outputs.infra_repositories }}
+          repositories: ${{ steps.event.outputs.infra_repositories }}
           permission-actions: read
           permission-contents: read
           permission-issues: read
@@ -91,7 +78,7 @@ jobs:
           app-id: ${{ steps.vault.outputs.FEATURE_APP_ID }}
           private-key: ${{ steps.vault.outputs.FEATURE_APP_PRIVATE_KEY }}
           owner: ai-workspace-services
-          repositories: ${{ needs.authenticate-event.outputs.services_repositories }}
+          repositories: ${{ steps.event.outputs.services_repositories }}
           permission-actions: read
           permission-contents: read
           permission-issues: read
@@ -102,7 +89,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FEATURE_GH_TOKEN_INFRA: ${{ steps.infra.outputs.token }}
           FEATURE_GH_TOKEN_SERVICES: ${{ steps.services.outputs.token }}
-          FEATURE_EVENT_TAG: ${{ needs.authenticate-event.outputs.tag }}
+          FEATURE_EVENT_TAG: ${{ steps.event.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail

@@ -10,10 +10,12 @@ class FeatureDeployEntryTest(unittest.TestCase):
         triggers = workflow.get('on', workflow.get(True))
         self.assertEqual(triggers['workflow_run']['workflows'], ['Feature tag preflight'])
         jobs = workflow['jobs']
-        self.assertIn('workflow_run', jobs['authenticate-event']['if'])
-        self.assertEqual(jobs['verified-candidate']['needs'], 'authenticate-event')
+        self.assertIn('workflow_run', jobs['verified-candidate']['if'])
         self.assertEqual(jobs['verified-candidate']['environment'], 'dev')
         steps = jobs['verified-candidate']['steps']
+        ids = [step.get('id') for step in steps]
+        self.assertLess(ids.index('event'), ids.index('vault'))
+        self.assertIn('main-event.py', steps[ids.index('event')]['run'])
         run = next(step['run'] for step in steps if step.get('id') == 'receipt')
         self.assertIn('deploy-receipt.py', run)
         self.assertIn('sha256sum', run)
