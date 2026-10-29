@@ -30,7 +30,7 @@ class MainEventTest(unittest.TestCase):
         self.event = {'action': 'completed', 'workflow_run': {'id': 123, 'run_attempt': 1}}
         self.run = {'id': 123, 'run_attempt': 1, 'workflow_id': 456,
                     'path': '.github/workflows/feature-tag-preflight.yml@refs/tags/' + tag,
-                    'event': 'push', 'status': 'completed', 'head_branch': tag, 'head_sha': 'b' * 40,
+                    'event': 'push', 'status': 'completed', 'conclusion': 'success', 'head_branch': tag, 'head_sha': 'b' * 40,
                     'repository': {'full_name': self.env['GITHUB_REPOSITORY']},
                     'head_repository': {'full_name': self.env['GITHUB_REPOSITORY']}}
         self.trusted = Mock()
@@ -58,7 +58,7 @@ class MainEventTest(unittest.TestCase):
 
     def test_rejects_untrusted_ref_run_or_moved_tag(self):
         for key, value in [('event', 'pull_request'), ('workflow_id', 999), ('run_attempt', 2),
-                           ('head_sha', 'c' * 40), ('head_branch', 'other'), ('status', 'in_progress')]:
+                           ('head_sha', 'c' * 40), ('head_branch', 'other'), ('status', 'in_progress'), ('conclusion', 'failure')]:
             with self.subTest(key=key):
                 original = self.run[key]
                 self.run[key] = value
