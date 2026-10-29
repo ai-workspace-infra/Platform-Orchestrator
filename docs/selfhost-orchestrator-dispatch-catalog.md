@@ -65,3 +65,10 @@ Canonical cloud-init HOST KEY KEYS frames and fixed read-only provider scrollbac
 controls are supported by the reviewed IaC owner. A complete Ed25519 wire key and
 matching full fingerprint remain mandatory; unframed, truncated or conflicting
 keys are rejected. No guest command or credential is sent through the console.
+
+After verified IaC delivery and SSH identity, the Playbooks owner automatically
+runs `vhosts/common` with `tasks_from: node_bootstrap.yml` before data-disk and
+K3s roles. Runtime/static hostname, cloud-init persistence and local resolution
+must match the canonical IaC node name. Existing K3s node/PV affinity and active
+Flux checks fail before hostname changes. `COMMON_NODE_VERIFIED` is mandatory
+in the final receipt; a business FQDN must remain an alias, never the node name.

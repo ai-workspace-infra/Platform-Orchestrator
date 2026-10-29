@@ -473,7 +473,7 @@ jobs:
         run: python3 .github/scripts/platform-ops/provision/dispatch-iac-pipeline.py
 
   v6-bootstrap:
-    name: '[V6 3/4] Load paused cluster declarations'
+    name: '[V6 3/4] Common checks and paused cluster bootstrap'
     if: ${{ inputs.operation == 'deploy' }}
     needs: [v6-resolve, v6-iac]
     environment: prod
