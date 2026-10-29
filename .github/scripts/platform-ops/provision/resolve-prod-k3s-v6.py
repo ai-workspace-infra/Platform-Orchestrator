@@ -55,12 +55,12 @@ def validate(inputs, config, checkout, ref):
     for folder in [checkout/config['root_path'],*(checkout/'services/prod-k3s-v6').iterdir()]:
         for path in folder.glob('*.yaml'):
             objects.extend(o for o in yaml.safe_load_all(path.read_text()) if isinstance(o,dict))
-    expected={'GitRepository':6,'Kustomization':6,'HelmRelease':7}
+    expected={'GitRepository':6,'Kustomization':9,'HelmRelease':8}
     for kind,count in expected.items():
         selected=[o for o in objects if o.get('kind')==kind and 'toolkit.fluxcd.io/' in o.get('apiVersion','')]
         require(len(selected)==count, 'Wrong V6 object count: '+kind)
         for obj in selected:
-            require(obj['spec'].get('suspend') is True, 'All V6 release objects must start paused')
+            require(obj['spec'].get('suspend') is True, 'All V6 bootstrap objects must start paused')
             if kind=='GitRepository':
                 require(obj['spec']['url']=='https://github.com/ai-workspace-infra/gitops.git' and obj['spec']['ref']=={'tag':tag}, 'Initial sources must bind the reviewed tag')
             if kind=='Kustomization':

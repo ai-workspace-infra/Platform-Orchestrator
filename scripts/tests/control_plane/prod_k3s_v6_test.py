@@ -21,7 +21,7 @@ class RequestTests(unittest.TestCase):
         (self.root/'target.yaml').write_text(yaml.safe_dump(target))
         (self.root/'cluster').mkdir();(self.root/'services/prod-k3s-v6/unit').mkdir(parents=True)
         objects=[]
-        for kind,n,api in [('GitRepository',6,'source'),('Kustomization',6,'kustomize'),('HelmRelease',7,'helm')]:
+        for kind,n,api in [('GitRepository',6,'source'),('Kustomization',9,'kustomize'),('HelmRelease',8,'helm')]:
             for i in range(n):
                 obj={'apiVersion':api+'.toolkit.fluxcd.io/v1','kind':kind,'metadata':{'name':kind+str(i)},'spec':{'suspend':True}}
                 if kind=='GitRepository':obj['spec'].update(url='https://github.com/ai-workspace-infra/gitops.git',ref={'tag':'v1.0.0'})
