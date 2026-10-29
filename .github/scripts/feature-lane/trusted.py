@@ -294,7 +294,8 @@ def build_run_identity(proof, evidence_run, source):
 def verify_pr_build_producer(proof, source):
     """Recheck the original producer, independent of the evidence workflow."""
     build_id, attempt = proof.get('producer_run_id'), proof.get('producer_attempt')
-    gate.require(proof.get('evidence_kind') == 'github-pr-run-and-registry' and
+    gate.require(gate.sha(source.get('base_sha')) and type(source.get('pr')) is int and source['pr'] > 0 and
+                 proof.get('evidence_kind') == 'github-pr-run-and-registry' and
                  proof.get('pr') == source.get('pr') and proof.get('base_sha') == source.get('base_sha') and
                  proof.get('producer_workflow') == '.github/workflows/ci-pipeline.yml' and
                  type(build_id) is int and build_id > 0 and type(attempt) is int and attempt > 0,
