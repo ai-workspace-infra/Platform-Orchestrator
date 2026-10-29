@@ -13,3 +13,7 @@ contain `/`.
 The parent `scripts/create_vault_service_repo_roles.sh` is intentionally only
 the orchestration entrypoint. Review changes to these declarations as Vault
 authorization changes.
+
+Kubernetes workload identities configured on dedicated JWT mounts belong in
+`scripts/vault/workload-identities/`; they are not shared GitHub OIDC roles and
+must not be applied by this installer.
