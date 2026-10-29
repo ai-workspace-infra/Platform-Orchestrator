@@ -73,6 +73,14 @@
       "repository": "ai-workspace-infra/playbooks",
       "sha": "c25536657232dfd8f2b52a6c94796f21a3c92ee2",
       "workflow": ".github/workflows/feature-baseline-1483.yml"
+    },
+    "pr-both-1483": {
+      "artifact_prefix": "feature-baseline-1483",
+      "event": "workflow_dispatch",
+      "filename": "feature-baseline-1483.json",
+      "repository": "ai-workspace-infra/playbooks",
+      "sha": "d7e90d7de6fb90840b4aded310dcf77de0cb5866",
+      "workflow": ".github/workflows/feature-baseline-1483.yml"
     }
   },
   "domain_suffix": "onwalk.net",
