@@ -11,7 +11,7 @@ permissions:
   pull-requests: read
 jobs:
   verified-candidate:
-    if: github.event_name == 'workflow_run'
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment: dev
     timeout-minutes: 15
