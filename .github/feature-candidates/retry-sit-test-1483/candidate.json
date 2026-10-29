@@ -1,0 +1,127 @@
+{
+  "candidate_mode": "feature",
+  "chart_digest": "sha256:45c2f15ab10499d7a44dc59a844246283db7bd26ff748a4b21e2207f2e749ffe",
+  "chart_package": "distributed-web-saas-fullstack-0.2.10.tgz",
+  "components": {
+    "accounts": {
+      "image": "ghcr.io/ai-workspace-services/accounts@sha256:cf8e14f91c42aa4741013876de7e1a36d5f5c7c65323dbf3db39f0cb58f22a12",
+      "source_repository": "ai-workspace-services/accounts"
+    },
+    "billing": {
+      "image": "ghcr.io/ai-workspace-services/billing-service@sha256:66a7e12274a42c929277b68fbee58ff5e4277b21e37d4f8e937ed38b9ac474e4",
+      "source_repository": "ai-workspace-services/billing-service"
+    },
+    "caddy": {
+      "image": "ghcr.io/ai-workspace-infra/caddy-cloudflare@sha256:808b37be394d1f9e34eedd7bc97809cb662b6a323f468a5c76b15bde1758a4ac",
+      "source_repository": "ai-workspace-infra/artifacts"
+    },
+    "console": {
+      "image": "ghcr.io/ai-workspace-services/console@sha256:c54324adb73e10a78e82b629519033b34bfe56eb5c4688ed4a0e8d0c3233c91d",
+      "source_repository": "ai-workspace-services/portal"
+    },
+    "content": {
+      "image": "ghcr.io/ai-workspace-services/docs@sha256:f7e7388a3be9e6328f6a8008b11d364e014721f0605904c165fdb319a553053a",
+      "source_repository": "ai-workspace-services/content-service"
+    },
+    "postgresql": {
+      "image": "ghcr.io/ai-workspace-services/postgresql@sha256:ede145ec082b698cecbeddc6c5ff9c1535aeafbc065c79a65ffedac3c5889ec7",
+      "source_repository": "ai-workspace-services/postgresql"
+    }
+  },
+  "config_sha256": "8fdf8175be557fad43caca7bfa2a47c98feb9361a03914e21507f5ac0ddaf4d9",
+  "configurations": [
+    {
+      "base_ref": "main",
+      "base_sha": "c74a1a5a7d3a633d4020897fbb765b3e23fb279a",
+      "paths": {
+        "docs/features/tagged-sit-domain-contract.yaml": "cc2caef83fa3f0c17840eb79d0621b5d1946f8db203e11cd5a58c90ef4454612",
+        "services/distributed-web-saas-fullstack/dev/feature-lanes/sit-test-1483/account.yaml": "c3f187f4f2d5327808b6fe0553de87a78e64d23b347d824263f4c99cc2ed3b39",
+        "services/distributed-web-saas-fullstack/dev/feature-lanes/sit-test-1483/helmrelease.yaml": "81525640650251e60cbabd8d349db1ad41342ae68ee3449917df11d5db9f0e2f",
+        "services/distributed-web-saas-fullstack/dev/feature-lanes/sit-test-1483/ingress-http.yaml": "df38c6d63b9949363d07c9bbce23d238d65db496d8134a4697e65cdc0cb45699",
+        "services/distributed-web-saas-fullstack/dev/feature-lanes/sit-test-1483/kustomization.yaml": "68b16c9ec81819e7c51545f11b7d8d641e99d8258c62ed4b25c19229350d688e",
+        "services/distributed-web-saas-fullstack/dev/feature-lanes/sit-test-1483/network-policy.yaml": "0fa4edd4b6ae46a912177b6b4ed3262b676ded78221c0cae3ebb684607b4400b",
+        "services/distributed-web-saas-fullstack/dev/feature-lanes/sit-test-1483/nginx.conf": "8be5c0e358bc82c558a7f8c5bec2d05a5668aabbae39799dfa91fc8149e7d09d",
+        "services/distributed-web-saas-fullstack/dev/feature-lanes/sit-test-1483/oci-repository.yaml": "a51547318a811c7128af029fa451deacf55848f07dc93649951c8533201389db",
+        "services/distributed-web-saas-fullstack/dev/feature-lanes/sit-test-1483/release.yaml": "8a9a625b4fddddac9f883efa0d64bb770e0d5711031b68e2c773c3ca9df6f2e5",
+        "services/distributed-web-saas-fullstack/dev/feature-lanes/sit-test-1483/values.yaml": "47d375b9260341994b51a44a42c6584143eb6b8a2d537a8a6a6468dd96d2caad"
+      },
+      "pr": 659,
+      "repository": "ai-workspace-infra/gitops",
+      "sha": "ce60e1d926a154652b91766ffc819811030f7c66"
+    }
+  ],
+  "data_baseline_profile": "pr-1483",
+  "data_baseline_sha256": "9867f52be5e0bf38eb0b3957690f1d107d4ecc902e6297e750e480385bb833f8",
+  "domains": {
+    "sit": "retry-sit-test-1483-sit.onwalk.net",
+    "uat": "web-saas-uat.onwalk.net"
+  },
+  "environment": "dev",
+  "feature_id": "sit-test-1483",
+  "feature_tag": "retry-sit-test-1483",
+  "gitops": {
+    "domain_sha256": "cc2caef83fa3f0c17840eb79d0621b5d1946f8db203e11cd5a58c90ef4454612",
+    "repository": "ai-workspace-infra/gitops",
+    "sha": "ce60e1d926a154652b91766ffc819811030f7c66"
+  },
+  "namespaces": {
+    "sit": "feature-sit-test-1483-sit",
+    "uat": "web-saas-uat"
+  },
+  "required_tests": [
+    "namespace_isolation",
+    "dns_tls",
+    "service_health",
+    "integration"
+  ],
+  "schema": 2,
+  "sources": [
+    {
+      "image": "ghcr.io/ai-workspace-infra/caddy-cloudflare@sha256:808b37be394d1f9e34eedd7bc97809cb662b6a323f468a5c76b15bde1758a4ac",
+      "kind": "baseline",
+      "pr": null,
+      "repository": "ai-workspace-infra/artifacts",
+      "sha": "a7b791e2d80b203e31b9671885c9f07152f0a2fd"
+    },
+    {
+      "image": "ghcr.io/ai-workspace-services/console@sha256:c54324adb73e10a78e82b629519033b34bfe56eb5c4688ed4a0e8d0c3233c91d",
+      "kind": "baseline",
+      "pr": null,
+      "repository": "ai-workspace-services/portal",
+      "sha": "0ac90c55260ebef5f66ae5e02983cb060d56188b",
+      "website_content_repository": "haitaopanhq/knowledge",
+      "website_content_sha": "aec6fcd9e890f90f6fb48ce84bf9dcffbe3ef669"
+    },
+    {
+      "base_sha": "38c3a3c2e19b7d177e6cb5e019a49c1b35027e95",
+      "image": "ghcr.io/ai-workspace-services/accounts@sha256:cf8e14f91c42aa4741013876de7e1a36d5f5c7c65323dbf3db39f0cb58f22a12",
+      "kind": "feature",
+      "pr": 280,
+      "repository": "ai-workspace-services/accounts",
+      "sha": "0bf29d88b3e8fc3421ef52fc35b0e26df061899e"
+    },
+    {
+      "image": "ghcr.io/ai-workspace-services/billing-service@sha256:66a7e12274a42c929277b68fbee58ff5e4277b21e37d4f8e937ed38b9ac474e4",
+      "kind": "baseline",
+      "pr": null,
+      "repository": "ai-workspace-services/billing-service",
+      "sha": "86b0560e616fa85eb9abcef49c0ca52f6bb99a9b"
+    },
+    {
+      "image": "ghcr.io/ai-workspace-services/docs@sha256:f7e7388a3be9e6328f6a8008b11d364e014721f0605904c165fdb319a553053a",
+      "kind": "baseline",
+      "pr": null,
+      "repository": "ai-workspace-services/content-service",
+      "sha": "55b927b31766dbdeff955ef6b527ac394ed2471d"
+    },
+    {
+      "image": "ghcr.io/ai-workspace-services/postgresql@sha256:ede145ec082b698cecbeddc6c5ff9c1535aeafbc065c79a65ffedac3c5889ec7",
+      "kind": "baseline",
+      "pr": null,
+      "repository": "ai-workspace-services/postgresql",
+      "sha": "1ee4395274b2a1ba1983e8d08d293400d4af1cff"
+    }
+  ],
+  "target": "dev-k3s-v5",
+  "task_url": "https://github.com/ai-workspace-infra/Platform-Orchestrator/issues/1483"
+}
