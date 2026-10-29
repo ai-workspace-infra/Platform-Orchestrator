@@ -44,7 +44,7 @@ jobs:
       contents: read
       actions: read
       id-token: write
-    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@ad2cf2a32d5faacbc2a327809c9d91dc8412c910
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@4562a6e7804999ac482b0dc399c092d75690a283
     with:
       stage: sit
       mode: prepare
@@ -94,7 +94,7 @@ jobs:
   seed-admin:
     needs: prepare-evidence
     permissions: {contents: read, actions: read, id-token: write}
-    uses: ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@ad2cf2a32d5faacbc2a327809c9d91dc8412c910
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@4562a6e7804999ac482b0dc399c092d75690a283
     with:
       stage: sit
       phase: seed-admin
@@ -113,7 +113,7 @@ jobs:
   sit-submit:
     needs: seed-admin
     permissions: {contents: read, actions: read, id-token: write}
-    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@ad2cf2a32d5faacbc2a327809c9d91dc8412c910
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@4562a6e7804999ac482b0dc399c092d75690a283
     with:
       stage: sit
       mode: submit
