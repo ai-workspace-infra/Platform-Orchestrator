@@ -39,7 +39,7 @@ class FeatureDeployEntryTest(unittest.TestCase):
         final = yaml.safe_load((ROOT / '.github/workflows/feature-sit-finalize.yml').read_text())['jobs']
         self.assertIn('acceptance not run', execute['sit-prepare']['name'])
         self.assertEqual(execute['sit-prepare']['with']['mode'], 'prepare')
-        sha = '32bcb683d7bfb79e0c01587426252f3f0d8c76a2'
+        sha = 'ad2cf2a32d5faacbc2a327809c9d91dc8412c910'
         self.assertEqual(execute['sit-prepare']['uses'], 'ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@' + sha)
         self.assertEqual(execute['prepare-evidence']['needs'], 'sit-prepare')
         self.assertEqual(execute['seed-admin']['needs'], 'prepare-evidence')
@@ -57,6 +57,9 @@ class FeatureDeployEntryTest(unittest.TestCase):
         self.assertNotIn('id-token', workflow['permissions'])
         for job in ('identity-allowed', 'identity-denied-environment'):
             self.assertIn('workflow_dispatch', jobs[job]['if'])
+        self.assertIn('workflow_dispatch', jobs['seed-identity-probe']['if'])
+        self.assertEqual(jobs['seed-identity-probe']['with']['phase'], 'identity-probe')
+        self.assertEqual(jobs['seed-identity-probe']['uses'], 'ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@' + sha)
 
 if __name__ == '__main__':
     unittest.main()
