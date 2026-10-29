@@ -135,10 +135,19 @@ class GateTest(unittest.TestCase):
         auth['candidate_sha256']=gate.identity(c)
         with self.assertRaisesRegex(gate.Blocked,'DNS, TLS'):
             self.decide(values)
-        receipt['acceptance']={'dns':'PASS','tls':'PASS','service_health':'PASS','integration':'NOT_RUN'}
+        receipt['acceptance']={'dns':'PASS','tls':'PASS','service_health':'PASS','integration':'NOT_RUN','namespace_isolation':'PASS'}
         with self.assertRaisesRegex(gate.Blocked,'DNS, TLS'):
             self.decide(values)
         receipt['acceptance']['integration']='PASS'
+        with self.assertRaisesRegex(gate.Blocked,'namespace isolation evidence'):
+            self.decide(values)
+        receipt['isolation_evidence']={'namespace':c['namespaces']['sit'],'namespace_uid':'12345678-1234-1234-1234-123456789abc','same_lane':'PASS','cross_lane':'DENIED','network_policy_enforced':True}
+        for key,value in [('cross_lane','PASS'),('same_lane','NOT_RUN'),('network_policy_enforced',False),('namespace','other')]:
+            bad=dict(receipt['isolation_evidence']);bad[key]=value
+            original=receipt['isolation_evidence'];receipt['isolation_evidence']=bad
+            with self.subTest(key=key),self.assertRaisesRegex(gate.Blocked,'namespace isolation evidence'):
+                self.decide(values)
+            receipt['isolation_evidence']=original
         self.assertEqual(self.decide(values)['status'],'REHEARSAL')
 
     def decide(self, values, stage='merge'):

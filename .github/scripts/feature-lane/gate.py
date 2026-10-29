@@ -230,9 +230,17 @@ def _evaluate(c, policy, stage, prs, receipt=None, run=None, authorization=None,
         require(receipt.get('schema') == 1 and receipt.get('evidence_kind') == 'live', 'synthetic evidence cannot pass')
         if c['schema'] == 2:
             acceptance = receipt.get('acceptance')
-            require(isinstance(acceptance, dict) and set(acceptance) == {'dns', 'tls', 'service_health', 'integration'} and
+            require(isinstance(acceptance, dict) and set(acceptance) == {'dns', 'tls', 'service_health', 'integration', 'namespace_isolation'} and
                     all(value == 'PASS' for value in acceptance.values()),
-                    'tagged SIT requires DNS, TLS, service health and integration acceptance')
+                    'tagged SIT requires DNS, TLS, service health, integration and namespace isolation acceptance')
+            isolation = receipt.get('isolation_evidence')
+            require(isinstance(isolation, dict) and set(isolation) == {'namespace', 'namespace_uid', 'same_lane', 'cross_lane', 'network_policy_enforced'} and
+                    isolation['namespace'] == c['namespaces']['sit'] and
+                    isinstance(isolation['namespace_uid'], str) and
+                    re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', isolation['namespace_uid']) and
+                    isolation['same_lane'] == 'PASS' and isolation['cross_lane'] == 'DENIED' and
+                    isolation['network_policy_enforced'] is True,
+                    'live namespace isolation evidence required')
         require(type(receipt.get('run_id')) is int and type(receipt.get('run_attempt')) is int and
                 receipt['run_id'] == run['id'] and receipt['run_attempt'] == run['attempt'], 'receipt/run mismatch')
         require(receipt.get('candidate_sha256') == fingerprint and receipt.get('stage') == 'sit', 'stale SIT candidate')
