@@ -40,16 +40,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: fbb3100f40ee40d2ac276bffc7b3b6c1a7440b20
+          ref: a87fd9feda5fd41c5295588b1a8c57bdb15f3442
           path: contract/iac_modules
 
       - name: Checkout immutable Playbooks owner
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/playbooks
-          # Includes the V5 owner action under review in Playbooks PR #764.
-          # This is a CI contract snapshot, not a production execution pin.
-          ref: f8fefbf73c3e2c6bff27d50ac242251c04e22a75
+          # Merged owner includes the separate V6 paused bootstrap contract.
+          ref: 71d253091621ff64e6526f5db011cb01287e2a50
           path: contract/playbooks
 
       - name: Checkout immutable GitOps declarations

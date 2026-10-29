@@ -1,0 +1,26 @@
+{
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": [
+    "vault"
+  ],
+  "bound_claims_type": "glob",
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": 1200,
+  "token_max_ttl": 1200,
+  "token_explicit_max_ttl": 1200,
+  "bound_claims": {
+    "repository": "ai-workspace-infra/Platform-Orchestrator",
+    "environment": "prod",
+    "ref": [
+      "refs/tags/v6.*"
+    ],
+    "workflow_ref": "ai-workspace-infra/Platform-Orchestrator/.github/workflows/iac-orchestrator.yml@refs/tags/v6.*",
+    "job_workflow_ref": "ai-workspace-infra/Platform-Orchestrator/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/tags/v6.*",
+    "ref_protected": "true"
+  },
+  "token_policies": [
+    "github-actions-platform-ops-toolkit-prod-k3s-v6-iac"
+  ]
+}
