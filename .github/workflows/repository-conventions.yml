@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: f7737928a845faed0b80adf0a6821f37ddae6c13
+          ref: adf9c140cd2c120361012917cddcde1e58876c6c
           path: contract/iac_modules
 
       - name: Checkout immutable Playbooks owner
@@ -48,7 +48,7 @@ jobs:
         with:
           repository: ai-workspace-infra/playbooks
           # Merged owner includes the separate V6 paused bootstrap contract.
-          ref: ed8747328f746b26234292c6c764d152a1a073d0
+          ref: 5c0948ce9f6e451a179952d156705034ce1c5a6b
           path: contract/playbooks
 
       - name: Checkout immutable GitOps declarations
@@ -57,6 +57,13 @@ jobs:
           repository: ai-workspace-infra/gitops
           ref: 4e052f34675a218df0179677088266c6e7f57f6c
           path: contract/gitops
+
+      - name: Verify V6 common and cluster owner phases
+        run: |
+          python3 -m pip install PyYAML==6.0.2
+          python3 scripts/tests/control_plane/prod_k3s_v6_test.py
+        env:
+          V6_PLAYBOOKS_CONTRACT_ROOT: contract/playbooks
 
       - name: Verify unified IaC delivery and evidence contracts
         run: |

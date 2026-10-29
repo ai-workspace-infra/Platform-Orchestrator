@@ -13,7 +13,7 @@ Source: `.github/workflows/selfhost-orchestrator.yml`. V6 uses a separate cold-b
 | `target_domain_base` | string | true | `onwalk.net` | Ignored by V6; ineffective control |
 | `observability_endpoint` | string | false | `https://observability.svc.plus` | Ignored by V6; ineffective control |
 | `xray_exporter_image` | string | false | `` | Must be blank; unused by V6 |
-| `operation` | choice | true | `plan` | plan / infra / deploy; deploy creates resources and paused cluster |
+| `operation` | choice | true | `plan` | plan / infra+common / deploy+common+paused cluster |
 | `target_domains` | choice | true | `web-saas` | web-saas |
 | `open_platform_service` | choice | true | `none` | none |
 | `cloud_provider` | choice | true | `gcp-cloud` | akamai-cloud |
@@ -34,7 +34,7 @@ Source: `.github/workflows/selfhost-orchestrator.yml`. V6 uses a separate cold-b
 
 Dispatch V6 only at a reviewed root release tag. The GitOps tag must contain all six initially self-pinned sources, six Flux Kustomizations and seven HelmReleases, suspended. Each later unit may use its own independent ref and chart pin.
 
-`plan` runs IaC plan; `infra` applies isolated resources; `deploy` applies resources and verifies paused bootstrap. No migratectl, SQL schema upgrade, restore, DNS or writer handoff runs in this path. Source host, source/target domain bases, telemetry override, agent plan and XConnect inputs are ignored, not effective V6 configuration.
+`plan` runs IaC plan; `infra` applies isolated resources and runs common identity checks; `deploy` applies resources and verifies paused bootstrap. No migratectl, SQL schema upgrade, restore, DNS or writer handoff runs in this path. Source host, source/target domain bases, telemetry override, agent plan and XConnect inputs are ignored, not effective V6 configuration.
 
 IaC owns resources, protected volume CMDB and provider SSH identity attestation. Playbooks owns empty-disk preparation, K3s/Flux and observed paused-state verification. This control plane selects fixed SHAs, dispatches owners and checks evidence.
 
@@ -72,3 +72,5 @@ K3s roles. Runtime/static hostname, cloud-init persistence and local resolution
 must match the canonical IaC node name. Existing K3s node/PV affinity and active
 Flux checks fail before hostname changes. `COMMON_NODE_VERIFIED` is mandatory
 in the final receipt; a business FQDN must remain an alias, never the node name.
+
+Both V6 apply paths automatically run common: infra selects phase=common with disk initialization disabled; deploy selects phase=cluster and continues storage/K3s only after common succeeds. Plan does not execute host roles.

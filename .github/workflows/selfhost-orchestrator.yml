@@ -72,7 +72,7 @@ on:
         default: ""
         type: string
       operation:
-        description: "plan=校验；infra=基础设施；deploy=应用（V6 为新资源与暂停式集群引导）；deploy+init=UAT空库初始化+应用；deploy+migrate=应用+迁移；migrate=仅迁移；destroy=销毁"
+        description: "plan=校验；infra=基础设施（V6 自动 common 检查）；deploy=应用（V6 为新资源与暂停式集群引导）；deploy+init=UAT空库初始化+应用；deploy+migrate=应用+迁移；migrate=仅迁移；destroy=销毁"
         required: true
         default: "plan"
         type: choice
@@ -474,7 +474,7 @@ jobs:
 
   v6-bootstrap:
     name: '[V6 3/4] Common checks and paused cluster bootstrap'
-    if: ${{ inputs.operation == 'deploy' }}
+    if: ${{ inputs.operation != 'plan' }}
     needs: [v6-resolve, v6-iac]
     environment: prod
     runs-on: ubuntu-latest
@@ -555,16 +555,17 @@ jobs:
         env:
           SSH_PRIVATE_KEY: ${{ steps.vault.outputs.SSH_PRIVATE_KEY }}
         with:
+          phase: ${{ inputs.operation == 'infra' && 'common' || 'cluster' }}
           cmdb: ${{ runner.temp }}/v6-cmdb/cmdb.json
           cmdb-sha256: ${{ steps.checksum.outputs.sha256 }}
           gitops: ${{ github.workspace }}/gitops
           gitops-sha: ${{ needs.v6-resolve.outputs.gitops_sha }}
           known-hosts: ${{ steps.identity.outputs.known-hosts }}
-          receipt: ${{ runner.temp }}/v6-paused-bootstrap.json
+          receipt: ${{ runner.temp }}/v6-bootstrap-receipt.json
       - uses: actions/upload-artifact@v4
         with:
-          name: prod-k3s-v6-paused-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/v6-paused-bootstrap.json
+          name: prod-k3s-v6-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/v6-bootstrap-receipt.json
           if-no-files-found: error
 
   v6-summary:
