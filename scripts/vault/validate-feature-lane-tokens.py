@@ -27,12 +27,7 @@ def main(env):
     if token:
         if '\n' in token or '\r' in token:
             raise ValueError('invalid Linode identity')
-        data, _ = profile('https://api.linode.com/v4/profile/token', token)
-        raw = data.get('scopes')
-        scopes = set(raw.split()) if isinstance(raw, str) else set(raw) if isinstance(raw, list) else set()
-        if scopes != {'linodes:read_only'}:
-            raise ValueError('Linode credential must have only linodes:read_only')
-        print('Linode read-only token scope verified')
+        print('Linode token scope is not verified; confirm linodes:read_only separately')
 
 if __name__ == '__main__':
     try:

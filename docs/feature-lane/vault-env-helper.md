@@ -8,7 +8,7 @@ Run `scripts/vault/update-feature-lane-vault.sh` locally after authenticating th
 | `LINODES_TOKEN` | Linode token with exactly `linodes:read_only`; written to the dedicated target path. |
 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_DNS_TOKEN` | Optional pair for the dedicated DNS path. The operator must separately confirm the token is restricted to the `onwalk.net` zone and required DNS permissions. |
 
-Provide both variables in each pair or neither. A hyphen is not valid in a shell variable name; use the names in the table. Existing KV paths are patched; a new path is created with CAS zero so it cannot overwrite an existing entry. The script validates the GitHub and Linode token scope before any writes. It does not verify the Cloudflare token's scope, GitHub package visibility, workload OIDC access, or a deployed service.
+Provide both variables in each pair or neither. A hyphen is not valid in a shell variable name; use the names in the table. Existing KV paths are patched; a new path is created with CAS zero so it cannot overwrite an existing entry. The script validates the GitHub token scope before any writes. It does not independently verify Linode or Cloudflare token scope, GitHub package visibility, workload OIDC access, or a deployed service; verify the Linode and Cloudflare scopes separately before enabling their use.
 
 Avoid entering a literal token in a command line. In an interactive shell, use a silent read before exporting, for example:
 

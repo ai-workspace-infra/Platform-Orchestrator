@@ -23,8 +23,8 @@ if [[ -n "${CLOUDFLARE_ACCOUNT_ID:-}" && ! "${CLOUDFLARE_ACCOUNT_ID}" =~ ^[0-9a-
   printf 'CLOUDFLARE_ACCOUNT_ID must be 32 hexadecimal characters.\n' >&2; exit 1
 fi
 
-# Validate the GHCR identity before any write. The Linode token is independently
-# verified for its exact read-only scope by the validator.
+# Validate the GHCR identity before any write. Linode token scope is not
+# introspectable with this input and requires independent operator verification.
 python3 "$(dirname "$0")/validate-feature-lane-tokens.py"
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/feature-lane-vault.XXXXXX")"

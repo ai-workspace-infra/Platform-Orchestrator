@@ -22,8 +22,9 @@ class ValidatorTest(unittest.TestCase):
         for scopes in ('read:packages, repo', ''):
             with self.subTest(scopes=scopes), patch.object(validator, 'profile', return_value=({'login':'example'}, {'X-OAuth-Scopes':scopes})), self.assertRaises(ValueError):
                 validator.main({'GHCR_USERNAME':'example','GHCR_TOKEN':'synthetic'})
-        with patch.object(validator, 'profile', return_value=({'scopes':'*'}, {})), self.assertRaises(ValueError):
+        with patch.object(validator, 'profile') as request:
             validator.main({'LINODES_TOKEN':'synthetic'})
+            request.assert_not_called()
 
 class HelperTest(unittest.TestCase):
     def test_existing_paths_use_patch_and_preserve_other_fields(self):
