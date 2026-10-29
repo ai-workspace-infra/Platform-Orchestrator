@@ -36,7 +36,7 @@ class FeatureDeployEntryTest(unittest.TestCase):
         self.assertEqual(jobs['sit-prepare']['needs'], ['verified-candidate', 'publish-dns'])
         self.assertIn('acceptance not run', jobs['sit-prepare']['name'])
         self.assertEqual(jobs['sit-prepare']['with']['mode'], 'prepare')
-        self.assertEqual(jobs['sit-prepare']['uses'], 'ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@92cfa9c3bde6b70ae4a70f435a3cee0d2b8e976e')
+        self.assertEqual(jobs['sit-prepare']['uses'], 'ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@7f57ff7e52beeece5931b1b4122efacbac6de8a1')
         self.assertNotIn('id-token', workflow['permissions'])
         for job in ('identity-allowed', 'identity-denied-environment'):
             self.assertIn('workflow_dispatch', jobs[job]['if'])
