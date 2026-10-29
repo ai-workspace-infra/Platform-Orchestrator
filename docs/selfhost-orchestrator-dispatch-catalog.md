@@ -60,3 +60,8 @@ Host bootstrap stopped before SSH because console binary frames were coerced to
 object strings. Retain that candidate and disk. The caller must pin the reviewed
 IaC decoding fix before retrying, and a fresh plan must show no resource changes.
 No console trust or fingerprint comparison may be bypassed to resume.
+
+Canonical cloud-init HOST KEY KEYS frames and fixed read-only provider scrollback
+controls are supported by the reviewed IaC owner. A complete Ed25519 wire key and
+matching full fingerprint remain mandatory; unframed, truncated or conflicting
+keys are rejected. No guest command or credential is sent through the console.
