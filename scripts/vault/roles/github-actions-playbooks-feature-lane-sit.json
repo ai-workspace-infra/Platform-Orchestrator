@@ -21,7 +21,8 @@
       "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@e18f112536ce293532dee7b6f7ce0df21b1d7b8f",
       "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@3ceec2cc15f76f8a65e38b6779b416eb68d29de1",
       "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@87b657dbe68c8d3ee16882e6c3138d59e674d3a6",
-      "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@805a3bfcf275f2e765f68ff7ee50451c7b3e1d22"
+      "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@805a3bfcf275f2e765f68ff7ee50451c7b3e1d22",
+      "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@2fac4eecf663fa36ee26a332bd7b1a718dd5ecb3"
     ],
     "ref": "refs/heads/main",
     "environment": "dev"
