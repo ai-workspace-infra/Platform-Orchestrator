@@ -1,0 +1,44 @@
+{
+  "builds": {
+    "ai-workspace-infra/artifacts": {
+      "artifact_id": 12837520881,
+      "attempt": 1,
+      "run_id": 40735877105
+    },
+    "ai-workspace-services/accounts": {
+      "artifact_id": 12825497078,
+      "attempt": 1,
+      "run_id": 40709054881
+    },
+    "ai-workspace-services/billing-service": {
+      "artifact_id": 12835035241,
+      "attempt": 1,
+      "run_id": 40729119885
+    },
+    "ai-workspace-services/content-service": {
+      "artifact_id": 12834890688,
+      "attempt": 1,
+      "run_id": 40729117926
+    },
+    "ai-workspace-services/portal": {
+      "artifact_id": 12835300521,
+      "attempt": 1,
+      "run_id": 40729512228
+    },
+    "ai-workspace-services/postgresql": {
+      "artifact_id": 12834816241,
+      "attempt": 1,
+      "run_id": 40729379084
+    }
+  },
+  "chart": {
+    "artifact_id": 12814416107,
+    "attempt": 1,
+    "run_id": 40683998108
+  },
+  "data_baseline": {
+    "artifact_id": 12872564898,
+    "attempt": 1,
+    "run_id": 40818670974
+  }
+}
