@@ -43,6 +43,7 @@ class MainEventTest(unittest.TestCase):
         self.trusted.reader.api.side_effect = api
         self.trusted.policy_at.return_value = {'gitops_repository': 'ai-workspace-infra/gitops',
             'website_content_canonical_repository': 'ai-workspace-services/knowledge',
+            'data_baseline_owner': {'repository': 'ai-workspace-infra/gitops'},
             'task_repositories': ['ai-workspace-infra/Platform-Orchestrator']}
         self.trusted.verify_feature_tag.return_value = {'repository': self.env['GITHUB_REPOSITORY'], 'target_sha': 'b' * 40}
 

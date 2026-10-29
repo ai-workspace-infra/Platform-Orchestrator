@@ -49,11 +49,15 @@ def build_receipt(candidate, selectors, env, gate):
         set(projection['components']) != {'caddy', 'postgresql', 'console', 'accounts', 'billing', 'content'} or
         projection['components'] != result.get('verified_runtime_components') or
         projection['chart_digest'] != result.get('verified_chart_digest') or
+        not isinstance(result.get('verified_data_baseline'), dict) or
+        result['verified_data_baseline'].get('sha256') != candidate.get('data_baseline_sha256') or
+        not gate.sha(candidate.get('data_baseline_sha256'), 64) or
         projection['knowledge'] != {key: result.get('verified_website_content', {}).get(key) for key in ('repository', 'sha')}):
         raise ValueError('incomplete or inconsistent deployment projection')
     return {'schema_version': 'dev-feature-candidate/v2', 'result': 'verified',
             'repository': 'ai-workspace-infra/gitops', 'stage': 'sit',
             'candidate_head': candidate['gitops']['sha'], 'candidate_sha256': result['candidate_sha256'],
+            'data_baseline_sha256': candidate['data_baseline_sha256'],
             'source': {'repository': repo, 'workflow_ref': ref, 'workflow_sha': sha,
                        'run_id': run, 'run_attempt': attempt}, 'projection': projection}
 

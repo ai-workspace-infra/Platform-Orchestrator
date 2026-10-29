@@ -22,6 +22,31 @@ F=load('gate_fixture',ROOT/'scripts/tests/control_plane/feature_lane_gate_test.p
 
 
 class TrustedTest(unittest.TestCase):
+    def test_data_baseline_requires_reviewed_owner_and_matching_evidence(self):
+        inputs={'schema':'sit-data-input/v1','accounts_sha':'a'*40,'billing_sha':'b'*40,
+                'accounts_image':'registry/accounts@sha256:'+'c'*64,'accounts_manifest_sha256':'d'*64,
+                'accounts_native_sha256':'e'*64,'billing_schema_sha256':'f'*64,'image_manifest_sha256':'1'*64,
+                'migration_version':1,'business_table_count':2}
+        digest=hashlib.sha256(json.dumps(inputs,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+        c={'feature_id':'sit-1483','namespaces':{'sit':'feature-sit-1483-sit'},'data_baseline_sha256':digest,
+           'sources':[{'repository':'ai-workspace-services/accounts','sha':'a'*40,'image':inputs['accounts_image']},
+                      {'repository':'ai-workspace-services/billing-service','sha':'b'*40}]}
+        owner={'repository':'example/owner','workflow':'baseline.yml','event':'workflow_dispatch','filename':'baseline.json','artifact_prefix':'baseline','sha':'b'*40}
+        selector={'run_id':1,'attempt':1,'artifact_id':2}
+        proof={'schema':'sit-data-baseline/v1','result':'verified','feature_id':c['feature_id'],'namespace':c['namespaces']['sit'],'data_baseline_sha256':digest,'inputs':inputs}
+        producer={'document_sha256':'c'*64,'id':1,'attempt':1,'artifact_id':2,'head_branch':'main'}
+        with patch.object(T,'artifact',return_value=(proof,producer)):
+            self.assertEqual(T.verify_data_baseline(c,{'data_baseline_owner':owner},selector)['sha256'],digest)
+            for key, value in [('result','not_run'),('feature_id','other'),('namespace','other'),('data_baseline_sha256','d'*64)]:
+                with self.subTest(key=key), patch.dict(proof,{key:value}):
+                    with self.assertRaises(T.gate.Blocked): T.verify_data_baseline(c,{'data_baseline_owner':owner},selector)
+            for key, value in [('accounts_sha','e'*40),('billing_sha','f'*40),('accounts_image','other'),('billing_schema_sha256','2'*64)]:
+                with self.subTest(key=key), patch.dict(inputs,{key:value}):
+                    with self.assertRaises(T.gate.Blocked): T.verify_data_baseline(c,{'data_baseline_owner':owner},selector)
+        with patch.object(T,'artifact',return_value=(proof,dict(producer,head_branch='other'))):
+            with self.assertRaises(T.gate.Blocked): T.verify_data_baseline(c,{'data_baseline_owner':owner},selector)
+        with self.assertRaises(T.gate.Blocked): T.verify_data_baseline(c,{},selector)
+
     def test_caddy_evidence_binds_original_build_run(self):
         source={'repository':'ai-workspace-infra/artifacts','sha':'a'*40}
         proof={'evidence_kind':'github-run-and-registry','producer_workflow':'.github/workflows/build-ci-image-caddy.yml','producer_run_id':123,'producer_attempt':1}
@@ -188,7 +213,7 @@ class TrustedTest(unittest.TestCase):
         self.c['feature_tag'] = 'smoke-' + self.c['feature_id']
         self.c['domains']['sit'] = self.c['feature_tag'] + '-sit.' + self.policy['domain_suffix']
         F.bind_fixture_components(self.c, self.policy)
-        self.selectors = {'builds': self.selectors['builds'], 'chart': {'run_id': 1, 'attempt': 1, 'artifact_id': 1}}
+        self.selectors = {'builds': self.selectors['builds'], 'chart': {'run_id': 1, 'attempt': 1, 'artifact_id': 1}, 'data_baseline': {'run_id': 2, 'attempt': 1, 'artifact_id': 2}}
         with self.assertRaisesRegex(T.gate.Blocked, 'tag not in reviewed policy'):
             self.decide('sit')
 
@@ -205,17 +230,19 @@ class TrustedTest(unittest.TestCase):
                                    environment='sit', build_mode='feature-sit', candidate_hostname=self.c['domains']['sit'])
         self.archive(102, 'manifest.json', json.dumps(self.documents[102]))
         F.bind_fixture_components(self.c, self.policy)
-        self.selectors = {'builds': self.selectors['builds'], 'chart': {'run_id': 1, 'attempt': 1, 'artifact_id': 1}}
+        self.selectors = {'builds': self.selectors['builds'], 'chart': {'run_id': 1, 'attempt': 1, 'artifact_id': 1}, 'data_baseline': {'run_id': 2, 'attempt': 1, 'artifact_id': 2}}
         with patch.object(T.reader, 'api', side_effect=self.api), \
              patch.object(T, 'verify_feature_tag') as tag_check, \
              patch.object(T, 'verify_gitops_domain') as gitops_check, \
              patch.object(T.chart, 'verify') as chart_check, \
+             patch.object(T, 'verify_data_baseline', return_value={'sha256': self.c['data_baseline_sha256']}) as baseline_check, \
              patch.object(T, 'verify_main_rehearsal_sources') as main_check, \
              patch.object(T, 'verified_content_identity', return_value={'repository':'example/content','sha':'e'*40,'repository_id':7}):
             result = T.verified(self.c, 'sit', 'f' * 40, self.selectors)
             self.assertEqual(result['status'], 'VERIFIED_GATE')
             self.assertEqual(result['verified_website_content'], {'repository':'example/content','sha':'e'*40,'repository_id':7})
             self.assertEqual(result['verified_chart_digest'], self.c['chart_digest'])
+            self.assertEqual(result['verified_data_baseline']['sha256'], self.c['data_baseline_sha256'])
             self.assertEqual(result['verified_runtime_components']['accounts'], {'source_repository':'example/accounts','source_sha':'a'*40,'image':self.c['sources'][0]['image'],'build_run_id':'11'})
             self.assertEqual(result['verified_projection'], {'tagged_lane':{'feature_id':self.c['feature_id'],'feature_tag':self.c['feature_tag'],'candidate_sha256':T.gate.identity(self.c)},'chart_digest':self.c['chart_digest'],'knowledge':{'repository':'example/content','sha':'e'*40},'components':result['verified_runtime_components']})
             self.assertFalse(result['dispatch_authorized'])
