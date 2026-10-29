@@ -1,4 +1,4 @@
-name: Feature lane SIT preparation
+name: Feature lane SIT deployment and technical verification
 on:
   workflow_dispatch:
   workflow_run:
@@ -184,27 +184,21 @@ jobs:
       feature_tag: ${{ needs.verified-candidate.outputs.feature_tag }}
       service: ${{ matrix.service }}
       hostname: ${{ needs.verified-candidate.outputs[format('{0}_host', matrix.service)] }}
-  sit-prepare:
-    name: Prepare SIT namespace and registry (acceptance not run)
+  sit-execute:
     needs: [verified-candidate, publish-dns]
-    permissions:
-      contents: read
-      actions: read
-      id-token: write
-    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@7f57ff7e52beeece5931b1b4122efacbac6de8a1
+    permissions: {contents: read, actions: read, id-token: write}
+    uses: ./.github/workflows/feature-sit-execute.yml
     with:
-      stage: sit
-      mode: prepare
-      candidate_artifact: ${{ needs.verified-candidate.outputs.artifact }}
-      candidate_sha256: ${{ needs.verified-candidate.outputs.sha256 }}
+      artifact: ${{ needs.verified-candidate.outputs.artifact }}
+      sha256: ${{ needs.verified-candidate.outputs.sha256 }}
       cmdb_artifact: ${{ needs.verified-candidate.outputs.cmdb_artifact }}
       cmdb_sha256: ${{ needs.verified-candidate.outputs.cmdb_sha256 }}
-      target_artifact: feature-sit-target-${{ github.run_id }}-${{ github.run_attempt }}
       instance_id: ${{ needs.verified-candidate.outputs.instance_id }}
       gitops_sha: ${{ needs.verified-candidate.outputs.gitops_sha }}
       platform_sha: ${{ needs.verified-candidate.outputs.platform_sha }}
       node_uid: ${{ needs.verified-candidate.outputs.node_uid }}
       cluster_uid: ${{ needs.verified-candidate.outputs.cluster_uid }}
+      candidate_sha256: ${{ needs.verified-candidate.outputs.candidate_sha256 }}
   identity-allowed:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest

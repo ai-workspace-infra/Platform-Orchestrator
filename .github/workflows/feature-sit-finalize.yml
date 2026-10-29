@@ -1,0 +1,142 @@
+name: Feature SIT initialize and verify
+on:
+  workflow_call:
+    inputs:
+      artifact:
+        type: string
+        required: true
+      sha256:
+        type: string
+        required: true
+      cmdb_artifact:
+        type: string
+        required: true
+      cmdb_sha256:
+        type: string
+        required: true
+      instance_id:
+        type: string
+        required: true
+      gitops_sha:
+        type: string
+        required: true
+      platform_sha:
+        type: string
+        required: true
+      node_uid:
+        type: string
+        required: true
+      cluster_uid:
+        type: string
+        required: true
+      candidate_sha256:
+        type: string
+        required: true
+      namespace_uid:
+        type: string
+        required: true
+      prepare_sha256:
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+jobs:
+  seed-initialize:
+    
+    permissions: {contents: read, actions: read, id-token: write}
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@32bcb683d7bfb79e0c01587426252f3f0d8c76a2
+    with:
+      stage: sit
+      phase: initialize
+      candidate_artifact: ${{ inputs.artifact }}
+      candidate_sha256: ${{ inputs.sha256 }}
+      cmdb_artifact: ${{ inputs.cmdb_artifact }}
+      cmdb_sha256: ${{ inputs.cmdb_sha256 }}
+      instance_id: ${{ inputs.instance_id }}
+      gitops_sha: ${{ inputs.gitops_sha }}
+      platform_sha: ${{ inputs.platform_sha }}
+      node_uid: ${{ inputs.node_uid }}
+      cluster_uid: ${{ inputs.cluster_uid }}
+      namespace_uid: ${{ inputs.namespace_uid }}
+      prepare_artifact: dev-feature-sit-prepare-${{ github.run_id }}-${{ github.run_attempt }}
+      prepare_sha256: ${{ inputs.prepare_sha256 }}
+  seed-evidence:
+    needs: seed-initialize
+    runs-on: ubuntu-latest
+    permissions: {contents: read, actions: read}
+    outputs:
+      sha256: ${{ steps.proof.outputs.sha256 }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dev-lane-seed-sit-initialize-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/seed-evidence
+      - name: Bind seed evidence to the verified candidate
+        id: proof
+        env:
+          FILE: ${{ runner.temp }}/seed-evidence/receipt.json
+          CANDIDATE_SHA256: ${{ inputs.candidate_sha256 }}
+          NAMESPACE_UID: ${{ inputs.namespace_uid }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os
+          raw=open(os.environ['FILE'],'rb').read(); obj=json.loads(raw)
+          if (obj.get('result')!='verified' or obj.get('schema_initialized') is not True or
+              obj.get('candidate_sha256')!=os.environ['CANDIDATE_SHA256'] or
+              obj.get('namespace_uid')!=os.environ['NAMESPACE_UID'] or
+              str(obj.get('run_id'))!=os.environ['GITHUB_RUN_ID'] or
+              str(obj.get('run_attempt'))!=os.environ['GITHUB_RUN_ATTEMPT']):
+              raise SystemExit('invalid seed receipt')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as out:
+              out.write('sha256='+hashlib.sha256(raw).hexdigest()+'\n')
+          PY
+  sit-verify:
+    needs: seed-evidence
+    permissions: {contents: read, actions: read, id-token: write}
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@32bcb683d7bfb79e0c01587426252f3f0d8c76a2
+    with:
+      stage: sit
+      mode: verify
+      candidate_artifact: ${{ inputs.artifact }}
+      candidate_sha256: ${{ inputs.sha256 }}
+      cmdb_artifact: ${{ inputs.cmdb_artifact }}
+      cmdb_sha256: ${{ inputs.cmdb_sha256 }}
+      target_artifact: feature-sit-target-${{ github.run_id }}-${{ github.run_attempt }}
+      instance_id: ${{ inputs.instance_id }}
+      gitops_sha: ${{ inputs.gitops_sha }}
+      platform_sha: ${{ inputs.platform_sha }}
+      node_uid: ${{ inputs.node_uid }}
+      cluster_uid: ${{ inputs.cluster_uid }}
+      prepare_artifact: dev-feature-sit-prepare-${{ github.run_id }}-${{ github.run_attempt }}
+      prepare_sha256: ${{ inputs.prepare_sha256 }}
+      seed_artifact: dev-lane-seed-sit-initialize-${{ github.run_id }}-${{ github.run_attempt }}
+      seed_sha256: ${{ needs.seed-evidence.outputs.sha256 }}
+  evidence-summary:
+    needs: sit-verify
+    runs-on: ubuntu-latest
+    permissions: {contents: read, actions: read}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dev-feature-sit-verify-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sit-verification
+      - name: Report technical verification and outstanding acceptance
+        env:
+          FILE: ${{ runner.temp }}/sit-verification/receipt.json
+          CANDIDATE_SHA256: ${{ inputs.candidate_sha256 }}
+          NAMESPACE_UID: ${{ inputs.namespace_uid }}
+        run: |
+          python3 - <<'PY'
+          import json,os
+          obj=json.load(open(os.environ['FILE']))
+          if (obj.get('result')!='runtime_verified' or obj.get('namespace_uid')!=os.environ['NAMESPACE_UID'] or
+              obj.get('candidate_sha256')!=os.environ['CANDIDATE_SHA256'] or
+              obj.get('business_acceptance')!='NOT_RUN' or
+              str(obj.get('run_id'))!=os.environ['GITHUB_RUN_ID'] or
+              str(obj.get('run_attempt'))!=os.environ['GITHUB_RUN_ATTEMPT']):
+              raise SystemExit('invalid technical verification receipt')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+              out.write('SIT technical verification passed. Business acceptance: NOT_RUN.\n')
+          PY
