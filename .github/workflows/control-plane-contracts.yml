@@ -113,6 +113,8 @@ jobs:
         run: python3 scripts/tests/control_plane/feature_dns_inputs_test.py
       - name: Verify Feature ingress preflight
         run: python3 scripts/tests/control_plane/feature_edge_preflight_test.py
+      - name: Verify complete Feature DNS evidence
+        run: python3 scripts/tests/control_plane/feature_dns_evidence_test.py
       - name: Verify same-run Feature deployment receipt contract
         run: python3 scripts/tests/control_plane/feature_lane_deploy_receipt_test.py
 

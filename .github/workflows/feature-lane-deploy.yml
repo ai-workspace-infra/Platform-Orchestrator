@@ -197,6 +197,45 @@ jobs:
       feature_tag: ${{ needs.verified-candidate.outputs.feature_tag }}
       service: ${{ matrix.service }}
       hostname: ${{ needs.verified-candidate.outputs[format('{0}_host', matrix.service)] }}
+  dns-evidence:
+    needs: [verified-candidate, publish-dns]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: feature-sit-dns-console-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/feature-dns/console
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: feature-sit-dns-accounts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/feature-dns/accounts
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: feature-sit-dns-billing-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/feature-dns/billing
+      - name: Validate complete candidate-bound DNS evidence
+        env:
+          DNS_EVIDENCE_ROOT: ${{ runner.temp }}/feature-dns
+          FEATURE_ID: ${{ needs.verified-candidate.outputs.feature_id }}
+          FEATURE_TAG: ${{ needs.verified-candidate.outputs.feature_tag }}
+          CANDIDATE_SHA256: ${{ needs.verified-candidate.outputs.candidate_sha256 }}
+          CMDB_SHA256: ${{ needs.verified-candidate.outputs.cmdb_sha256 }}
+          INSTANCE_ID: ${{ needs.verified-candidate.outputs.instance_id }}
+          CONSOLE_HOST: ${{ needs.verified-candidate.outputs.console_host }}
+          ACCOUNTS_HOST: ${{ needs.verified-candidate.outputs.accounts_host }}
+          BILLING_HOST: ${{ needs.verified-candidate.outputs.billing_host }}
+        run: python3 .github/scripts/feature-lane/dns-evidence.py > "$RUNNER_TEMP/feature-dns-evidence.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: feature-dns-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/feature-dns-evidence.json
+          if-no-files-found: error
+          retention-days: 30
   identity-allowed:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
