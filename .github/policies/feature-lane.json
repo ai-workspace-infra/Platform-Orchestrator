@@ -84,6 +84,14 @@
       "repository": "ai-workspace-services/accounts",
       "sha": "38c3a3c2e19b7d177e6cb5e019a49c1b35027e95",
       "workflow": ".github/workflows/accounts-pr-image-evidence.yml"
+    },
+    "ai-workspace-services/billing-service": {
+      "artifact_prefix": "billing-pr-image-evidence",
+      "event": "workflow_dispatch",
+      "filename": "billing-pr-image-evidence.json",
+      "repository": "ai-workspace-services/billing-service",
+      "sha": "4d34c7f36a1d71f29ca31389b250d821b36857ce",
+      "workflow": ".github/workflows/billing-pr-image-evidence.yml"
     }
   },
   "feature_sit_frontend_repository": "ai-workspace-services/portal",
