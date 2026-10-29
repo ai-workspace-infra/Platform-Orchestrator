@@ -39,7 +39,7 @@ class FeatureDeployEntryTest(unittest.TestCase):
         final = yaml.safe_load((ROOT / '.github/workflows/feature-sit-finalize.yml').read_text())['jobs']
         self.assertIn('acceptance not run', execute['sit-prepare']['name'])
         self.assertEqual(execute['sit-prepare']['with']['mode'], 'prepare')
-        sha = '87b657dbe68c8d3ee16882e6c3138d59e674d3a6'
+        sha = '805a3bfcf275f2e765f68ff7ee50451c7b3e1d22'
         self.assertEqual(execute['sit-prepare']['uses'], 'ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@' + sha)
         self.assertEqual(execute['prepare-evidence']['needs'], 'sit-prepare')
         self.assertEqual(execute['seed-admin']['needs'], 'prepare-evidence')
