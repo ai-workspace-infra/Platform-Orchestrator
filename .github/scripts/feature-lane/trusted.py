@@ -291,6 +291,25 @@ def build_run_identity(proof, evidence_run, source):
     return build_id
 
 
+def verify_pr_build_producer(proof, source):
+    """Recheck the original producer, independent of the evidence workflow."""
+    build_id, attempt = proof.get('producer_run_id'), proof.get('producer_attempt')
+    gate.require(proof.get('evidence_kind') == 'github-pr-run-and-registry' and
+                 proof.get('pr') == source.get('pr') and proof.get('base_sha') == source.get('base_sha') and
+                 proof.get('producer_workflow') == '.github/workflows/ci-pipeline.yml' and
+                 type(build_id) is int and build_id > 0 and type(attempt) is int and attempt > 0,
+                 'PR image producer identity differs from candidate')
+    run = reader.api(f'repos/{source["repository"]}/actions/runs/{build_id}')
+    gate.require(run.get('id') == build_id and run.get('run_attempt') == attempt and
+                 run.get('head_sha') == source['sha'] and run.get('event') == 'workflow_dispatch' and
+                 run.get('path', '').split('@')[0] == proof['producer_workflow'] and
+                 run.get('status') == 'completed' and run.get('conclusion') == 'success' and
+                 run.get('repository', {}).get('full_name') == source['repository'] and
+                 run.get('head_repository', {}).get('full_name') == source['repository'],
+                 'PR original build run differs')
+    return build_id
+
+
 def authorization(policy, fingerprint, stage, task, selectors):
     auth = policy.get('authorization')
     gate.require(isinstance(auth, dict) and auth.get('kind') == 'issue_comment',
@@ -413,14 +432,26 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
         for source in candidate['sources']:
             if source['kind'] == 'feature':
                 prs[source['repository']] = pull(source, stage, candidate['task_url'])
-            owner = policy['build_owners'][source['repository']]
-            gate.require(owner['repository'] == source['repository'], 'foreign source build owner')
-            proof, producer = artifact(locator(owner, evidence_selectors['builds'][source['repository']], source['sha']))
-            verify_build_manifest(proof, producer, source, strict_schema=candidate.get('schema') == 2)
+            if source.get('kind') == 'feature' and source['repository'] in policy.get('feature_build_owners', {}):
+                # Configured PR builds require their own reviewed Main-owned evidence
+                # workflow. Never reinterpret the Main build owner as PR proof.
+                owner = policy.get('feature_build_owners', {}).get(source['repository'])
+                gate.require(isinstance(owner, dict) and owner.get('repository') == source['repository'] and
+                             gate.sha(owner.get('sha')), 'reviewed PR build evidence owner required')
+                proof, producer = artifact(locator(owner, evidence_selectors['builds'][source['repository']], owner['sha']))
+                gate.require(producer.get('head_branch') == 'main', 'PR evidence owner must run on Main')
+                verify_build_manifest(proof, producer, source, strict_schema=candidate.get('schema') == 2)
+                build_id = verify_pr_build_producer(proof, source)
+            else:
+                owner = policy['build_owners'][source['repository']]
+                gate.require(owner['repository'] == source['repository'], 'foreign source build owner')
+                proof, producer = artifact(locator(owner, evidence_selectors['builds'][source['repository']], source['sha']))
+                verify_build_manifest(proof, producer, source, strict_schema=candidate.get('schema') == 2)
+                build_id = build_run_identity(proof, producer, source)
             verified_builds[source['repository']] = {'source_repository': source['repository'],
                                                        'source_sha': source['sha'],
                                                        'image': source['image'],
-                                                       'build_run_id': str(build_run_identity(proof, producer, source))}
+                                                       'build_run_id': str(build_id)}
             if candidate.get('schema') == 2 and source['repository'] == frontend_repo:
                 content_repo = source.get('website_content_repository')
                 content_sha = source.get('website_content_sha')

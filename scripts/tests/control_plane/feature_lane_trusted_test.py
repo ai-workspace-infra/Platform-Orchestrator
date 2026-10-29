@@ -47,6 +47,18 @@ class TrustedTest(unittest.TestCase):
             with self.assertRaises(T.gate.Blocked): T.verify_data_baseline(c,{'data_baseline_owner':owner},selector)
         with self.assertRaises(T.gate.Blocked): T.verify_data_baseline(c,{},selector)
 
+    def test_pr_image_producer_is_bound_to_candidate_and_original_run(self):
+        source={'repository':'ai-workspace-services/accounts','sha':'a'*40,'pr':280,'base_sha':'b'*40}
+        proof={'evidence_kind':'github-pr-run-and-registry','producer_workflow':'.github/workflows/ci-pipeline.yml','producer_run_id':123,'producer_attempt':1,'pr':280,'base_sha':'b'*40}
+        raw={'id':123,'run_attempt':1,'head_sha':'a'*40,'event':'workflow_dispatch','path':proof['producer_workflow'],'status':'completed','conclusion':'success','repository':{'full_name':source['repository']},'head_repository':{'full_name':source['repository']}}
+        with patch.object(T.reader,'api',return_value=raw):
+            self.assertEqual(T.verify_pr_build_producer(proof,source),123)
+            for key, value in [('pr',281),('base_sha','c'*40),('producer_attempt',2)]:
+                with self.subTest(key=key), patch.dict(proof,{key:value}), self.assertRaises(T.gate.Blocked):
+                    T.verify_pr_build_producer(proof,source)
+            raw['head_sha']='d'*40
+            with self.assertRaises(T.gate.Blocked): T.verify_pr_build_producer(proof,source)
+
     def test_caddy_evidence_binds_original_build_run(self):
         source={'repository':'ai-workspace-infra/artifacts','sha':'a'*40}
         proof={'evidence_kind':'github-run-and-registry','producer_workflow':'.github/workflows/build-ci-image-caddy.yml','producer_run_id':123,'producer_attempt':1}
