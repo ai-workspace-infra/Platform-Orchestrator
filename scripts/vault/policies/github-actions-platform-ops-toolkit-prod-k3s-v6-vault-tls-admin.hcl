@@ -3,7 +3,8 @@ path "sys/auth" {
   capabilities = ["read"]
 }
 path "sys/auth/jwt-prod-k3s-v6" {
-  capabilities = ["create", "update"]
+  # Vault requires sudo to enable an auth method; scope it to this dedicated mount only.
+  capabilities = ["create", "update", "sudo"]
 }
 path "sys/policies/acl/prod-k3s-v6-vault-tls-reader" {
   capabilities = ["read", "create", "update"]
