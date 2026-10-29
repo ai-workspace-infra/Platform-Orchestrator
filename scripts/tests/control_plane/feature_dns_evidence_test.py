@@ -15,6 +15,10 @@ class EvidenceTest(unittest.TestCase):
     (directory/'receipt.json').write_text(json.dumps(receipt))
    result=m.verify(root,'f','x-f','a'*64,'b'*64,'123',hosts)
    self.assertEqual(result['tls_acceptance'],'NOT_RUN');self.assertEqual(set(result['services']),set(hosts))
+   for service,field,value in [('accounts','hostname','other.onwalk.net'),('console','feature_id','other'),('billing','action','delete')]:
+    path=root/service/'receipt.json'; original=path.read_text(); changed=json.loads(original);changed[field]=value;path.write_text(json.dumps(changed))
+    with self.subTest(service=service,field=field),self.assertRaises(ValueError):m.verify(root,'f','x-f','a'*64,'b'*64,'123',hosts)
+    path.write_text(original)
    path=root/'billing'/'receipt.json';data=json.loads(path.read_text());data['candidate_sha256']='c'*64;path.write_text(json.dumps(data))
    with self.assertRaises(ValueError):m.verify(root,'f','x-f','a'*64,'b'*64,'123',hosts)
    path.unlink()
