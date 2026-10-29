@@ -102,7 +102,7 @@ def check_uses(where, uses, reusable=False, checkouts=None, roots=None, step=Non
     if not (isinstance(uses, str) and uses.startswith("./")):
         return
     relative = uses[2:]
-    sibling = re.fullmatch(r"(iac_modules|playbooks)/(\.github/actions/[\w-]+)", relative)
+    sibling = re.fullmatch(r"(iac_modules|playbooks)/(\.github/actions/[\w./-]+)", relative)
     if sibling and not reusable:
         repository, action = sibling.groups()
         checkout = (checkouts or {}).get((SIBLINGS[repository], repository))

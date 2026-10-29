@@ -8,6 +8,10 @@ provisioned by `../create_vault_service_repo_roles.sh`.
 - `policies/<policy-name>.hcl` contains the Vault KV capabilities.
 - `roles/<role-name>.json` contains one concrete JWT role, including its
   `description`, GitHub OIDC trust claims, token settings, and policy names.
+- `workload-identities/<role-name>.json` records a Kubernetes workload JWT
+  contract for a dedicated auth mount. These are configured by the reviewed
+  Playbooks identity owner and are not provisioned by the shared `auth/jwt`
+  role installer.
 - `roles/README.md` documents the per-role declaration contract.
 
 The parent script only validates and applies these files. It does not contain
@@ -104,6 +108,28 @@ VAULT_ADDR=https://vault.svc.plus bash scripts/create_vault_service_repo_roles.s
 ```
 
 The existing Console roles and policies are not changed.
+
+## V6 Vault TLS workload identity
+
+The V6 GitHub access and admin roles are regular protected-tag roles in the
+shared `auth/jwt` mount. After reviewing their declarations, install or check
+them one at a time with the existing targeted role entrypoint:
+
+```bash
+bash scripts/create_vault_service_repo_roles.sh --check \
+  --role github-actions-platform-ops-toolkit-prod-k3s-v6-vault-tls-access
+bash scripts/create_vault_service_repo_roles.sh --apply \
+  --role github-actions-platform-ops-toolkit-prod-k3s-v6-vault-tls-access
+bash scripts/create_vault_service_repo_roles.sh --check \
+  --role github-actions-platform-ops-toolkit-prod-k3s-v6-vault-tls-admin
+bash scripts/create_vault_service_repo_roles.sh --apply \
+  --role github-actions-platform-ops-toolkit-prod-k3s-v6-vault-tls-admin
+```
+
+The `prod-k3s-v6-vault-tls-reader` contract under `workload-identities/` is
+different: Playbooks creates it only on `jwt-prod-k3s-v6` after checking the
+target cluster and TokenRequest evidence. Never pass that reader to the shared
+role installer or create it under `auth/jwt`.
 
 ## General apply
 

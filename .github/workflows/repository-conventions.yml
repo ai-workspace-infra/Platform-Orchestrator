@@ -47,8 +47,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/playbooks
-          # Merged owner includes the separate V6 paused bootstrap contract.
-          ref: 5c0948ce9f6e451a179952d156705034ce1c5a6b
+          # Merged owner includes the generic workload identity action and V6 bootstrap contract.
+          ref: 6dadf5591f1edce4b1f5c5ca12af1c437e5e636e
           path: contract/playbooks
 
       - name: Checkout immutable GitOps declarations

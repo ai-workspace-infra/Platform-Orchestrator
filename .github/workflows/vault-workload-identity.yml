@@ -1,0 +1,205 @@
+name: Vault workload identity
+
+# Identity configuration and identity verification are separate operations.
+# Both require the released owner, reviewed immutable GitOps tag and trusted
+# bootstrap/IaC artifacts; this workflow does not release Flux or change DNS.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Configure the dedicated Vault identity or verify real workload access
+        type: choice
+        options: [configure, verify]
+        required: true
+      gitops_tag:
+        description: Reviewed immutable GitOps release tag containing an identity operation
+        type: string
+        required: true
+      operation_path:
+        description: Reviewed workload identity operation declaration path
+        type: string
+        required: true
+      environment:
+        description: GitHub environment matching the reviewed target
+        type: choice
+        options: [sit, uat, prod]
+        required: true
+      playbooks_sha:
+        description: Reviewed full Playbooks commit on main containing the identity owner
+        type: string
+        required: true
+
+permissions: {}
+concurrency:
+  group: workload-identity-${{ inputs.environment }}-${{ inputs.operation_path }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Reject unprotected refs and malformed inputs
+        shell: bash
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+          MODE: ${{ inputs.mode }}
+          OWNER_SHA: ${{ inputs.playbooks_sha }}
+          GITOPS_TAG: ${{ inputs.gitops_tag }}
+        run: |
+          set -euo pipefail
+          [[ "$REF_TYPE" == tag && "$REF_PROTECTED" == true && "$WORKFLOW_REF" == refs/tags/v* ]]
+          [[ "$MODE" == configure || "$MODE" == verify ]]
+          [[ "$OWNER_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITOPS_TAG" =~ ^v[0-9][A-Za-z0-9.+-]*$ ]]
+  identity:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.playbooks_sha }}
+          fetch-depth: 0
+          path: playbooks
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.gitops_tag }}
+          fetch-depth: 0
+          path: gitops
+          persist-credentials: false
+      - name: Validate reviewed owners and release
+        id: releases
+        shell: bash
+        env:
+          OWNER_SHA: ${{ inputs.playbooks_sha }}
+          GITOPS_TAG: ${{ inputs.gitops_tag }}
+        run: |
+          set -euo pipefail
+          [[ "$OWNER_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITOPS_TAG" =~ ^v[0-9][A-Za-z0-9.+-]*$ ]]
+          [[ "$(git -C playbooks rev-parse HEAD)" == "$OWNER_SHA" ]]
+          git -C playbooks merge-base --is-ancestor "$OWNER_SHA" refs/remotes/origin/main
+          GITOPS_SHA="$(git -C gitops rev-parse "refs/tags/$GITOPS_TAG^{commit}")"
+          [[ "$(git -C gitops rev-parse HEAD)" == "$GITOPS_SHA" ]]
+          git -C gitops merge-base --is-ancestor "$GITOPS_SHA" refs/remotes/origin/main
+          test -f playbooks/.github/actions/workload-identity-operation/action.yml
+          echo "gitops_sha=$GITOPS_SHA" >> "$GITHUB_OUTPUT"
+      - name: Verify declared operation and evidence
+        id: evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IDENTITY_GITOPS: ${{ github.workspace }}/gitops
+          IDENTITY_GITOPS_SHA: ${{ steps.releases.outputs.gitops_sha }}
+          IDENTITY_OPERATION: ${{ inputs.operation_path }}
+        run: |
+          python3 -m pip install PyYAML==6.0.2
+          python3 .github/scripts/platform-ops/identity/prepare_workload_identity.py
+      - name: Verify environment and provider
+        env:
+          DECLARED_ENVIRONMENT: ${{ steps.evidence.outputs.environment }}
+          REQUESTED_ENVIRONMENT: ${{ inputs.environment }}
+          DECLARED_PROVIDER: ${{ steps.evidence.outputs.provider }}
+        run: |
+          set -euo pipefail
+          [[ "$DECLARED_ENVIRONMENT" == "$REQUESTED_ENVIRONMENT" ]]
+          [[ "$DECLARED_PROVIDER" == akamai-cloud ]]
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ steps.evidence.outputs.iac_sha }}
+          path: iac_modules
+          persist-credentials: false
+      - uses: ./iac_modules/.github/actions/iac-receipt-verify
+        with:
+          summary-file: ${{ steps.evidence.outputs.directory }}/summary.json
+          receipt-sha256: ${{ steps.evidence.outputs.summary_sha256 }}
+          run-id: ${{ steps.evidence.outputs.iac_run_id }}
+          run-attempt: ${{ steps.evidence.outputs.iac_attempt }}
+          gitops-sha: ${{ steps.evidence.outputs.bootstrap_gitops_sha }}
+          iac-sha: ${{ steps.evidence.outputs.iac_sha }}
+          target-manifest: ${{ steps.evidence.outputs.iac_target_manifest }}
+          action: apply
+          correlation-id: ${{ steps.evidence.outputs.iac_correlation_id }}
+      - uses: ./iac_modules/.github/actions/iac-caller-inventory
+        with:
+          summary-file: ${{ steps.evidence.outputs.directory }}/summary.json
+          output-dir: ${{ runner.temp }}/workload-identity-cmdb
+      - name: Bind CMDB checksum
+        id: cmdb
+        env:
+          IDENTITY_CMDB: ${{ runner.temp }}/workload-identity-cmdb/cmdb.json
+        run: echo "sha256=$(sha256sum "$IDENTITY_CMDB" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Acquire host access identity
+        id: access
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ steps.evidence.outputs.vault_address }}
+          method: jwt
+          role: ${{ steps.evidence.outputs.access_role }}
+          jwtGithubAudience: vault
+          exportEnv: false
+          exportToken: false
+          secrets: |
+            ${{ steps.evidence.outputs.ssh_key_path }} ${{ steps.evidence.outputs.ssh_key_field }} | SSH_PRIVATE_KEY ;
+            ${{ steps.evidence.outputs.provider_token_path }} ${{ steps.evidence.outputs.provider_token_field }} | LINODE_TOKEN ;
+      - name: Verify current provider host key
+        id: identity
+        uses: ./iac_modules/.github/actions/akamai-candidate-hostkey
+        env:
+          LINODE_TOKEN: ${{ steps.access.outputs.LINODE_TOKEN }}
+        with:
+          cmdb-file: ${{ runner.temp }}/workload-identity-cmdb/cmdb.json
+          cmdb-sha256: ${{ steps.cmdb.outputs.sha256 }}
+          account: ${{ steps.evidence.outputs.account }}
+          node: ${{ steps.evidence.outputs.node }}
+          output-dir: ${{ runner.temp }}/workload-identity-hostkey
+      - name: Acquire restricted identity administrator
+        id: admin
+        if: ${{ inputs.mode == 'configure' }}
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ steps.evidence.outputs.vault_address }}
+          method: jwt
+          role: ${{ steps.evidence.outputs.admin_role }}
+          jwtGithubAudience: vault
+          exportEnv: false
+          exportToken: false
+          outputToken: true
+      - name: Execute the reviewed identity owner
+        uses: ./playbooks/.github/actions/workload-identity-operation
+        env:
+          SSH_PRIVATE_KEY: ${{ steps.access.outputs.SSH_PRIVATE_KEY }}
+          VAULT_ADDR: ${{ steps.evidence.outputs.vault_address }}
+          VAULT_TOKEN: ${{ steps.admin.outputs.vault_token }}
+        with:
+          mode: ${{ inputs.mode }}
+          operation-path: ${{ inputs.operation_path }}
+          cmdb: ${{ runner.temp }}/workload-identity-cmdb/cmdb.json
+          cmdb-sha256: ${{ steps.cmdb.outputs.sha256 }}
+          gitops: ${{ github.workspace }}/gitops
+          gitops-sha: ${{ steps.releases.outputs.gitops_sha }}
+          bootstrap-receipt: ${{ steps.evidence.outputs.directory }}/bootstrap.json
+          known-hosts: ${{ steps.identity.outputs.known-hosts }}
+          receipt: ${{ runner.temp }}/workload-identity-receipt.json
+      - name: Save redacted identity evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: workload-identity-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/workload-identity-receipt.json
+          if-no-files-found: error

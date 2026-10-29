@@ -1,0 +1,19 @@
+# Only the dedicated identity, never the shared Vault auth mount or secret data.
+path "sys/auth" {
+  capabilities = ["read"]
+}
+path "sys/auth/jwt-prod-k3s-v6" {
+  capabilities = ["create", "update"]
+}
+path "sys/policies/acl/prod-k3s-v6-vault-tls-reader" {
+  capabilities = ["read", "create", "update"]
+}
+path "auth/jwt-prod-k3s-v6/config" {
+  capabilities = ["create", "update"]
+}
+path "auth/jwt-prod-k3s-v6/role/prod-k3s-v6-vault-tls-reader" {
+  capabilities = ["create", "update"]
+}
+path "auth/token/lookup-self" {
+  capabilities = ["read"]
+}
