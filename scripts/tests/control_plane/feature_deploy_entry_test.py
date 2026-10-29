@@ -18,6 +18,11 @@ class FeatureDeployEntryTest(unittest.TestCase):
         self.assertIn('deploy-receipt.py', run)
         self.assertIn('sha256sum', run)
         self.assertTrue(any('upload-artifact@' in step.get('uses', '') for step in steps))
+        target = jobs['observe-target']
+        self.assertEqual(target['needs'], 'verified-candidate')
+        self.assertEqual(target['uses'], 'ai-workspace-infra/iac_modules/.github/workflows/feature-sit-target-observe.yml@61f79c73d1c415755989fa55c8a36a3b862b391d')
+        self.assertEqual(target['with']['candidate_sha256'], '${{ needs.verified-candidate.outputs.sha256 }}')
+        self.assertEqual(target['with']['cmdb_artifact'], '${{ needs.verified-candidate.outputs.cmdb_artifact }}')
         self.assertNotIn('id-token', workflow['permissions'])
         for job in ('identity-allowed', 'identity-denied-environment'):
             self.assertIn('workflow_dispatch', jobs[job]['if'])
