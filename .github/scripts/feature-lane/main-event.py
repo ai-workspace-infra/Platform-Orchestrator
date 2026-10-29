@@ -30,6 +30,10 @@ def installation_repositories(candidate, policy, binding):
     if not isinstance(canonical, str) or not re.fullmatch(r'ai-workspace-services/[A-Za-z0-9_.-]+', canonical):
         raise ValueError('reviewed canonical content repository required')
     repositories.add(canonical)
+    baseline_owner = policy.get('data_baseline_owner')
+    if not isinstance(baseline_owner, dict) or not isinstance(baseline_owner.get('repository'), str):
+        raise ValueError('reviewed data baseline owner required')
+    repositories.add(baseline_owner['repository'])
     result = {'ai-workspace-infra': set(), 'ai-workspace-services': set()}
     for repository in repositories:
         parts = repository.split('/') if isinstance(repository, str) else []

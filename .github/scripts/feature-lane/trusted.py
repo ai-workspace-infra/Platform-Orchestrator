@@ -333,13 +333,31 @@ def authorization(policy, fingerprint, stage, task, selectors):
             'evidence_url': c.get('html_url', '')}
 
 
+def verify_data_baseline(candidate, policy, selector):
+    """Authenticate a fixed, lane-specific data baseline evidence document."""
+    owner = policy.get('data_baseline_owner')
+    gate.require(isinstance(owner, dict) and gate.sha(owner.get('sha')) and
+                 owner.get('event') == 'workflow_dispatch',
+                 'reviewed data baseline evidence owner required')
+    proof, producer = artifact(locator(owner, selector, owner['sha']))
+    gate.require(producer.get('head_branch') == 'main', 'data baseline producer must run on Main')
+    gate.require(isinstance(proof, dict) and proof.get('schema') == 'sit-data-baseline/v1' and
+                 proof.get('result') == 'verified' and proof.get('feature_id') == candidate.get('feature_id') and
+                 proof.get('namespace') == candidate.get('namespaces', {}).get('sit') and
+                 proof.get('data_baseline_sha256') == candidate.get('data_baseline_sha256') and
+                 gate.sha(proof.get('data_baseline_sha256'), 64),
+                 'trusted data baseline evidence differs from candidate')
+    return {'sha256': proof['data_baseline_sha256'], 'document_sha256': producer['document_sha256'],
+            'run_id': producer['id'], 'run_attempt': producer['attempt'], 'artifact_id': producer['artifact_id']}
+
+
 def verified(candidate, stage, policy_commit, evidence_selectors=None):
     """Only raw selectors and candidate declaration enter; provenance is fetched."""
     try:
         policy = policy_at(policy_commit)
         gate.require(stage in ('sit', 'merge', 'uat'), 'unsupported stage')
         task = task_at(candidate, policy)
-        required = {'builds'} | ({'chart'} if candidate.get('schema') == 2 else set()) | ({'acceptance', 'authorization'} if stage in ('merge', 'uat') else set()) | ({'merge_builds'} if stage == 'uat' else set())
+        required = {'builds'} | ({'chart', 'data_baseline'} if candidate.get('schema') == 2 else set()) | ({'acceptance', 'authorization'} if stage in ('merge', 'uat') else set()) | ({'merge_builds'} if stage == 'uat' else set())
         gate.require(isinstance(evidence_selectors, dict) and set(evidence_selectors) == required, 'wrong evidence selector set')
         sources = {source['repository'] for source in candidate.get('sources', [])}
         gate.require(isinstance(evidence_selectors['builds'], dict) and set(evidence_selectors['builds']) == sources, 'build selector source set differs')
@@ -349,6 +367,7 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
             verify_feature_tag(candidate, policy)
             verify_gitops_domain(candidate, policy, stage)
             chart.verify(candidate, policy, evidence_selectors['chart'], reader, file_at)
+            baseline = verify_data_baseline(candidate, policy, evidence_selectors['data_baseline'])
             frontend_repo = policy.get('feature_sit_frontend_repository')
             gate.require(frontend_repo in sources and frontend_repo in policy.get('repositories', []),
                          'missing reviewed Feature SIT frontend source')
@@ -424,6 +443,7 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
             result['verified_website_content'] = verified_website_content
         if candidate.get('schema') == 2:
             result['verified_chart_digest'] = candidate['chart_digest']
+            result['verified_data_baseline'] = baseline
         if candidate.get('components'):
             result['verified_runtime_components'] = {
                 name: verified_builds[item['source_repository']]
