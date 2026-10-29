@@ -3,7 +3,9 @@
   "description": "Read the exact Dev management binding for the pinned SIT seed owner.",
   "role_type": "jwt",
   "user_claim": "sub",
-  "bound_audiences": ["vault"],
+  "bound_audiences": [
+    "vault"
+  ],
   "bound_claims_type": "string",
   "bound_claims": {
     "repository": "ai-workspace-infra/Platform-Orchestrator",
@@ -12,12 +14,15 @@
     "workflow_ref": "ai-workspace-infra/Platform-Orchestrator/.github/workflows/feature-lane-deploy.yml@refs/heads/main",
     "job_workflow_ref": [
       "ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@32bcb683d7bfb79e0c01587426252f3f0d8c76a2",
-      "ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@ad2cf2a32d5faacbc2a327809c9d91dc8412c910"
+      "ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@ad2cf2a32d5faacbc2a327809c9d91dc8412c910",
+      "ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@4562a6e7804999ac482b0dc399c092d75690a283"
     ],
     "ref": "refs/heads/main",
     "environment": "dev"
   },
-  "token_policies": ["github-actions-playbooks-feature-seed-sit"],
+  "token_policies": [
+    "github-actions-playbooks-feature-seed-sit"
+  ],
   "token_no_default_policy": true,
   "token_type": "batch",
   "token_ttl": "10m",
