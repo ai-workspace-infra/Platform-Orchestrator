@@ -116,7 +116,9 @@ jobs:
       - name: Verify Vault workload probe contract
         run: python3 scripts/tests/control_plane/feature_lane_vault_probe_test.py
       - name: Verify protected Feature deployment entry contract
-        run: python3 scripts/tests/control_plane/feature_deploy_entry_test.py
+        run: |
+          python3 scripts/tests/control_plane/feature_deploy_entry_test.py
+          python3 scripts/tests/control_plane/feature_pre_dns_manifest_test.py
       - name: Verify authenticated Feature foundation projection
         run: python3 scripts/tests/control_plane/feature_foundation_projection_test.py
       - name: Verify dedicated Feature DNS workload roles

@@ -104,6 +104,34 @@ jobs:
         env:
           FEATURE_RECEIPT_FILE: ${{ runner.temp }}/feature-candidate/receipt.json
         run: python3 .github/scripts/feature-lane/dns-inputs.py
+      - name: Checkout reviewed candidate validation owner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: 805a3bfcf275f2e765f68ff7ee50451c7b3e1d22
+          token: ${{ steps.infra.outputs.token }}
+          path: candidate-validator
+          persist-credentials: false
+      - name: Checkout fixed GitOps candidate for pre-DNS validation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ steps.dns_inputs.outputs.gitops_sha }}
+          token: ${{ steps.infra.outputs.token }}
+          path: candidate-gitops
+          persist-credentials: false
+      - name: Set up candidate renderer
+        uses: azure/setup-kubectl@c0c8b32d33a5244f1e5947304550403b63930415
+        with:
+          version: v1.37.1
+      - name: Install candidate parser
+        run: python3 -m pip install PyYAML==6.0.3
+      - name: Validate fixed rendered lane before DNS
+        env:
+          FEATURE_RECEIPT_FILE: ${{ runner.temp }}/feature-candidate/receipt.json
+          FEATURE_GITOPS_ROOT: ${{ github.workspace }}/candidate-gitops
+          VALIDATOR_ROOT: ${{ github.workspace }}/candidate-validator
+        run: python3 .github/scripts/feature-lane/pre-dns-manifest.py
       - name: Install pinned foundation parser
         run: python3 -m pip install PyYAML==6.0.3
       - name: Authenticate reviewed foundation evidence

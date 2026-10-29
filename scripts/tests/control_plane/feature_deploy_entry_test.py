@@ -19,6 +19,9 @@ class FeatureDeployEntryTest(unittest.TestCase):
         run = next(step['run'] for step in steps if step.get('id') == 'receipt')
         self.assertIn('deploy-receipt.py', run)
         self.assertIn('sha256sum', run)
+        names = [step.get('name') for step in steps]
+        self.assertLess(ids.index('receipt'), names.index('Validate fixed rendered lane before DNS'))
+        self.assertIn('pre-dns-manifest.py', steps[names.index('Validate fixed rendered lane before DNS')]['run'])
         self.assertTrue(any('upload-artifact@' in step.get('uses', '') for step in steps))
         target = jobs['observe-target']
         self.assertEqual(target['needs'], 'verified-candidate')
