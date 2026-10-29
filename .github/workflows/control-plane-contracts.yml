@@ -5,6 +5,8 @@ on:
     paths:
       - .github/actions/**
       - .github/scripts/**
+      - .github/feature-candidates/**
+      - .github/policies/**
       - .github/workflows/**
       - scripts/tests/control_plane/**
       - scripts/vault/**
@@ -15,6 +17,8 @@ on:
     paths:
       - .github/actions/**
       - .github/scripts/**
+      - .github/feature-candidates/**
+      - .github/policies/**
       - .github/workflows/**
       - scripts/tests/control_plane/**
       - scripts/vault/**
@@ -67,6 +71,11 @@ jobs:
         run: |
           python3 scripts/tests/test_akamai_dev_oidc_contract.py -v
           bash scripts/tests/akamai_vault_bootstrap_contract_test.sh
+
+      - name: Verify reviewed feature candidate and tag preflight contracts
+        run: |
+          python3 scripts/tests/control_plane/feature_tag_push_preflight_test.py
+          python3 scripts/tests/control_plane/feature_1483_candidate_contract_test.py
 
       - name: Verify Serverless acceptance and dispatch contracts offline
         run: python3 scripts/tests/control_plane/serverless_acceptance_gate_test.py -v
