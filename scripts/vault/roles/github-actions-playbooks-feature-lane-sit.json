@@ -1,0 +1,26 @@
+{
+  "role_name": "github-actions-playbooks-feature-lane-sit",
+  "description": "Read exact Dev management and feature registry records for the pinned protected SIT owner.",
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": [
+    "vault"
+  ],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "ai-workspace-infra/Platform-Orchestrator",
+    "repository_id": "1284966060",
+    "repository_owner_id": "292703558",
+    "workflow_ref": "ai-workspace-infra/Platform-Orchestrator/.github/workflows/feature-lane-deploy.yml@refs/heads/main",
+    "job_workflow_ref": "ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@ba3795979eb5bb283ad8b79361d1c09c850288f2",
+    "ref": "refs/heads/main",
+    "environment": "dev"
+  },
+  "token_policies": [
+    "github-actions-playbooks-feature-lane-sit"
+  ],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "10m",
+  "token_max_ttl": "10m"
+}
