@@ -64,10 +64,18 @@ def tree_at(reader, sha, path):
 
 def verify(candidate, policy, selector, reader, file_at, registry=registry_manifest):
     owner = policy.get('chart_owner')
-    if (not isinstance(owner, dict) or set(owner) != {'repository', 'workflow', 'package'} or
+    if (not isinstance(owner, dict) or not {'repository', 'workflow', 'package'} <= set(owner) or set(owner) - {'repository', 'workflow', 'package', 'additional_packages'} or
             owner.get('repository') != REPO or owner.get('workflow') != WORKFLOW or
             not re.fullmatch(r'distributed-web-saas-fullstack-[0-9]+\.[0-9]+\.[0-9]+\.tgz', str(owner.get('package', '')))):
         raise ValueError('unreviewed chart owner')
+    additional = owner.get('additional_packages', [])
+    if (not isinstance(additional, list) or len(additional) > 8 or
+            any(not isinstance(item, str) or not re.fullmatch(r'distributed-web-saas-fullstack-[0-9]+\.[0-9]+\.[0-9]+\.tgz', item) for item in additional) or
+            len(set(additional + [owner['package']])) != len(additional) + 1):
+        raise ValueError('invalid reviewed chart package list')
+    package_name = candidate.get('chart_package', owner['package'])
+    if package_name not in [owner['package'], *additional]:
+        raise ValueError('candidate chart package is not reviewed')
     if (not isinstance(selector, dict) or set(selector) != {'run_id', 'attempt', 'artifact_id'} or
             any(type(value) is not int or value <= 0 for value in selector.values())):
         raise ValueError('invalid chart evidence selector')
@@ -94,10 +102,10 @@ def verify(candidate, policy, selector, reader, file_at, registry=registry_manif
             raise ValueError('chart build workflow or scripts changed')
     artifact_name = 'oci-charts-' + producer
     manifest_raw = reader.artifact_file(REPO, artifact_id, run_id, attempt, artifact_name, 'source-manifest.json', producer)
-    package = reader.artifact_file(REPO, artifact_id, run_id, attempt, artifact_name, owner['package'], producer)
+    package = reader.artifact_file(REPO, artifact_id, run_id, attempt, artifact_name, package_name, producer)
     manifest = json.loads(manifest_raw)
     package_sha = hashlib.sha256(package).hexdigest()
-    if manifest.get('source_sha') != producer or manifest.get('packages', {}).get(owner['package']) != package_sha:
+    if manifest.get('source_sha') != producer or manifest.get('packages', {}).get(package_name) != package_sha:
         raise ValueError('chart artifact manifest mismatch')
     oci = registry(candidate.get('chart_digest'))
     layers = oci.get('layers')

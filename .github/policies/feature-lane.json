@@ -44,6 +44,9 @@
     }
   },
   "chart_owner": {
+    "additional_packages": [
+      "distributed-web-saas-fullstack-0.2.10.tgz"
+    ],
     "package": "distributed-web-saas-fullstack-0.2.9.tgz",
     "repository": "ai-workspace-infra/artifacts",
     "workflow": ".github/workflows/release-oci-charts.yml"
