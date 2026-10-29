@@ -101,6 +101,13 @@
       "tag_object_sha": "7f2c4647c7cd701d8fa0e17a665ad341490314b7",
       "target_sha": "f70ecc1a31a2a42c2289ac66555ef11d1b46cc4e",
       "task_url": "https://github.com/ai-workspace-infra/Platform-Orchestrator/issues/1483"
+    },
+    "verified-sit-test-1483": {
+      "candidate_sha256": "57b7c8027888196b8f84b33f7b4d0ad96b0c801d31f5a60cc7f8f04b80d1be8e",
+      "repository": "ai-workspace-infra/Platform-Orchestrator",
+      "tag_object_sha": "18ca67d123c8e2a5212c2ff2c57d37a96bc80d9e",
+      "target_sha": "7057e092145ef462ebbd3cf84e07450b985513c1",
+      "task_url": "https://github.com/ai-workspace-infra/Platform-Orchestrator/issues/1483"
     }
   },
   "gitops_domain_contract_path": "docs/features/tagged-sit-domain-contract.yaml",
