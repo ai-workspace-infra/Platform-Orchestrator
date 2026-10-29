@@ -43,6 +43,7 @@ class V6VaultTLSAdminContract(unittest.TestCase):
         import re
         paths = re.findall(r'^path "([^"]+)"', policy, re.MULTILINE)
         self.assertEqual(set(paths), {'sys/auth', 'sys/auth/jwt-prod-k3s-v6',
+            'sys/capabilities-self',
             'sys/policies/acl/prod-k3s-v6-vault-tls-reader', 'auth/jwt-prod-k3s-v6/config',
             'auth/jwt-prod-k3s-v6/role/prod-k3s-v6-vault-tls-reader', 'auth/token/lookup-self'})
         self.assertTrue(all('*' not in path and not path.startswith('kv/') for path in paths))
