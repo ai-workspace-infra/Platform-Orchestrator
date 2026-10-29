@@ -19,14 +19,18 @@ class Provenance(unittest.TestCase):
         self.summary={'result':'applied_verified','context':{'action':'apply','environment':'prod',
              'gitops_sha':p.GITOPS_SHA,'iac_sha':p.IAC_SHA,'run_id':str(p.RUN),'run_attempt':'1',
              'correlation_id':f'{p.PARENT}:1:prod-k3s-v6','manifest_path':'iac/targets/prod-akamai-k3s-v6.yaml'}}
+        self.inventory=json.dumps({'target': {'node': {'instance_id': '123'}}}).encode()
         self.fetches=[]
     def api(self,path): return self.run if '/runs/' in path else self.artifact
-    def fetch(self,*args): self.fetches.append(args);return json.dumps(self.summary).encode()
+    def fetch(self,*args):
+        self.fetches.append(args)
+        return self.inventory if args[-2]=='inventory.json' else json.dumps(self.summary).encode()
     def resolve(self):
         digest=hashlib.sha256(json.dumps(self.summary).encode()).hexdigest()
-        with patch.object(p,'SUMMARY_SHA',digest):return p.resolve(self.api,self.fetch)
+        with patch.object(p,'SUMMARY_SHA',digest), patch.object(p,'INVENTORY_SHA',hashlib.sha256(self.inventory).hexdigest()):
+            return p.resolve(self.api,self.fetch)
     def test_valid(self):
-        _,e=self.resolve();self.assertEqual(e['run_id'],p.RUN);self.assertEqual(len(self.fetches),1)
+        _,inventory,e=self.resolve();self.assertEqual(inventory,self.inventory);self.assertEqual(e['run_id'],p.RUN);self.assertEqual(len(self.fetches),2)
     def test_bad_provenance_fails_before_download(self):
         for target,key,value in [('run','path','wrong'),('run','conclusion','failure'),('run','head_sha','0'*40),
                                  ('artifact','digest','wrong'),('artifact','expired',True)]:

@@ -14,6 +14,9 @@ ROOT = Path(__file__).resolve().parents[4]
 SPEC = importlib.util.spec_from_file_location('migration_matrix', ROOT / '.github/scripts/acceptance/migration_matrix.py')
 MATRIX = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MATRIX)
+VERIFY_SPEC = importlib.util.spec_from_file_location('workflow_artifact_provenance', ROOT / '.github/scripts/platform-ops/evidence/workflow_artifact_provenance.py')
+VERIFY = importlib.util.module_from_spec(VERIFY_SPEC)
+VERIFY_SPEC.loader.exec_module(VERIFY)
 
 REPO = 'ai-workspace-infra/Platform-Orchestrator'
 RUN_ID = 40851530314
@@ -28,26 +31,15 @@ GITOPS_SHA = 'c74a1a5a7d3a633d4020897fbb765b3e23fb279a'
 
 
 def resolve(api=MATRIX.api, artifact_file=MATRIX.artifact_file):
-    run = api(f'repos/{REPO}/actions/runs/{RUN_ID}')
     tag = api(f'repos/{REPO}/commits/{TAG}')
-    artifact = api(f'repos/{REPO}/actions/artifacts/{ARTIFACT_ID}')
-    if (run.get('id') != RUN_ID or run.get('run_attempt') != ATTEMPT
-            or run.get('repository', {}).get('full_name') != REPO
-            or run.get('event') != 'workflow_dispatch'
-            or run.get('path') != '.github/workflows/selfhost-orchestrator.yml'
-            or run.get('head_branch') != TAG or run.get('head_sha') != WORKFLOW_SHA
-            or run.get('status') != 'completed' or run.get('conclusion') != 'success'
-            or tag.get('sha') != WORKFLOW_SHA):
-        raise ValueError('bootstrap run provenance mismatch')
-    if (artifact.get('id') != ARTIFACT_ID or artifact.get('name') != ARTIFACT_NAME
-            or artifact.get('digest') != ARTIFACT_DIGEST or artifact.get('expired') is not False
-            or artifact.get('workflow_run', {}).get('id') != RUN_ID
-            or artifact.get('workflow_run', {}).get('head_sha') != WORKFLOW_SHA):
-        raise ValueError('bootstrap artifact provenance mismatch')
-    raw = artifact_file(REPO, ARTIFACT_ID, RUN_ID, ATTEMPT, ARTIFACT_NAME,
-                        'v6-bootstrap-receipt.json', WORKFLOW_SHA)
-    if hashlib.sha256(raw).hexdigest() != RECEIPT_SHA256:
-        raise ValueError('bootstrap receipt digest mismatch')
+    if tag.get('sha') != WORKFLOW_SHA:
+        raise ValueError('bootstrap tag provenance mismatch')
+    raw = VERIFY.verify_artifact(api, artifact_file, {
+        'repository': REPO, 'run_id': RUN_ID, 'attempt': ATTEMPT,
+        'workflow': '.github/workflows/selfhost-orchestrator.yml', 'event': 'workflow_dispatch',
+        'ref': TAG, 'commit': WORKFLOW_SHA, 'artifact_id': ARTIFACT_ID,
+        'artifact_name': ARTIFACT_NAME, 'artifact_digest': ARTIFACT_DIGEST,
+        'filename': 'v6-bootstrap-receipt.json', 'file_sha256': RECEIPT_SHA256})
     try:
         data = json.loads(raw)
         if (data['result'] != 'PAUSED_BOOTSTRAP_VERIFIED' or data['node'] != 'prod-k3s-v6'
