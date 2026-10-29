@@ -19,7 +19,7 @@ def request(url, *, headers=None, body=None):
         return error.code, b''
 
 def main(mode):
-    if mode not in ('allowed', 'denied-environment', 'denied-caller'):
+    if mode not in ('allowed', 'denied-environment', 'denied-caller', 'deploy-allowed', 'deploy-denied'):
         raise ValueError('invalid probe mode')
     oidc_url = os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']
     separator = '&' if '?' in oidc_url else '?'
@@ -28,9 +28,10 @@ def main(mode):
     if status != 200:
         raise ValueError('GitHub identity unavailable')
     jwt = json.loads(data)['value']
+    role = 'github-actions-feature-lane-deploy-evidence-read-sit' if mode.startswith('deploy-') else ROLE
     status, data = request(BASE + 'auth/jwt/login', headers={'Content-Type': 'application/json'},
-                           body=json.dumps({'role': ROLE, 'jwt': jwt}).encode())
-    if mode in ('denied-environment', 'denied-caller'):
+                           body=json.dumps({'role': role, 'jwt': jwt}).encode())
+    if mode in ('denied-environment', 'denied-caller', 'deploy-denied'):
         if status not in (400, 403):
             raise ValueError('invalid workload identity was not denied')
         print('PASS: invalid workload identity denied')
