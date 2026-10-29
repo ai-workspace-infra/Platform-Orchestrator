@@ -347,6 +347,26 @@ def verify_data_baseline(candidate, policy, selector):
                  proof.get('data_baseline_sha256') == candidate.get('data_baseline_sha256') and
                  gate.sha(proof.get('data_baseline_sha256'), 64),
                  'trusted data baseline evidence differs from candidate')
+    inputs = proof.get('inputs')
+    keys = {'schema', 'accounts_sha', 'billing_sha', 'accounts_image', 'accounts_manifest_sha256',
+            'accounts_native_sha256', 'billing_schema_sha256', 'image_manifest_sha256',
+            'migration_version', 'business_table_count'}
+    gate.require(isinstance(inputs, dict) and set(inputs) == keys and inputs.get('schema') == 'sit-data-input/v1',
+                 'baseline input document missing or malformed')
+    sources = {row.get('repository'): row for row in candidate.get('sources', []) if isinstance(row, dict)}
+    accounts = sources.get('ai-workspace-services/accounts', {})
+    billing = sources.get('ai-workspace-services/billing-service', {})
+    gate.require(inputs.get('accounts_sha') == accounts.get('sha') and gate.sha(inputs.get('accounts_sha')) and
+                 inputs.get('billing_sha') == billing.get('sha') and gate.sha(inputs.get('billing_sha')) and
+                 inputs.get('accounts_image') == accounts.get('image') and
+                 isinstance(inputs.get('accounts_image'), str) and
+                 all(gate.sha(inputs.get(key), 64) for key in ('accounts_manifest_sha256', 'accounts_native_sha256',
+                                                              'billing_schema_sha256', 'image_manifest_sha256')) and
+                 type(inputs.get('migration_version')) is int and inputs['migration_version'] > 0 and
+                 type(inputs.get('business_table_count')) is int and inputs['business_table_count'] > 0,
+                 'baseline source identities differ from candidate')
+    digest = hashlib.sha256(json.dumps(inputs, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    gate.require(digest == proof['data_baseline_sha256'], 'baseline input digest differs from candidate')
     return {'sha256': proof['data_baseline_sha256'], 'document_sha256': producer['document_sha256'],
             'run_id': producer['id'], 'run_attempt': producer['attempt'], 'artifact_id': producer['artifact_id']}
 

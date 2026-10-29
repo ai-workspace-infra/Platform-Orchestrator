@@ -7,6 +7,10 @@ a reviewed Main workflow with a fixed commit, and must verify the provenance and
 content of the baseline input before publishing `sit-data-baseline/v1` evidence.
 The evidence records the Feature ID, its intended namespace, the input digest,
 and `result: verified`; it must never contain database credentials or data.
+The evidence also includes the canonical `sit-data-input/v1` input document.
+The gate recomputes its digest and checks its Accounts and Billing source commits
+and Accounts image against the fixed candidate; an old input document cannot
+be reused after those identities change.
 The reviewed workflow policy selects the owner repository, workflow, commit,
 event, artifact name and document path; callers provide only run, attempt and
 artifact IDs. The feature gate independently retrieves the artifact and binds

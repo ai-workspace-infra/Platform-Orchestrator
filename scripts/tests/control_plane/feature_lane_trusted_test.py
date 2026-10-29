@@ -23,15 +23,25 @@ F=load('gate_fixture',ROOT/'scripts/tests/control_plane/feature_lane_gate_test.p
 
 class TrustedTest(unittest.TestCase):
     def test_data_baseline_requires_reviewed_owner_and_matching_evidence(self):
-        c={'feature_id':'sit-1483','namespaces':{'sit':'feature-sit-1483-sit'},'data_baseline_sha256':'a'*64}
+        inputs={'schema':'sit-data-input/v1','accounts_sha':'a'*40,'billing_sha':'b'*40,
+                'accounts_image':'registry/accounts@sha256:'+'c'*64,'accounts_manifest_sha256':'d'*64,
+                'accounts_native_sha256':'e'*64,'billing_schema_sha256':'f'*64,'image_manifest_sha256':'1'*64,
+                'migration_version':1,'business_table_count':2}
+        digest=hashlib.sha256(json.dumps(inputs,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+        c={'feature_id':'sit-1483','namespaces':{'sit':'feature-sit-1483-sit'},'data_baseline_sha256':digest,
+           'sources':[{'repository':'ai-workspace-services/accounts','sha':'a'*40,'image':inputs['accounts_image']},
+                      {'repository':'ai-workspace-services/billing-service','sha':'b'*40}]}
         owner={'repository':'example/owner','workflow':'baseline.yml','event':'workflow_dispatch','filename':'baseline.json','artifact_prefix':'baseline','sha':'b'*40}
         selector={'run_id':1,'attempt':1,'artifact_id':2}
-        proof={'schema':'sit-data-baseline/v1','result':'verified','feature_id':c['feature_id'],'namespace':c['namespaces']['sit'],'data_baseline_sha256':c['data_baseline_sha256']}
+        proof={'schema':'sit-data-baseline/v1','result':'verified','feature_id':c['feature_id'],'namespace':c['namespaces']['sit'],'data_baseline_sha256':digest,'inputs':inputs}
         producer={'document_sha256':'c'*64,'id':1,'attempt':1,'artifact_id':2,'head_branch':'main'}
         with patch.object(T,'artifact',return_value=(proof,producer)):
-            self.assertEqual(T.verify_data_baseline(c,{'data_baseline_owner':owner},selector)['sha256'],'a'*64)
+            self.assertEqual(T.verify_data_baseline(c,{'data_baseline_owner':owner},selector)['sha256'],digest)
             for key, value in [('result','not_run'),('feature_id','other'),('namespace','other'),('data_baseline_sha256','d'*64)]:
                 with self.subTest(key=key), patch.dict(proof,{key:value}):
+                    with self.assertRaises(T.gate.Blocked): T.verify_data_baseline(c,{'data_baseline_owner':owner},selector)
+            for key, value in [('accounts_sha','e'*40),('billing_sha','f'*40),('accounts_image','other'),('billing_schema_sha256','2'*64)]:
+                with self.subTest(key=key), patch.dict(inputs,{key:value}):
                     with self.assertRaises(T.gate.Blocked): T.verify_data_baseline(c,{'data_baseline_owner':owner},selector)
         with patch.object(T,'artifact',return_value=(proof,dict(producer,head_branch='other'))):
             with self.assertRaises(T.gate.Blocked): T.verify_data_baseline(c,{'data_baseline_owner':owner},selector)
