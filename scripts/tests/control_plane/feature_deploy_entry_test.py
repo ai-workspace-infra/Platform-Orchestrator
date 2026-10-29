@@ -36,7 +36,20 @@ class FeatureDeployEntryTest(unittest.TestCase):
         self.assertEqual(jobs['sit-prepare']['needs'], ['verified-candidate', 'publish-dns'])
         self.assertIn('acceptance not run', jobs['sit-prepare']['name'])
         self.assertEqual(jobs['sit-prepare']['with']['mode'], 'prepare')
-        self.assertEqual(jobs['sit-prepare']['uses'], 'ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@7f57ff7e52beeece5931b1b4122efacbac6de8a1')
+        sha = '32bcb683d7bfb79e0c01587426252f3f0d8c76a2'
+        self.assertEqual(jobs['sit-prepare']['uses'], 'ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@' + sha)
+        self.assertEqual(jobs['prepare-evidence']['needs'], ['verified-candidate', 'sit-prepare'])
+        self.assertEqual(jobs['seed-admin']['needs'], ['verified-candidate', 'prepare-evidence'])
+        self.assertEqual(jobs['sit-submit']['needs'], ['verified-candidate', 'seed-admin'])
+        self.assertEqual(jobs['seed-initialize']['needs'], ['verified-candidate', 'prepare-evidence', 'sit-submit'])
+        self.assertEqual(jobs['seed-evidence']['needs'], ['verified-candidate', 'prepare-evidence', 'seed-initialize'])
+        self.assertEqual(jobs['sit-verify']['needs'], ['verified-candidate', 'prepare-evidence', 'seed-evidence'])
+        for job in ('seed-admin', 'seed-initialize'):
+            self.assertEqual(jobs[job]['uses'], 'ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@' + sha)
+            self.assertEqual(jobs[job]['with']['prepare_sha256'], '${{ needs.prepare-evidence.outputs.sha256 }}')
+        for job in ('sit-submit', 'sit-verify'):
+            self.assertEqual(jobs[job]['uses'], 'ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@' + sha)
+        self.assertEqual(jobs['sit-verify']['with']['seed_sha256'], '${{ needs.seed-evidence.outputs.sha256 }}')
         self.assertNotIn('id-token', workflow['permissions'])
         for job in ('identity-allowed', 'identity-denied-environment'):
             self.assertIn('workflow_dispatch', jobs[job]['if'])

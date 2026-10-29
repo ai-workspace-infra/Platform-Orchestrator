@@ -191,7 +191,7 @@ jobs:
       contents: read
       actions: read
       id-token: write
-    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@7f57ff7e52beeece5931b1b4122efacbac6de8a1
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@32bcb683d7bfb79e0c01587426252f3f0d8c76a2
     with:
       stage: sit
       mode: prepare
@@ -205,6 +205,145 @@ jobs:
       platform_sha: ${{ needs.verified-candidate.outputs.platform_sha }}
       node_uid: ${{ needs.verified-candidate.outputs.node_uid }}
       cluster_uid: ${{ needs.verified-candidate.outputs.cluster_uid }}
+  prepare-evidence:
+    needs: [verified-candidate, sit-prepare]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      sha256: ${{ steps.proof.outputs.sha256 }}
+      namespace_uid: ${{ steps.proof.outputs.namespace_uid }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dev-feature-sit-prepare-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/seed-prepare
+      - name: Bind prepare evidence to this run
+        id: proof
+        env:
+          FILE: ${{ runner.temp }}/seed-prepare/receipt.json
+          CANDIDATE_SHA256: ${{ needs.verified-candidate.outputs.candidate_sha256 }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,re
+          raw=open(os.environ['FILE'],'rb').read(); obj=json.loads(raw)
+          uid=obj.get('namespace_uid','')
+          if (obj.get('result')!='prepared' or obj.get('mode')!='prepare' or
+              obj.get('candidate_sha256')!=os.environ['CANDIDATE_SHA256'] or
+              str(obj.get('run_id'))!=os.environ['GITHUB_RUN_ID'] or
+              str(obj.get('run_attempt'))!=os.environ['GITHUB_RUN_ATTEMPT'] or
+              not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',uid)):
+              raise SystemExit('invalid prepare receipt')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as out:
+              out.write('sha256='+hashlib.sha256(raw).hexdigest()+'\nnamespace_uid='+uid+'\n')
+          PY
+  seed-admin:
+    needs: [verified-candidate, prepare-evidence]
+    permissions: {contents: read, actions: read, id-token: write}
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@32bcb683d7bfb79e0c01587426252f3f0d8c76a2
+    with:
+      stage: sit
+      phase: seed-admin
+      candidate_artifact: ${{ needs.verified-candidate.outputs.artifact }}
+      candidate_sha256: ${{ needs.verified-candidate.outputs.sha256 }}
+      cmdb_artifact: ${{ needs.verified-candidate.outputs.cmdb_artifact }}
+      cmdb_sha256: ${{ needs.verified-candidate.outputs.cmdb_sha256 }}
+      instance_id: ${{ needs.verified-candidate.outputs.instance_id }}
+      gitops_sha: ${{ needs.verified-candidate.outputs.gitops_sha }}
+      platform_sha: ${{ needs.verified-candidate.outputs.platform_sha }}
+      node_uid: ${{ needs.verified-candidate.outputs.node_uid }}
+      cluster_uid: ${{ needs.verified-candidate.outputs.cluster_uid }}
+      namespace_uid: ${{ needs.prepare-evidence.outputs.namespace_uid }}
+      prepare_artifact: dev-feature-sit-prepare-${{ github.run_id }}-${{ github.run_attempt }}
+      prepare_sha256: ${{ needs.prepare-evidence.outputs.sha256 }}
+  sit-submit:
+    needs: [verified-candidate, seed-admin]
+    permissions: {contents: read, actions: read, id-token: write}
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@32bcb683d7bfb79e0c01587426252f3f0d8c76a2
+    with:
+      stage: sit
+      mode: submit
+      candidate_artifact: ${{ needs.verified-candidate.outputs.artifact }}
+      candidate_sha256: ${{ needs.verified-candidate.outputs.sha256 }}
+      cmdb_artifact: ${{ needs.verified-candidate.outputs.cmdb_artifact }}
+      cmdb_sha256: ${{ needs.verified-candidate.outputs.cmdb_sha256 }}
+      target_artifact: feature-sit-target-${{ github.run_id }}-${{ github.run_attempt }}
+      instance_id: ${{ needs.verified-candidate.outputs.instance_id }}
+      gitops_sha: ${{ needs.verified-candidate.outputs.gitops_sha }}
+      platform_sha: ${{ needs.verified-candidate.outputs.platform_sha }}
+      node_uid: ${{ needs.verified-candidate.outputs.node_uid }}
+      cluster_uid: ${{ needs.verified-candidate.outputs.cluster_uid }}
+  seed-initialize:
+    needs: [verified-candidate, prepare-evidence, sit-submit]
+    permissions: {contents: read, actions: read, id-token: write}
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-web-saas-seed.yml@32bcb683d7bfb79e0c01587426252f3f0d8c76a2
+    with:
+      stage: sit
+      phase: initialize
+      candidate_artifact: ${{ needs.verified-candidate.outputs.artifact }}
+      candidate_sha256: ${{ needs.verified-candidate.outputs.sha256 }}
+      cmdb_artifact: ${{ needs.verified-candidate.outputs.cmdb_artifact }}
+      cmdb_sha256: ${{ needs.verified-candidate.outputs.cmdb_sha256 }}
+      instance_id: ${{ needs.verified-candidate.outputs.instance_id }}
+      gitops_sha: ${{ needs.verified-candidate.outputs.gitops_sha }}
+      platform_sha: ${{ needs.verified-candidate.outputs.platform_sha }}
+      node_uid: ${{ needs.verified-candidate.outputs.node_uid }}
+      cluster_uid: ${{ needs.verified-candidate.outputs.cluster_uid }}
+      namespace_uid: ${{ needs.prepare-evidence.outputs.namespace_uid }}
+      prepare_artifact: dev-feature-sit-prepare-${{ github.run_id }}-${{ github.run_attempt }}
+      prepare_sha256: ${{ needs.prepare-evidence.outputs.sha256 }}
+  seed-evidence:
+    needs: [verified-candidate, prepare-evidence, seed-initialize]
+    runs-on: ubuntu-latest
+    permissions: {contents: read, actions: read}
+    outputs:
+      sha256: ${{ steps.proof.outputs.sha256 }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dev-lane-seed-sit-initialize-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/seed-evidence
+      - name: Bind seed evidence to the verified candidate
+        id: proof
+        env:
+          FILE: ${{ runner.temp }}/seed-evidence/receipt.json
+          CANDIDATE_SHA256: ${{ needs.verified-candidate.outputs.candidate_sha256 }}
+          NAMESPACE_UID: ${{ needs.prepare-evidence.outputs.namespace_uid }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os
+          raw=open(os.environ['FILE'],'rb').read(); obj=json.loads(raw)
+          if (obj.get('result')!='verified' or obj.get('schema_initialized') is not True or
+              obj.get('candidate_sha256')!=os.environ['CANDIDATE_SHA256'] or
+              obj.get('namespace_uid')!=os.environ['NAMESPACE_UID'] or
+              str(obj.get('run_id'))!=os.environ['GITHUB_RUN_ID'] or
+              str(obj.get('run_attempt'))!=os.environ['GITHUB_RUN_ATTEMPT']):
+              raise SystemExit('invalid seed receipt')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as out:
+              out.write('sha256='+hashlib.sha256(raw).hexdigest()+'\n')
+          PY
+  sit-verify:
+    needs: [verified-candidate, prepare-evidence, seed-evidence]
+    permissions: {contents: read, actions: read, id-token: write}
+    uses: ai-workspace-infra/playbooks/.github/workflows/dev-feature-flux.yml@32bcb683d7bfb79e0c01587426252f3f0d8c76a2
+    with:
+      stage: sit
+      mode: verify
+      candidate_artifact: ${{ needs.verified-candidate.outputs.artifact }}
+      candidate_sha256: ${{ needs.verified-candidate.outputs.sha256 }}
+      cmdb_artifact: ${{ needs.verified-candidate.outputs.cmdb_artifact }}
+      cmdb_sha256: ${{ needs.verified-candidate.outputs.cmdb_sha256 }}
+      target_artifact: feature-sit-target-${{ github.run_id }}-${{ github.run_attempt }}
+      instance_id: ${{ needs.verified-candidate.outputs.instance_id }}
+      gitops_sha: ${{ needs.verified-candidate.outputs.gitops_sha }}
+      platform_sha: ${{ needs.verified-candidate.outputs.platform_sha }}
+      node_uid: ${{ needs.verified-candidate.outputs.node_uid }}
+      cluster_uid: ${{ needs.verified-candidate.outputs.cluster_uid }}
+      prepare_artifact: dev-feature-sit-prepare-${{ github.run_id }}-${{ github.run_attempt }}
+      prepare_sha256: ${{ needs.prepare-evidence.outputs.sha256 }}
+      seed_artifact: dev-lane-seed-sit-initialize-${{ github.run_id }}-${{ github.run_attempt }}
+      seed_sha256: ${{ needs.seed-evidence.outputs.sha256 }}
   identity-allowed:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
