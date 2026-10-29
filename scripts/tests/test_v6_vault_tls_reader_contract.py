@@ -9,7 +9,7 @@ NAME = "prod-k3s-v6-vault-tls-reader"
 
 class V6VaultTLSReaderContract(unittest.TestCase):
     def test_role_is_bound_to_one_service_account_and_audience(self):
-        role = json.loads((ROOT / "scripts/vault/roles" / (NAME + ".json")).read_text())
+        role = json.loads((ROOT / "scripts/vault/workload-identities" / (NAME + ".json")).read_text())
         self.assertEqual(role["role_type"], "jwt")
         self.assertEqual(role["user_claim"], "sub")
         self.assertEqual(role["bound_subject"], "system:serviceaccount:vault-prod:vault-tls-reader")
@@ -17,7 +17,7 @@ class V6VaultTLSReaderContract(unittest.TestCase):
         self.assertEqual(role["token_policies"], [NAME])
         self.assertTrue(role["token_no_default_policy"])
         self.assertEqual(role["token_type"], "batch")
-        self.assertLessEqual(role["token_explicit_max_ttl"], 600)
+        self.assertEqual(role["token_explicit_max_ttl"], "10m")
 
     def test_policy_grants_only_the_single_certificate_record(self):
         policy = (ROOT / "scripts/vault/policies" / (NAME + ".hcl")).read_text()
@@ -30,7 +30,7 @@ class V6VaultTLSAdminContract(unittest.TestCase):
         role = json.loads((ROOT / 'scripts/vault/roles' / (name + '.json')).read_text())
         self.assertEqual(role['token_policies'], [name])
         self.assertTrue(role['token_no_default_policy'])
-        self.assertLessEqual(role['token_explicit_max_ttl'], 1200)
+        self.assertEqual(role['token_explicit_max_ttl'], '20m')
         claims = role['bound_claims']
         self.assertEqual(claims['environment'], 'prod')
         self.assertEqual(claims['ref_protected'], 'true')
@@ -59,11 +59,32 @@ class V6VaultTLSAccessContract(unittest.TestCase):
         self.assertEqual(role['bound_claims']['ref_protected'], 'true')
         self.assertEqual(role['bound_claims']['workflow_ref'], 'ai-workspace-infra/Platform-Orchestrator/.github/workflows/vault-workload-identity.yml@refs/tags/v6.*')
         self.assertTrue(role['token_no_default_policy'])
-        self.assertLessEqual(role['token_explicit_max_ttl'], 1200)
+        self.assertEqual(role['token_explicit_max_ttl'], '20m')
         policy=(ROOT / 'scripts/vault/policies' / (name + '.hcl')).read_text()
         self.assertEqual(set(re.findall(r'^path "([^"]+)"',policy,re.MULTILINE)),
             {'kv/data/prod/platform/prod-k3s-v6/ssh', 'kv/data/CICD/prod/akamai-cloud/manbuzhe2026'})
         self.assertEqual(policy.count('capabilities = ["read"]'), 2)
+
+
+class V6VaultOIDCProvisioningContract(unittest.TestCase):
+    def test_bootstrap_oidc_roles_match_the_existing_role_installer_schema(self):
+        for name in (
+            'github-actions-platform-ops-toolkit-prod-k3s-v6-vault-tls-admin',
+            'github-actions-platform-ops-toolkit-prod-k3s-v6-vault-tls-access',
+        ):
+            role = json.loads((ROOT / 'scripts/vault/roles' / f'{name}.json').read_text())
+            self.assertEqual(role['role_name'], name)
+            self.assertTrue(role['description'])
+            self.assertEqual(role['role_type'], 'jwt')
+            self.assertEqual(role['user_claim'], 'sub')
+            self.assertIsInstance(role['bound_claims'], dict)
+            self.assertIsInstance(role['token_policies'], list)
+            self.assertTrue(role['token_no_default_policy'])
+            self.assertEqual(role['token_type'], 'batch')
+            self.assertIsInstance(role['token_ttl'], str)
+            self.assertIsInstance(role['token_max_ttl'], str)
+            self.assertIsInstance(role['token_explicit_max_ttl'], str)
+        self.assertTrue((ROOT / 'scripts/vault/workload-identities' / (NAME + '.json')).is_file())
 
 
 if __name__ == "__main__":

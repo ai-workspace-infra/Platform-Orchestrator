@@ -1,13 +1,15 @@
 {
+  "role_name": "github-actions-platform-ops-toolkit-prod-k3s-v6-vault-tls-access",
+  "description": "Read only the V6 bootstrap SSH binding and Akamai provider token for the protected workload identity workflow.",
   "role_type": "jwt",
   "user_claim": "sub",
   "bound_audiences": ["vault"],
   "bound_claims_type": "glob",
   "token_no_default_policy": true,
   "token_type": "batch",
-  "token_ttl": 1200,
-  "token_max_ttl": 1200,
-  "token_explicit_max_ttl": 1200,
+  "token_ttl": "20m",
+  "token_max_ttl": "20m",
+  "token_explicit_max_ttl": "20m",
   "bound_claims": {
     "repository": "ai-workspace-infra/Platform-Orchestrator",
     "environment": "prod",
