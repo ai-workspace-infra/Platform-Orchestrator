@@ -367,7 +367,7 @@ def verify_data_baseline(candidate, policy, selector):
                  'baseline source identities differ from candidate')
     digest = hashlib.sha256(json.dumps(inputs, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     gate.require(digest == proof['data_baseline_sha256'], 'baseline input digest differs from candidate')
-    return {'sha256': proof['data_baseline_sha256'], 'document_sha256': producer['document_sha256'],
+    return {'sha256': proof['data_baseline_sha256'], 'inputs': inputs, 'document_sha256': producer['document_sha256'],
             'run_id': producer['id'], 'run_attempt': producer['attempt'], 'artifact_id': producer['artifact_id']}
 
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Generate a same-run receipt after fresh trusted verification; never deploy."""
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -54,10 +55,16 @@ def build_receipt(candidate, selectors, env, gate):
         not gate.sha(candidate.get('data_baseline_sha256'), 64) or
         projection['knowledge'] != {key: result.get('verified_website_content', {}).get(key) for key in ('repository', 'sha')}):
         raise ValueError('incomplete or inconsistent deployment projection')
+    baseline = result['verified_data_baseline']
+    inputs = baseline.get('inputs')
+    if (not isinstance(inputs, dict) or
+        hashlib.sha256(json.dumps(inputs, sort_keys=True, separators=(',', ':')).encode()).hexdigest() != candidate['data_baseline_sha256']):
+        raise ValueError('verified data baseline inputs missing or changed')
     return {'schema_version': 'dev-feature-candidate/v2', 'result': 'verified',
             'repository': 'ai-workspace-infra/gitops', 'stage': 'sit',
             'candidate_head': candidate['gitops']['sha'], 'candidate_sha256': result['candidate_sha256'],
             'data_baseline_sha256': candidate['data_baseline_sha256'],
+            'data_baseline_inputs': inputs,
             'source': {'repository': repo, 'workflow_ref': ref, 'workflow_sha': sha,
                        'run_id': run, 'run_attempt': attempt}, 'projection': projection}
 
