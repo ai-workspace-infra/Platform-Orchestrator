@@ -24,5 +24,29 @@ class V6VaultTLSReaderContract(unittest.TestCase):
         self.assertEqual(policy.strip(), 'path "kv/data/CICD/domains/svc.plus" {\n  capabilities = ["read"]\n}')
 
 
+class V6VaultTLSAdminContract(unittest.TestCase):
+    def test_role_is_limited_to_protected_v6_identity_workflow(self):
+        name = 'github-actions-platform-ops-toolkit-prod-k3s-v6-vault-tls-admin'
+        role = json.loads((ROOT / 'scripts/vault/roles' / (name + '.json')).read_text())
+        self.assertEqual(role['token_policies'], [name])
+        self.assertTrue(role['token_no_default_policy'])
+        self.assertLessEqual(role['token_explicit_max_ttl'], 1200)
+        claims = role['bound_claims']
+        self.assertEqual(claims['environment'], 'prod')
+        self.assertEqual(claims['ref_protected'], 'true')
+        self.assertEqual(claims['ref'], ['refs/tags/v6.*'])
+        self.assertEqual(claims['workflow_ref'], 'ai-workspace-infra/Platform-Orchestrator/.github/workflows/v6-vault-tls-identity.yml@refs/tags/v6.*')
+
+    def test_policy_cannot_read_secrets_or_touch_other_auth_mounts(self):
+        name = 'github-actions-platform-ops-toolkit-prod-k3s-v6-vault-tls-admin'
+        policy = (ROOT / 'scripts/vault/policies' / (name + '.hcl')).read_text()
+        import re
+        paths = re.findall(r'^path "([^"]+)"', policy, re.MULTILINE)
+        self.assertEqual(set(paths), {'sys/auth', 'sys/auth/jwt-prod-k3s-v6',
+            'sys/policies/acl/prod-k3s-v6-vault-tls-reader', 'auth/jwt-prod-k3s-v6/config',
+            'auth/jwt-prod-k3s-v6/role/prod-k3s-v6-vault-tls-reader', 'auth/token/lookup-self'})
+        self.assertTrue(all('*' not in path and not path.startswith('kv/') for path in paths))
+
+
 if __name__ == "__main__":
     unittest.main()
