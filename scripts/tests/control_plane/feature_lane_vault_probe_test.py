@@ -29,7 +29,7 @@ class ProbeTest(unittest.TestCase):
                     probe.main('allowed')
 
     def test_missing_environment_requires_login_denial(self):
-        for mode in ('denied-environment', 'denied-caller', 'deploy-denied'):
+        for mode in ('denied-environment', 'denied-caller', 'deploy-denied', 'target-denied'):
             with self.subTest(mode=mode), patch.object(probe, 'request', side_effect=[self.oidc, (400, b'')]):
                 probe.main(mode)
         with patch.object(probe, 'request', side_effect=[self.oidc, self.login]):
@@ -41,6 +41,12 @@ class ProbeTest(unittest.TestCase):
             probe.main('deploy-allowed')
         self.assertEqual(json.loads(request.call_args_list[1].kwargs['body'])['role'],
                          'github-actions-feature-lane-deploy-evidence-read-sit')
+
+    def test_target_denial_checks_exact_target_role(self):
+        with patch.object(probe, 'request', side_effect=[self.oidc, (403, b'')]) as request:
+            probe.main('target-denied')
+        self.assertEqual(json.loads(request.call_args_list[1].kwargs['body'])['role'],
+                         'github-actions-feature-target-read-sit')
 
 if __name__ == '__main__':
     unittest.main()
