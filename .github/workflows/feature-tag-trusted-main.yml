@@ -1,5 +1,6 @@
 name: Feature tag trusted Main verification
 on:
+  workflow_dispatch:
   workflow_run:
     workflows: [Feature tag preflight]
     types: [completed]
@@ -10,6 +11,7 @@ permissions:
   issues: read
 jobs:
   event:
+    if: github.event_name == 'workflow_run'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -88,3 +90,30 @@ jobs:
           FEATURE_EVENT_TAG: ${{ needs.event.outputs.tag }}
           FEATURE_POLICY_COMMIT: ${{ github.sha }}
         run: python3 .github/scripts/feature-lane/event-preflight.py
+  identity-allowed:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify allowed and adjacent denied paths
+        run: python3 .github/scripts/feature-lane/vault-probe.py allowed
+  identity-denied-environment:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify missing environment is denied
+        run: python3 .github/scripts/feature-lane/vault-probe.py denied-environment
