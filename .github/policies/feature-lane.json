@@ -1,0 +1,126 @@
+{
+  "build_owners": {
+    "ai-workspace-infra/artifacts": {
+      "artifact_prefix": "caddy-main-evidence",
+      "event": "workflow_dispatch",
+      "filename": "caddy-main-evidence.json",
+      "repository": "ai-workspace-infra/artifacts",
+      "workflow": ".github/workflows/caddy-main-evidence.yml"
+    },
+    "ai-workspace-services/accounts": {
+      "artifact_prefix": "accounts-main-image",
+      "event": "push",
+      "filename": "main-image-build.json",
+      "repository": "ai-workspace-services/accounts",
+      "workflow": ".github/workflows/ci-pipeline.yml"
+    },
+    "ai-workspace-services/billing-service": {
+      "artifact_prefix": "billing-main-image",
+      "event": "push",
+      "filename": "main-image-build.json",
+      "repository": "ai-workspace-services/billing-service",
+      "workflow": ".github/workflows/ci-pipeline.yml"
+    },
+    "ai-workspace-services/content-service": {
+      "artifact_prefix": "content-main-image",
+      "event": "push",
+      "filename": "main-image-build.json",
+      "repository": "ai-workspace-services/content-service",
+      "workflow": ".github/workflows/ci-pipeline.yml"
+    },
+    "ai-workspace-services/portal": {
+      "artifact_prefix": "console-build-provenance",
+      "event": "workflow_dispatch",
+      "filename": "console-build-provenance.json",
+      "repository": "ai-workspace-services/portal",
+      "workflow": ".github/workflows/ci-pipeline.yml"
+    },
+    "ai-workspace-services/postgresql": {
+      "artifact_prefix": "postgresql-main-image",
+      "event": "push",
+      "filename": "main-image-build.json",
+      "repository": "ai-workspace-services/postgresql",
+      "workflow": ".github/workflows/ci-pipeline.yml"
+    }
+  },
+  "chart_owner": {
+    "package": "distributed-web-saas-fullstack-0.2.9.tgz",
+    "repository": "ai-workspace-infra/artifacts",
+    "workflow": ".github/workflows/release-oci-charts.yml"
+  },
+  "configuration_paths": {
+    "ai-workspace-infra/gitops": [
+      "services/distributed-web-saas-fullstack/dev/feature-lanes/",
+      "docs/features/"
+    ]
+  },
+  "data_baseline_owner": {
+    "artifact_prefix": "feature-baseline-1483",
+    "event": "workflow_dispatch",
+    "filename": "feature-baseline-1483.json",
+    "repository": "ai-workspace-infra/playbooks",
+    "sha": "6785b6c938eec7881c849290a82e1ce76e5b5c38",
+    "workflow": ".github/workflows/feature-baseline-1483.yml"
+  },
+  "domain_suffix": "onwalk.net",
+  "feature_sit_frontend_repository": "ai-workspace-services/portal",
+  "feature_tags": {
+    "smoke-sit-test-1483": {
+      "candidate_sha256": "c470c495623f45ae0f98bf641bcdd49a42d4459c9c3eec0460ea03980b9d8b23",
+      "repository": "ai-workspace-infra/Platform-Orchestrator",
+      "tag_object_sha": "7f2c4647c7cd701d8fa0e17a665ad341490314b7",
+      "target_sha": "f70ecc1a31a2a42c2289ac66555ef11d1b46cc4e",
+      "task_url": "https://github.com/ai-workspace-infra/Platform-Orchestrator/issues/1483"
+    }
+  },
+  "gitops_domain_contract_path": "docs/features/tagged-sit-domain-contract.yaml",
+  "gitops_repository": "ai-workspace-infra/gitops",
+  "main_rehearsal_configuration_tasks": [
+    "https://github.com/ai-workspace-infra/Platform-Orchestrator/issues/1483"
+  ],
+  "main_rehearsal_tasks": [
+    "https://github.com/ai-workspace-infra/Platform-Orchestrator/issues/1483"
+  ],
+  "repositories": [
+    "ai-workspace-infra/artifacts",
+    "ai-workspace-services/portal",
+    "ai-workspace-services/accounts",
+    "ai-workspace-services/billing-service",
+    "ai-workspace-services/content-service",
+    "ai-workspace-services/postgresql"
+  ],
+  "required_tests": [
+    "namespace_isolation",
+    "dns_tls",
+    "service_health",
+    "integration"
+  ],
+  "runtime_components": {
+    "accounts": "ai-workspace-services/accounts",
+    "billing": "ai-workspace-services/billing-service",
+    "caddy": "ai-workspace-infra/artifacts",
+    "console": "ai-workspace-services/portal",
+    "content": "ai-workspace-services/content-service",
+    "postgresql": "ai-workspace-services/postgresql"
+  },
+  "sit_foundation": {
+    "bootstrap_artifact_id": 12705453829,
+    "run_id": 40439068564,
+    "summary_artifact_id": 12706040839
+  },
+  "tag_repositories": [
+    "ai-workspace-infra/Platform-Orchestrator"
+  ],
+  "target": "dev-k3s-v5",
+  "task_repositories": [
+    "ai-workspace-infra/Platform-Orchestrator"
+  ],
+  "uat_target": {
+    "domain": "web-saas-uat.onwalk.net",
+    "namespace": "web-saas-uat"
+  },
+  "website_content_canonical_repository": "ai-workspace-services/knowledge",
+  "website_content_repositories": [
+    "haitaopanhq/knowledge"
+  ]
+}
