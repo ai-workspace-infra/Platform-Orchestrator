@@ -1,15 +1,118 @@
 name: Feature lane protected deployment
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: [Feature tag preflight]
+    types: [completed]
 permissions:
   contents: read
-  id-token: write
+  actions: read
+  issues: read
+  pull-requests: read
 jobs:
+  authenticate-event:
+    if: github.event_name == 'workflow_run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      tag: ${{ steps.event.outputs.tag }}
+      infra_repositories: ${{ steps.event.outputs.infra_repositories }}
+      services_repositories: ${{ steps.event.outputs.services_repositories }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Authenticate pushed tag and reviewed Main candidate
+        id: event
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/feature-lane/main-event.py
+  verified-candidate:
+    needs: authenticate-event
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+      pull-requests: read
+      id-token: write
+    outputs:
+      artifact: ${{ steps.receipt.outputs.artifact }}
+      sha256: ${{ steps.receipt.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read scoped evidence App identity
+        id: vault
+        uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-feature-lane-deploy-evidence-read-sit
+          jwtGithubAudience: vault
+          exportEnv: false
+          secrets: |
+            kv/data/sit/platform/github-app/feature-lane app_id | FEATURE_APP_ID ;
+            kv/data/sit/platform/github-app/feature-lane app_private_key | FEATURE_APP_PRIVATE_KEY
+      - name: Create scoped infra evidence token
+        id: infra
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          app-id: ${{ steps.vault.outputs.FEATURE_APP_ID }}
+          private-key: ${{ steps.vault.outputs.FEATURE_APP_PRIVATE_KEY }}
+          owner: ai-workspace-infra
+          repositories: ${{ needs.authenticate-event.outputs.infra_repositories }}
+          permission-actions: read
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+      - name: Create scoped services evidence token
+        id: services
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          app-id: ${{ steps.vault.outputs.FEATURE_APP_ID }}
+          private-key: ${{ steps.vault.outputs.FEATURE_APP_PRIVATE_KEY }}
+          owner: ai-workspace-services
+          repositories: ${{ needs.authenticate-event.outputs.services_repositories }}
+          permission-actions: read
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+      - name: Reverify candidate and produce same-run receipt
+        id: receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FEATURE_GH_TOKEN_INFRA: ${{ steps.infra.outputs.token }}
+          FEATURE_GH_TOKEN_SERVICES: ${{ steps.services.outputs.token }}
+          FEATURE_EVENT_TAG: ${{ needs.authenticate-event.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export FEATURE_CANDIDATE_FILE="$GITHUB_WORKSPACE/.github/feature-candidates/$FEATURE_EVENT_TAG/candidate.json"
+          export FEATURE_EVIDENCE_SELECTORS_FILE="$GITHUB_WORKSPACE/.github/feature-candidates/$FEATURE_EVENT_TAG/evidence-selectors.json"
+          mkdir -p "$RUNNER_TEMP/feature-candidate"
+          python3 .github/scripts/feature-lane/deploy-receipt.py > "$RUNNER_TEMP/feature-candidate/receipt.json"
+          echo "sha256=$(sha256sum "$RUNNER_TEMP/feature-candidate/receipt.json" | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "artifact=feature-candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.receipt.outputs.artifact }}
+          path: ${{ runner.temp }}/feature-candidate/receipt.json
+          if-no-files-found: error
+          retention-days: 7
   identity-allowed:
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: dev
     timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -18,9 +121,12 @@ jobs:
       - name: Verify dedicated deployment identity and read scope
         run: python3 .github/scripts/feature-lane/vault-probe.py deploy-allowed
   identity-denied-environment:
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
