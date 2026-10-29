@@ -43,6 +43,21 @@ class ChartEvidenceTest(unittest.TestCase):
         self.assertEqual(result['candidate_source_sha'], self.current)
         self.assertEqual(result['package_sha256'], self.package_sha)
 
+    def test_candidate_may_select_only_reviewed_package(self):
+        name = 'distributed-web-saas-fullstack-0.2.10.tgz'
+        self.policy['chart_owner']['additional_packages'] = [name]
+        self.candidate['chart_package'] = name
+        manifest = {'source_sha':self.producer, 'packages':{name:self.package_sha}}
+        self.reader.artifact_file.side_effect = lambda *args: json.dumps(manifest).encode() if args[5] == 'source-manifest.json' else self.package
+        with patch.object(chart, 'tree_at', return_value='e'*40):
+            self.assertEqual(self.verify()['package_sha256'], self.package_sha)
+            self.candidate['chart_package'] = 'distributed-web-saas-fullstack-0.3.0.tgz'
+            with self.assertRaisesRegex(ValueError, 'not reviewed'):
+                self.verify()
+        self.policy['chart_owner']['additional_packages'] = [name, name]
+        with self.assertRaisesRegex(ValueError, 'package list'):
+            self.verify()
+
     def test_rejects_changed_tree_run_or_registry_package(self):
         with patch.object(chart, 'tree_at', side_effect=['e' * 40, 'f' * 40]):
             with self.assertRaisesRegex(ValueError, 'tree changed'):
