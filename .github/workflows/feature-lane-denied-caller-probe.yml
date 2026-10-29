@@ -17,3 +17,5 @@ jobs:
           persist-credentials: false
       - name: Verify a different workflow is denied
         run: python3 .github/scripts/feature-lane/vault-probe.py denied-caller
+      - name: Verify deployment evidence identity rejects another workflow
+        run: python3 .github/scripts/feature-lane/vault-probe.py deploy-denied
