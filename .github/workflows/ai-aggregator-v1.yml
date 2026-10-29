@@ -832,7 +832,7 @@ jobs:
         with:
           url: https://vault.svc.plus
           method: jwt
-          role: github-actions-platform-ops-toolkit-${{ needs.resolve-provider.outputs.environment }}-akamai-oidc-bootstrap-${{ env.AKAMAI_ACCOUNT }}
+          role: ${{ needs.resolve-provider.outputs.environment == 'prod' && 'prod-akamai-iac' || format('github-actions-platform-ops-toolkit-{0}-akamai-oidc-bootstrap-{1}', needs.resolve-provider.outputs.environment, env.AKAMAI_ACCOUNT) }}
           jwtGithubAudience: vault
           exportToken: false
           secrets: |

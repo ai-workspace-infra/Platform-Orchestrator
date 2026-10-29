@@ -133,27 +133,28 @@ publish_env() {
   local policy_file role_file
   if [[ "$env_name" == dev ]]; then
     verify_dev_session "$role_name"
+  elif [[ "$env_name" == prod ]]; then
+    role_name="prod-akamai-iac"
   fi
   policy_file="${tmp_dir}/${env_name}-${account}.hcl"
   role_file="${tmp_dir}/${env_name}-${account}.json"
 
   sed -e "s/__ENV__/${env_name}/g" -e "s/__ACCOUNT__/${account}/g" \
     "${TEMPLATE_DIR}/akamai-oidc-policy.hcl.tmpl" >"${policy_file}"
-  sed -e "s/__ACCOUNT__/${account}/g" \
+  sed -e "s/__ACCOUNT__/${account}/g" -e "s/__POLICY__/${policy_name}/g" \
     "${TEMPLATE_DIR}/akamai-oidc-role-${env_name}.json.tmpl" >"${role_file}"
 
   if [[ "$mode" == check ]]; then
     vault policy read "$policy_name" >/dev/null
     vault read "${VAULT_JWT_AUTH_MOUNT}/role/${role_name}" >/dev/null
-    verify_role_claims "$env_name" "$account" "$role_name"
+    verify_role_claims "$env_name" "$account" "$role_name" "$policy_name"
     echo "present ${env_name}/${account}"
     return
   fi
-
   vault policy write "$policy_name" "$policy_file" >/dev/null
   jq -c 'del(.role_name, .description)' "$role_file" |
     vault write "${VAULT_JWT_AUTH_MOUNT}/role/${role_name}" - >/dev/null
-  verify_role_claims "$env_name" "$account" "$role_name"
+  verify_role_claims "$env_name" "$account" "$role_name" "$policy_name"
   echo "written ${env_name}/${account}"
 }
 
@@ -161,6 +162,7 @@ verify_role_claims() {
   local env_name="$1"
   local account="$2"
   local role_name="$3"
+  local policy_name="$4"
   local expected_environment="$env_name"
   local role_json
 
@@ -189,29 +191,48 @@ verify_role_claims() {
     fi
     return
   fi
+  if [[ "$env_name" == uat ]]; then
+    if ! jq -e --arg repository "ai-workspace-infra/platform-ops-toolkit" \
+      --arg role_policy "$role_name" '
+        .data as $role
+        | $role.bound_claims.repository == $repository
+          and ($role.bound_claims.ref | if type == "array" then index("refs/heads/main") != null else . == "refs/heads/main" end)
+          and $role.bound_claims.environment == "uat"
+          and $role.token_policies == [$role_policy]
+          and $role.token_no_default_policy == true
+          and $role.token_type == "batch"
+          and ($role.token_ttl == 1200 or $role.token_ttl == "20m")
+          and ($role.token_max_ttl == 1200 or $role.token_max_ttl == "20m")
+      ' <<<"$role_json" >/dev/null; then
+      echo "::error::UAT Akamai role claims or token scope do not match the existing UAT contract." >&2
+      return 1
+    fi
+    return
+  fi
   if ! jq -e \
     --arg repository "ai-workspace-infra/platform-ops-toolkit" \
-    --arg iac_workflow "ai-workspace-infra/platform-ops-toolkit/.github/workflows/akamai-cloud-iac.yml@*" \
-    --arg selfhost_workflow "ai-workspace-infra/platform-ops-toolkit/.github/workflows/selfhost-orchestrator.yml@*" \
-    --arg preflight_workflow "ai-workspace-infra/iac_modules/.github/workflows/akamai-state-preflight.yml@f8b3d52e4f2b6528fcf4fa762ea7bf83f8145d06" \
-    --arg toolkit_preflight "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-akamai-state-preflight.yaml@refs/heads/main" \
-    --arg expected_ref "refs/heads/main" \
-    --arg expected_environment "$expected_environment" '
-      def as_array: if type == "array" then . else [.] end;
-      .data.bound_claims as $claims
-      | ($claims.job_workflow_ref | as_array) as $workflows
-      | ($claims.ref | as_array) as $refs
-      | (
-          ($workflows | index($iac_workflow)) != null
-          and ($workflows | index($selfhost_workflow)) != null
-          and ($expected_environment != "uat" or (($workflows | index($preflight_workflow)) != null and ($workflows | index($toolkit_preflight)) != null))
-          and ($claims.repository == $repository)
-          and (($refs | index($expected_ref)) != null)
-          and ($claims.environment == $expected_environment)
-        )
+    --arg stage_workflow "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/heads/main" \
+    --arg aggregator_workflow "ai-workspace-infra/platform-ops-toolkit/.github/workflows/ai-aggregator-v1.yml@refs/heads/main" \
+    --arg expected_environment "$expected_environment" \
+    --arg policy "$policy_name" '
+      .data as $role
+      | $role.bound_claims as $claims
+      | $claims.repository == $repository
+        and ($claims.job_workflow_ref == [$stage_workflow, $aggregator_workflow]
+          or $claims.job_workflow_ref == [$aggregator_workflow, $stage_workflow])
+        and $claims.ref == "refs/heads/main"
+        and $claims.environment == $expected_environment
+        and $role.bound_claims_type == "glob"
+        and $role.role_type == "jwt" and $role.user_claim == "sub"
+        and $role.bound_audiences == ["vault"]
+        and $role.token_policies == [$policy]
+        and $role.token_no_default_policy == true
+        and $role.token_type == "batch"
+        and ($role.token_ttl == 1200 or $role.token_ttl == "20m")
+        and ($role.token_max_ttl == 1200 or $role.token_max_ttl == "20m")
     ' <<<"$role_json" >/dev/null; then
     echo "::error::Vault role ${role_name} was written/read, but its repository/ref/environment/job_workflow_ref claims are not the Akamai Cloud contract for ${env_name}/${account}." >&2
-    echo "::error::Required workflows: akamai-cloud-iac.yml and selfhost-orchestrator.yml; UAT also requires legacy and Toolkit Akamai preflight workflow claims; required ref: refs/heads/main; required environment: ${expected_environment}." >&2
+    echo "::error::Required caller is iac-pipeline-multi-cloud-stages.yaml on main, with the exact ${expected_environment} GitHub Environment and account-scoped policy ${policy_name}." >&2
     return 1
   fi
 }
