@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: a87fd9feda5fd41c5295588b1a8c57bdb15f3442
+          ref: 83b7379e4e7cdc18b1d83c5c7c4b618f6f1be5c9
           path: contract/iac_modules
 
       - name: Checkout immutable Playbooks owner

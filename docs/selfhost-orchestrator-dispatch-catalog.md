@@ -54,3 +54,9 @@ The reviewed repository tag ruleset in
 that narrow namespace. Both preflight and Vault require protected tag claims;
 the V6 role does not accept arbitrary v* releases or main. Tag creation remains
 a deliberate operator action from the CI-passing merged commit.
+
+The first V6 apply created and converged only the three approved resources.
+Host bootstrap stopped before SSH because console binary frames were coerced to
+object strings. Retain that candidate and disk. The caller must pin the reviewed
+IaC decoding fix before retrying, and a fresh plan must show no resource changes.
+No console trust or fingerprint comparison may be bypassed to resume.
