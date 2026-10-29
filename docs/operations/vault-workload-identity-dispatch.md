@@ -34,6 +34,11 @@ Vault TLS identity stages each have a separate dispatch.
 - `configure` obtains the declared restricted administrator identity;
   `verify` and the release modes do not request it. All modes keep credentials
   out of receipts.
+- The restricted administrator can read only the dedicated V6 auth config and
+  role in addition to its existing mount/policy scope, so configure inspects
+  existing state before making any change. Existing unreviewed values fail closed.
+- A redacted stage receipt is uploaded whenever the owner creates one, including
+  owner failures; the workflow then remains failed after evidence upload.
 - The workload owner tests the declared allowed record and rejects the
   declared denied path, wrong audience, and wrong service account.
 

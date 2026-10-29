@@ -9,10 +9,10 @@ path "sys/policies/acl/prod-k3s-v6-vault-tls-reader" {
   capabilities = ["read", "create", "update"]
 }
 path "auth/jwt-prod-k3s-v6/config" {
-  capabilities = ["create", "update"]
+  capabilities = ["create", "read", "update"]
 }
 path "auth/jwt-prod-k3s-v6/role/prod-k3s-v6-vault-tls-reader" {
-  capabilities = ["create", "update"]
+  capabilities = ["create", "read", "update"]
 }
 path "auth/token/lookup-self" {
   capabilities = ["read"]

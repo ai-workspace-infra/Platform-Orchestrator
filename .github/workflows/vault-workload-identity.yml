@@ -182,6 +182,8 @@ jobs:
           exportToken: false
           outputToken: true
       - name: Execute the reviewed identity owner
+        id: owner
+        continue-on-error: true
         uses: ./playbooks/.github/actions/workload-identity-operation
         env:
           SSH_PRIVATE_KEY: ${{ steps.access.outputs.SSH_PRIVATE_KEY }}
@@ -199,8 +201,12 @@ jobs:
           known-hosts: ${{ steps.identity.outputs.known-hosts }}
           receipt: ${{ runner.temp }}/workload-identity-receipt.json
       - name: Save redacted identity evidence
+        if: ${{ always() && steps.owner.outputs.receipt-created == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: workload-identity-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/workload-identity-receipt.json
           if-no-files-found: error
+      - name: Fail after saving identity evidence
+        if: ${{ always() && steps.owner.outcome != 'success' }}
+        run: exit 1
