@@ -355,7 +355,12 @@ def authorization(policy, fingerprint, stage, task, selectors):
 
 def verify_data_baseline(candidate, policy, selector):
     """Authenticate a fixed, lane-specific data baseline evidence document."""
-    owner = policy.get('data_baseline_owner')
+    profile = candidate.get('data_baseline_profile')
+    if profile is None:
+        owner = policy.get('data_baseline_owner')
+    else:
+        gate.require(isinstance(profile, str) and re.fullmatch(r'[a-z0-9-]{1,40}', profile) is not None, 'invalid data baseline profile')
+        owner = policy.get('data_baseline_profiles', {}).get(profile)
     gate.require(isinstance(owner, dict) and gate.sha(owner.get('sha')) and
                  owner.get('event') == 'workflow_dispatch',
                  'reviewed data baseline evidence owner required')

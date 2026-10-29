@@ -65,6 +65,16 @@
     "sha": "6785b6c938eec7881c849290a82e1ce76e5b5c38",
     "workflow": ".github/workflows/feature-baseline-1483.yml"
   },
+  "data_baseline_profiles": {
+    "pr-1483": {
+      "artifact_prefix": "feature-baseline-1483",
+      "event": "workflow_dispatch",
+      "filename": "feature-baseline-1483.json",
+      "repository": "ai-workspace-infra/playbooks",
+      "sha": "c25536657232dfd8f2b52a6c94796f21a3c92ee2",
+      "workflow": ".github/workflows/feature-baseline-1483.yml"
+    }
+  },
   "domain_suffix": "onwalk.net",
   "feature_build_owners": {
     "ai-workspace-services/accounts": {

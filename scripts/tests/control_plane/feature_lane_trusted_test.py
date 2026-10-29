@@ -59,6 +59,14 @@ class TrustedTest(unittest.TestCase):
             raw['head_sha']='d'*40
             with self.assertRaises(T.gate.Blocked): T.verify_pr_build_producer(proof,source)
 
+    def test_baseline_profile_cannot_fall_back_to_another_owner(self):
+        c={'data_baseline_profile':'pr-1483'}
+        with self.assertRaisesRegex(T.gate.Blocked,'reviewed data baseline'):
+            T.verify_data_baseline(c,{'data_baseline_owner':{'sha':'a'*40,'event':'workflow_dispatch'}}, {})
+        c['data_baseline_profile'] = '../unsafe'
+        with self.assertRaisesRegex(T.gate.Blocked,'invalid data baseline profile'):
+            T.verify_data_baseline(c,{}, {})
+
     def test_caddy_evidence_binds_original_build_run(self):
         source={'repository':'ai-workspace-infra/artifacts','sha':'a'*40}
         proof={'evidence_kind':'github-run-and-registry','producer_workflow':'.github/workflows/build-ci-image-caddy.yml','producer_run_id':123,'producer_attempt':1}
