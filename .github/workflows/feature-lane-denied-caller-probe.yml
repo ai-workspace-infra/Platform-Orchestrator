@@ -19,3 +19,5 @@ jobs:
         run: python3 .github/scripts/feature-lane/vault-probe.py denied-caller
       - name: Verify deployment evidence identity rejects another workflow
         run: python3 .github/scripts/feature-lane/vault-probe.py deploy-denied
+      - name: Verify provider target identity rejects another workflow
+        run: python3 .github/scripts/feature-lane/vault-probe.py target-denied
