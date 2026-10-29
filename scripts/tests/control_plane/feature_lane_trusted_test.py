@@ -22,6 +22,35 @@ F=load('gate_fixture',ROOT/'scripts/tests/control_plane/feature_lane_gate_test.p
 
 
 class TrustedTest(unittest.TestCase):
+    def test_caddy_evidence_binds_original_build_run(self):
+        source={'repository':'ai-workspace-infra/artifacts','sha':'a'*40}
+        proof={'evidence_kind':'github-run-and-registry','producer_workflow':'.github/workflows/build-ci-image-caddy.yml','producer_run_id':123,'producer_attempt':1}
+        raw={'id':123,'run_attempt':1,'head_sha':'a'*40,'head_branch':'main','event':'workflow_dispatch','path':proof['producer_workflow'],'status':'completed','conclusion':'success','head_repository':{'full_name':source['repository']}}
+        with patch.object(T.reader,'api',return_value=raw):
+            self.assertEqual(T.build_run_identity(proof,{'id':456},source),123)
+            raw['head_sha']='b'*40
+            with self.assertRaisesRegex(T.gate.Blocked,'original build run'):
+                T.build_run_identity(proof,{'id':456},source)
+
+    def test_configuration_diff_rejects_undeclared_and_deleted_files(self):
+        row={'repository':'example/config','pr':7,'paths':{'lane/values.yaml':'a'*64}}
+        for files in ([{'filename':'lane/values.yaml','status':'modified'},{'filename':'prod/values.yaml','status':'modified'}],
+                      [{'filename':'lane/values.yaml','status':'removed'}]):
+            with self.subTest(files=files), patch.object(T.reader,'api',return_value=files), self.assertRaises(T.gate.Blocked):
+                T.verify_configuration_diff(row)
+        with patch.object(T.reader,'api',return_value=[{'filename':'lane/values.yaml','status':'added'}]):
+            T.verify_configuration_diff(row)
+
+    def test_content_alias_must_match_repository_id_and_commit(self):
+        policy={'website_content_repositories':['old/content'],'website_content_canonical_repository':'new/content'}
+        records={'repos/old/content':{'id':7},'repos/new/content':{'id':7,'full_name':'new/content'},'repos/new/content/commits/'+'e'*40:{'sha':'e'*40}}
+        with patch.object(T.reader,'api',side_effect=lambda path:records[path]):
+            self.assertEqual(T.verified_content_identity('old/content','e'*40,policy)['repository_id'],7)
+            records['repos/new/content']['id']=8
+            with self.assertRaises(T.gate.Blocked):T.verified_content_identity('old/content','e'*40,policy)
+            records['repos/new/content']['id']=7
+            records['repos/new/content/commits/'+'e'*40]['sha']='f'*40
+            with self.assertRaises(T.gate.Blocked):T.verified_content_identity('old/content','e'*40,policy)
     def test_gitops_domain_binding_rejects_moved_main_and_changed_bytes(self):
         path = 'docs/features/tagged-sit-domain-contract.yaml'
         candidate = {'gitops': {'repository': 'example/gitops', 'sha': 'd' * 40, 'domain_sha256': 'a' * 64},
@@ -54,6 +83,17 @@ class TrustedTest(unittest.TestCase):
                 T.feature_api('repos/example/accounts/actions/runs/1')
                 self.assertEqual(api.call_args.kwargs, {'binary': False, 'token': None})
 
+    def test_schema_two_rejects_unknown_build_manifest_formats(self):
+        source = {'repository': 'example/accounts', 'kind': 'feature', 'sha': 'a' * 40,
+                  'image': 'example/accounts@sha256:' + 'b' * 64}
+        proof = {'repository': source['repository'], 'source_sha': source['sha'],
+                 'image': source['image'], 'schema': 1}
+        T.verify_build_manifest(proof, {}, source, strict_schema=True)
+        for bad in (None, True, 2, 'unexpected'):
+            with self.subTest(schema=bad):
+                with self.assertRaises(T.gate.Blocked):
+                    T.verify_build_manifest(dict(proof, schema=bad), {}, source, strict_schema=True)
+
     def test_main_image_manifest_binds_authenticated_run_and_source(self):
         source = {'repository': 'example/accounts', 'kind': 'baseline', 'sha': 'a' * 40,
                   'image': 'example/accounts@sha256:' + 'b' * 64}
@@ -82,7 +122,7 @@ class TrustedTest(unittest.TestCase):
             artifact_name='acceptance-42-1',filename='receipt.json')
         self.policy['builds']={'example/accounts':dict(repository='example/accounts',workflow='build.yml',sha='a'*40,
             event='pull_request',run_id=11,attempt=1,artifact_id=102,artifact_name='build-11-1',filename='manifest.json')}
-        self.documents={101:self.receipt,102:{'repository':'example/accounts','source_sha':'a'*40,'image':self.c['sources'][0]['image']}}
+        self.documents={101:self.receipt,102:{'schema':1,'repository':'example/accounts','source_sha':'a'*40,'image':self.c['sources'][0]['image']}}
         self.metadata={};self.archives={};self.rawruns={};self.files={};self.config_rawpr=None
         for loc in [self.policy['acceptance_owner'],*self.policy['builds'].values()]:
             self.rawruns[loc['run_id']]=dict(repository={'full_name':loc['repository']},head_repository={'full_name':loc['repository']},
@@ -124,6 +164,8 @@ class TrustedTest(unittest.TestCase):
         if '/compare/' in path:return {'status':self.main_status}
         if '/contents/' in path and T.POLICY_PATH not in path:return self.files[path]
         if '/contents/' in path:return {'type':'file','path':T.POLICY_PATH,'size':1000,'sha':('c' if self.policy_drift and path.endswith('d'*40) else 'b')*40,'content':base64.b64encode(json.dumps(self.policy).encode()).decode()}
+        if path.startswith('repos/example/config/pulls/') and '/files?' in path:
+            return [{'filename':name,'status':'modified'} for name in self.c['configurations'][0]['paths']]
         if path.startswith('repos/example/config/pulls/'):return self.config_rawpr
         if '/pulls/' in path:return self.rawpr
         if '/git/commits/' in path:return {'tree':{'sha':'b'*40}}
@@ -158,6 +200,7 @@ class TrustedTest(unittest.TestCase):
         self.policy['main_rehearsal_tasks'] = [self.c['task_url']]
         self.policy['feature_sit_frontend_repository'] = 'example/accounts'
         self.policy['website_content_repositories'] = ['example/content']
+        self.policy['website_content_canonical_repository'] = 'example/content'
         self.documents[102].update(website_content_repository='example/content', website_content_sha='e' * 40,
                                    environment='sit', build_mode='feature-sit', candidate_hostname=self.c['domains']['sit'])
         self.archive(102, 'manifest.json', json.dumps(self.documents[102]))
@@ -167,9 +210,14 @@ class TrustedTest(unittest.TestCase):
              patch.object(T, 'verify_feature_tag') as tag_check, \
              patch.object(T, 'verify_gitops_domain') as gitops_check, \
              patch.object(T.chart, 'verify') as chart_check, \
-             patch.object(T, 'verify_main_rehearsal_sources') as main_check:
+             patch.object(T, 'verify_main_rehearsal_sources') as main_check, \
+             patch.object(T, 'verified_content_identity', return_value={'repository':'example/content','sha':'e'*40,'repository_id':7}):
             result = T.verified(self.c, 'sit', 'f' * 40, self.selectors)
             self.assertEqual(result['status'], 'VERIFIED_GATE')
+            self.assertEqual(result['verified_website_content'], {'repository':'example/content','sha':'e'*40,'repository_id':7})
+            self.assertEqual(result['verified_chart_digest'], self.c['chart_digest'])
+            self.assertEqual(result['verified_runtime_components']['accounts'], {'source_repository':'example/accounts','source_sha':'a'*40,'image':self.c['sources'][0]['image'],'build_run_id':'11'})
+            self.assertEqual(result['verified_projection'], {'tagged_lane':{'feature_id':self.c['feature_id'],'feature_tag':self.c['feature_tag'],'candidate_sha256':T.gate.identity(self.c)},'chart_digest':self.c['chart_digest'],'knowledge':{'repository':'example/content','sha':'e'*40},'components':result['verified_runtime_components']})
             self.assertFalse(result['dispatch_authorized'])
             self.assertEqual(tag_check.call_count, 2)
             self.assertEqual(gitops_check.call_count, 2)
@@ -415,6 +463,13 @@ class TrustedTest(unittest.TestCase):
                            'body':self.c['task_url'],'state':'open','merged':False}
         self.receipt['image_ids']={'accounts':self.c['sources'][0]['image']};self.refresh_candidate_evidence()
         self.assertEqual(self.decide()['status'],'VERIFIED_GATE')
+        def moving_api(request, binary=False):
+            result=self.api(request,binary=binary)
+            if '/pulls/7/files?' in request:self.config_rawpr['head']['sha']='f'*40
+            return result
+        with patch.object(T.reader,'api',side_effect=moving_api), self.assertRaisesRegex(T.gate.Blocked,'moved during'):
+            T.verified(self.c,'merge','f'*40,self.selectors)
+        self.config_rawpr['head']['sha']=head
         self.config_rawpr.update(state='closed',merged=True,merge_commit_sha='9'*40)
         self.file_record('repos/example/config/contents/'+path+'?ref='+'9'*40,path,b'accounts: pinned')
         self.selectors['merge_builds']={};self.comment['body']=self.comment['body'].replace('action=merge','action=uat')

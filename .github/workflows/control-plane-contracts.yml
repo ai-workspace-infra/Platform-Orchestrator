@@ -95,6 +95,9 @@ jobs:
       - name: Verify trusted Main Feature event
         run: python3 scripts/tests/control_plane/feature_lane_main_event_test.py
 
+      - name: Verify same-run Feature deployment receipt contract
+        run: python3 scripts/tests/control_plane/feature_lane_deploy_receipt_test.py
+
       - name: Verify Feature chart provenance
         run: python3 scripts/tests/control_plane/feature_lane_chart_test.py
 

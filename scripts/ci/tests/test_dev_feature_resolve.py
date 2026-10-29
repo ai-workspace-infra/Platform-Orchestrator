@@ -10,6 +10,7 @@ class Reader:
  def __init__(self):self.summary=json.loads((FIX/'summary.json').read_text());self.boot=json.loads((FIX/'receipt.json').read_text());self.calls=[]
  def api(self,path,binary=False):
   self.calls.append(path)
+  if path == f'repos/{R.REPO}':return {'id':1284966060,'full_name':R.REPO}
   if '/contents/.github/workflows/' in path:
    name=path.split('/contents/')[1].split('?')[0]
    if name.endswith('dev-host-lifecycle.yml'): content='jobs:\n  iac:\n    with:\n      iac_ref: 1d3bc5b54a49b946b98e48bf9f73606369b77d02\n  bootstrap:\n    uses: ai-workspace-infra/playbooks/.github/workflows/dev-k3s-bootstrap.yml@'+'a'*40+'\n'
@@ -46,6 +47,21 @@ class FoundationTests(unittest.TestCase):
     data={**data,'content':base64.b64encode(text.encode()).decode(),'size':len(text)}
    return data
   reader.api=altered
+  with self.assertRaises(ValueError):R.foundation(reader,40353330431,12664517641,12668512699)
+ def test_renamed_repository_requires_matching_stable_id(self):
+  reader=Reader(); original=reader.api
+  def renamed(path,binary=False):
+   if path==f'repos/{R.REPO}':return {'id':1284966060,'full_name':'ai-workspace-infra/Platform-Orchestrator'}
+   data=original(path,binary)
+   if isinstance(data,dict) and 'head_repository' in data:
+    data['repository']['full_name']=data['head_repository']['full_name']='ai-workspace-infra/Platform-Orchestrator'
+   return data
+  reader.api=renamed
+  R.foundation(reader,40353330431,12664517641,12668512699)
+  def impostor(path,binary=False):
+   if path==f'repos/{R.REPO}':return {'id':999,'full_name':'ai-workspace-infra/Platform-Orchestrator'}
+   return renamed(path,binary)
+  reader.api=impostor
   with self.assertRaises(ValueError):R.foundation(reader,40353330431,12664517641,12668512699)
  def test_bool_locator_rejected(self):
   with self.assertRaises(ValueError):R.positive(True)
@@ -89,6 +105,7 @@ class PriorCandidateEvidenceTests(unittest.TestCase):
   proof={**current,'source':{'workflow_ref':R.WORKFLOW,'run_id':'123'},'builds':builds}
   class EvidenceReader:
    def api(self,path):
+    if path==f'repos/{R.REPO}':return {'id':1284966060,'full_name':R.REPO}
     if '/attempts/1/jobs' in path:return {'jobs':[{'name':'resolve','conclusion':'success'}]}
     if '/git/ref/heads/main' in path:return {'object':{'sha':'f'*40}}
     if '/compare/' in path:return {'status':'ahead'}
@@ -100,6 +117,16 @@ class PriorCandidateEvidenceTests(unittest.TestCase):
   self.assertEqual(len(R.prior_candidate_builds(reader,123,456,current,release)[0]),6)
   proof['builds'][0]['source_sha']='f'*40
   with self.assertRaises(ValueError):R.prior_candidate_builds(reader,123,456,current,release)
+ def test_renamed_candidate_producer_keeps_repository_identity_bound(self):
+  reader,current,release,proof=self.fixture(); original=reader.api
+  def renamed(path):
+   if path==f'repos/{R.REPO}':return {'id':1284966060,'full_name':'ai-workspace-infra/Platform-Orchestrator'}
+   value=original(path)
+   if isinstance(value,dict) and 'head_repository' in value:
+    value['repository']['full_name']=value['head_repository']['full_name']='ai-workspace-infra/Platform-Orchestrator'
+   return value
+  reader.api=renamed
+  self.assertEqual(len(R.prior_candidate_builds(reader,123,456,current,release)[0]),6)
  def test_changed_candidate_rejected(self):
   reader,current,release,proof=self.fixture();proof['candidate_head']='f'*40
   with self.assertRaises(ValueError):R.prior_candidate_builds(reader,123,456,current,release)

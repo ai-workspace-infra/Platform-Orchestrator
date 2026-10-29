@@ -1,0 +1,21 @@
+{
+  "role_name": "github-actions-feature-lane-read-sit",
+  "description": "Read the dedicated Feature SIT evidence GitHub App identity from the reviewed Main workflow only.",
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_audiences": ["vault"],
+  "bound_claims_type": "glob",
+  "bound_claims": {
+    "repository": "ai-workspace-infra/Platform-Orchestrator",
+    "repository_id": "1284966060",
+    "repository_owner_id": "292703558",
+    "job_workflow_ref": "ai-workspace-infra/Platform-Orchestrator/.github/workflows/feature-tag-trusted-main.yml@refs/heads/main",
+    "ref": "refs/heads/main",
+    "environment": "dev"
+  },
+  "token_policies": ["github-actions-feature-lane-read-sit"],
+  "token_no_default_policy": true,
+  "token_type": "batch",
+  "token_ttl": "10m",
+  "token_max_ttl": "10m"
+}

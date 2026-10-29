@@ -33,7 +33,7 @@ def feature_api(path, binary=False):
     Callers supply credentials; this adapter never obtains them or grants
     execution. Without an owner-specific token the existing gh identity applies.
     """
-    match = re.match(r'^repos/([^/]+)/[^/]+/', path) if isinstance(path, str) else None
+    match = re.match(r'^repos/([^/]+)/[^/]+(?:/|$)', path) if isinstance(path, str) else None
     owner = match.group(1).lower() if match else ''
     key = {'ai-workspace-infra': 'FEATURE_GH_TOKEN_INFRA',
            'ai-workspace-services': 'FEATURE_GH_TOKEN_SERVICES'}.get(owner)
@@ -77,6 +77,24 @@ def file_at(repo, commit, path):
     raw = base64.b64decode(record['content'])
     gate.require(len(raw) <= 1_000_000, 'oversized fixed content bytes')
     return hashlib.sha256(raw).hexdigest()
+
+
+def verified_content_identity(repo, commit, policy):
+    canonical = policy.get('website_content_canonical_repository')
+    valid_repo = r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
+    gate.require(isinstance(repo, str) and re.fullmatch(valid_repo, repo) and
+                 isinstance(canonical, str) and re.fullmatch(valid_repo, canonical) and
+                 repo in policy.get('website_content_repositories', []) and gate.sha(commit),
+                 'reviewed content repository and commit required')
+    original = reader.api(f'repos/{repo}')
+    resolved = reader.api(f'repos/{canonical}')
+    gate.require(type(original.get('id')) is int and original['id'] > 0 and
+                 original.get('id') == resolved.get('id') and
+                 resolved.get('full_name', '').lower() == canonical.lower(),
+                 'content repository aliases do not resolve to the reviewed identity')
+    record = reader.api(f'repos/{canonical}/commits/{commit}')
+    gate.require(record.get('sha') == commit, 'verified content commit unavailable')
+    return {'repository': canonical, 'sha': commit, 'repository_id': original['id']}
 
 
 def task_at(candidate, policy):
@@ -201,6 +219,20 @@ def pull(source, stage, task_url, configuration=False, require_task_link=True):
     return snapshot
 
 
+def verify_configuration_diff(row):
+    """Every changed path must be among the candidate's fixed declarations."""
+    files = reader.api(f'repos/{row["repository"]}/pulls/{row["pr"]}/files?per_page=100&page=1')
+    gate.require(isinstance(files, list) and 0 < len(files) <= 64,
+                 'configuration PR must contain a bounded set of changes')
+    seen = set()
+    for item in files:
+        path = item.get('filename') if isinstance(item, dict) else None
+        gate.require(isinstance(path, str) and path in row['paths'] and path not in seen and
+                     item.get('status') in ('added', 'modified'),
+                     'configuration PR contains undeclared, renamed or deleted files')
+        seen.add(path)
+
+
 def artifact(locator):
     repo = locator['repository']
     gate.require(isinstance(repo, str) and re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo), 'invalid evidence repository')
@@ -220,9 +252,13 @@ def artifact(locator):
     return json.loads(payload), run
 
 
-def verify_build_manifest(proof, run, source):
+def verify_build_manifest(proof, run, source, *, strict_schema=False):
     """Validate the reviewed owner's manifest against its authenticated run."""
     gate.require(isinstance(proof, dict), 'invalid build manifest')
+    if strict_schema:
+        gate.require((type(proof.get('schema')) is int and proof['schema'] == 1) or
+                     proof.get('schema') == 'main-image-build/v1',
+                     'unsupported build manifest schema')
     if proof.get('schema') == 'main-image-build/v1':
         gate.require(source.get('kind') == 'baseline' and run.get('event') == 'push' and run.get('head_branch') == 'main' and
                      proof.get('event') == 'push' and proof.get('ref') == 'refs/heads/main' and
@@ -235,6 +271,24 @@ def verify_build_manifest(proof, run, source):
         gate.require(proof.get('repository') == source['repository'], 'build manifest repository mismatch')
     gate.require(proof.get('source_sha') == source['sha'] and proof.get('image') == source['image'],
                  'build manifest source/image mismatch')
+
+
+def build_run_identity(proof, evidence_run, source):
+    if source['repository'] != 'ai-workspace-infra/artifacts':
+        return evidence_run['id']
+    build_id=proof.get('producer_run_id');attempt=proof.get('producer_attempt')
+    gate.require(proof.get('evidence_kind')=='github-run-and-registry' and
+                 proof.get('producer_workflow')=='.github/workflows/build-ci-image-caddy.yml' and
+                 type(build_id) is int and build_id>0 and type(attempt) is int and attempt>0,
+                 'Caddy build producer identity missing')
+    raw=reader.api(f'repos/{source["repository"]}/actions/runs/{build_id}')
+    gate.require(raw.get('id')==build_id and raw.get('run_attempt')==attempt and
+                 raw.get('head_sha')==source['sha'] and raw.get('head_branch')=='main' and
+                 raw.get('event')=='workflow_dispatch' and raw.get('path','').split('@')[0]==proof['producer_workflow'] and
+                 raw.get('status')=='completed' and raw.get('conclusion')=='success' and
+                 raw.get('head_repository',{}).get('full_name')==source['repository'],
+                 'Caddy original build run differs')
+    return build_id
 
 
 def authorization(policy, fingerprint, stage, task, selectors):
@@ -302,13 +356,20 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
                 verify_main_rehearsal_sources(candidate, policy)
         prs = {}
         config_prs = {}
+        verified_website_content = None
+        verified_builds = {}
         for row in candidate.get('configurations', []):
             key = row['repository']+'#'+str(row['pr'])
             primary = len(candidate['configurations']) == 1 or candidate.get('configuration_entrypoint') == key
             snapshot = pull(row, stage, candidate['task_url'], configuration=True, require_task_link=primary)
+            verify_configuration_diff(row)
             snapshot['path_hashes'] = {path: file_at(row['repository'], row['sha'], path) for path in row['paths']}
             if stage == 'uat':
                 snapshot['merged_path_hashes'] = {path: file_at(row['repository'], snapshot['merge_sha'], path) for path in row['paths']}
+            current = pull(row, stage, candidate['task_url'], configuration=True, require_task_link=primary)
+            gate.require(all(current.get(key) == snapshot.get(key) for key in
+                             ('repository', 'number', 'head_sha', 'head_repository', 'base_ref', 'base_sha',
+                              'state', 'merged', 'merge_sha')), 'configuration PR moved during evidence retrieval')
             config_prs[row['repository']+'#'+str(row['pr'])] = snapshot
         for source in candidate['sources']:
             if source['kind'] == 'feature':
@@ -316,7 +377,11 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
             owner = policy['build_owners'][source['repository']]
             gate.require(owner['repository'] == source['repository'], 'foreign source build owner')
             proof, producer = artifact(locator(owner, evidence_selectors['builds'][source['repository']], source['sha']))
-            verify_build_manifest(proof, producer, source)
+            verify_build_manifest(proof, producer, source, strict_schema=candidate.get('schema') == 2)
+            verified_builds[source['repository']] = {'source_repository': source['repository'],
+                                                       'source_sha': source['sha'],
+                                                       'image': source['image'],
+                                                       'build_run_id': str(build_run_identity(proof, producer, source))}
             if candidate.get('schema') == 2 and source['repository'] == frontend_repo:
                 content_repo = source.get('website_content_repository')
                 content_sha = source.get('website_content_sha')
@@ -326,6 +391,7 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
                              proof.get('environment') == 'sit' and proof.get('build_mode') == 'feature-sit' and
                              proof.get('candidate_hostname') == candidate['domains']['sit'],
                              'frontend SIT build inputs differ from candidate')
+                verified_website_content = verified_content_identity(content_repo, content_sha, policy)
         if candidate.get('schema') == 2 and candidate.get('candidate_mode') == 'main-rehearsal' and stage == 'sit':
             verify_main_rehearsal_sources(candidate, policy)
             verify_feature_tag(candidate, policy)
@@ -354,6 +420,24 @@ def verified(candidate, stage, policy_commit, evidence_selectors=None):
         evaluation_policy = dict(policy, authorization_url_prefix=prefix)
         result = gate._evaluate(candidate, evaluation_policy, stage, prs, receipt, run, auth, config_prs)
         result.update(status='VERIFIED_GATE', evidence_kind='github_retrieved', policy_sha=policy_commit)
+        if verified_website_content is not None:
+            result['verified_website_content'] = verified_website_content
+        if candidate.get('schema') == 2:
+            result['verified_chart_digest'] = candidate['chart_digest']
+        if candidate.get('components'):
+            result['verified_runtime_components'] = {
+                name: verified_builds[item['source_repository']]
+                for name, item in candidate['components'].items()
+            }
+        if candidate.get('schema') == 2 and stage == 'sit':
+            content = result['verified_website_content']
+            result['verified_projection'] = {
+                'tagged_lane': {'feature_id': candidate['feature_id'], 'feature_tag': candidate['feature_tag'],
+                                'candidate_sha256': result['candidate_sha256']},
+                'chart_digest': result['verified_chart_digest'],
+                'knowledge': {'repository': content['repository'], 'sha': content['sha']},
+                'components': result['verified_runtime_components'],
+            }
         return result
     except gate.Blocked:
         raise

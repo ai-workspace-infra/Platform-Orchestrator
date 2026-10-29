@@ -151,8 +151,17 @@ def validate_candidate(c, policy):
     rehearsal = c.get('candidate_mode') == 'main-rehearsal'
     if rehearsal:
         require(c['schema'] == 2 and c.get('task_url') in policy.get('main_rehearsal_tasks', []) and
-                features == 0 and not configs,
+                features == 0,
                 'main rehearsal must be explicitly allowed for this task and use only baseline sources')
+        if configs:
+            prefix = 'services/distributed-web-saas-fullstack/dev/feature-lanes/' + feature + '/'
+            domain_path = 'docs/features/tagged-sit-domain-contract.yaml'
+            require(c.get('task_url') in policy.get('main_rehearsal_configuration_tasks', []) and
+                    len(configs) == 1 and configs[0]['repository'] == policy.get('gitops_repository') and
+                    configs[0]['base_ref'] == 'main' and domain_path in configs[0]['paths'] and
+                    any(path.startswith(prefix) for path in configs[0]['paths']) and
+                    all(path == domain_path or path.startswith(prefix) for path in configs[0]['paths']),
+                    'main rehearsal configuration requires one explicitly allowed lane-only GitOps PR')
     else:
         require(c.get('candidate_mode') in (None, 'feature') and (features > 0 or bool(configs)),
                 'already merged baseline alone cannot establish premerge SIT')
@@ -219,6 +228,11 @@ def _evaluate(c, policy, stage, prs, receipt=None, run=None, authorization=None,
         require(receipt is not None and run is not None, 'missing structured SIT evidence')
         verify_run(run, policy['acceptance_owner'], policy['acceptance_owner']['sha'], 'workflow_dispatch')
         require(receipt.get('schema') == 1 and receipt.get('evidence_kind') == 'live', 'synthetic evidence cannot pass')
+        if c['schema'] == 2:
+            acceptance = receipt.get('acceptance')
+            require(isinstance(acceptance, dict) and set(acceptance) == {'dns', 'tls', 'service_health', 'integration'} and
+                    all(value == 'PASS' for value in acceptance.values()),
+                    'tagged SIT requires DNS, TLS, service health and integration acceptance')
         require(type(receipt.get('run_id')) is int and type(receipt.get('run_attempt')) is int and
                 receipt['run_id'] == run['id'] and receipt['run_attempt'] == run['attempt'], 'receipt/run mismatch')
         require(receipt.get('candidate_sha256') == fingerprint and receipt.get('stage') == 'sit', 'stale SIT candidate')
