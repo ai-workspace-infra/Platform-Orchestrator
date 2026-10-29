@@ -29,8 +29,9 @@ class ProbeTest(unittest.TestCase):
                     probe.main('allowed')
 
     def test_missing_environment_requires_login_denial(self):
-        with patch.object(probe, 'request', side_effect=[self.oidc, (400, b'')]):
-            probe.main('denied-environment')
+        for mode in ('denied-environment', 'denied-caller'):
+            with self.subTest(mode=mode), patch.object(probe, 'request', side_effect=[self.oidc, (400, b'')]):
+                probe.main(mode)
         with patch.object(probe, 'request', side_effect=[self.oidc, self.login]):
             with self.assertRaises(ValueError):
                 probe.main('denied-environment')

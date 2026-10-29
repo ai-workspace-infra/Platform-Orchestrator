@@ -19,7 +19,7 @@ def request(url, *, headers=None, body=None):
         return error.code, b''
 
 def main(mode):
-    if mode not in ('allowed', 'denied-environment'):
+    if mode not in ('allowed', 'denied-environment', 'denied-caller'):
         raise ValueError('invalid probe mode')
     oidc_url = os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']
     separator = '&' if '?' in oidc_url else '?'
@@ -30,10 +30,10 @@ def main(mode):
     jwt = json.loads(data)['value']
     status, data = request(BASE + 'auth/jwt/login', headers={'Content-Type': 'application/json'},
                            body=json.dumps({'role': ROLE, 'jwt': jwt}).encode())
-    if mode == 'denied-environment':
+    if mode in ('denied-environment', 'denied-caller'):
         if status not in (400, 403):
-            raise ValueError('missing environment was not denied')
-        print('PASS: missing environment denied')
+            raise ValueError('invalid workload identity was not denied')
+        print('PASS: invalid workload identity denied')
         return
     if status != 200:
         raise ValueError('intended workload login denied')
