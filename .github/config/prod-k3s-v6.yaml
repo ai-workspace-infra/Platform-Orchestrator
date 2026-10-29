@@ -3,5 +3,5 @@ node: prod-k3s-v6
 target_manifest: iac/targets/prod-akamai-k3s-v6.yaml
 resource_manifest: resources/svc.plus/prod/akamai/prod-k3s-v6.yaml
 root_path: environments/clusters/prod-k3s-v6
-iac_sha: a87fd9feda5fd41c5295588b1a8c57bdb15f3442
+iac_sha: 83b7379e4e7cdc18b1d83c5c7c4b618f6f1be5c9
 playbooks_sha: 71d253091621ff64e6526f5db011cb01287e2a50
