@@ -28,6 +28,11 @@ class ReceiptTest(unittest.TestCase):
         projection={'tagged_lane':{'feature_id':'sit-test-1483','feature_tag':'smoke-sit-test-1483','candidate_sha256':'c'*64},'chart_digest':self.candidate['chart_digest'],'knowledge':knowledge,'components':components}
         self.gate.gate.return_value = {'status': 'VERIFIED_GATE', 'dispatch_authorized': False, 'execution': 'NOT_RUN', 'candidate_sha256': 'c'*64, 'verified_projection': projection,'verified_runtime_components':components,'verified_chart_digest':self.candidate['chart_digest'],'verified_website_content':knowledge,'verified_data_baseline':{'sha256':digest, 'inputs':inputs}}
 
+    def test_failure_messages_are_allowlisted_and_do_not_echo_secrets(self):
+        self.assertIn('source Main moved', module.failure_message(ValueError('rehearsal Main moved or unavailable')))
+        self.assertIn('configuration PR', module.failure_message(ValueError('configuration SIT requires current unmerged head/base')))
+        self.assertEqual(module.failure_message(ValueError('private token or response')), 'Feature deployment receipt verification failed')
+
     def test_receipt_revalidates_in_same_run_without_deploy(self):
         receipt = module.build_receipt(self.candidate, {}, self.env, self.gate)
         self.assertEqual(receipt['source']['run_id'], '123')

@@ -69,6 +69,17 @@ def build_receipt(candidate, selectors, env, gate):
                        'run_id': run, 'run_attempt': attempt}, 'projection': projection}
 
 
+def failure_message(error):
+    # Only predefined messages may reach the public workflow log. Never emit
+    # arbitrary exception text, which can contain API response or credential data.
+    known = {
+        'rehearsal Main moved or unavailable': 'A rehearsal source Main moved or could not be read; revalidate and freeze a new candidate.',
+        'configuration SIT requires current unmerged head/base': 'The configuration PR is no longer the fixed unmerged head and base; freeze a new candidate.',
+        'PR Main base moved; require new candidate': 'A feature PR Main base moved; freeze a new candidate.',
+    }
+    return known.get(str(error), 'Feature deployment receipt verification failed')
+
+
 def main():
     try:
         preflight = load('feature_preflight', HERE / 'preflight.py')
@@ -78,8 +89,8 @@ def main():
         receipt = build_receipt(candidate, selectors, os.environ, gate)
         print(json.dumps(receipt, sort_keys=True))
         return 0
-    except (KeyError, OSError, ValueError, TypeError):
-        print('::error::Feature deployment receipt verification failed', file=sys.stderr)
+    except (KeyError, OSError, ValueError, TypeError) as error:
+        print('::error::' + failure_message(error), file=sys.stderr)
         return 1
 
 
