@@ -219,6 +219,22 @@ class TrustedTest(unittest.TestCase):
     def test_verified_retrieval_never_executes(self):
         r=self.decide();self.assertEqual(r['status'],'VERIFIED_GATE');self.assertFalse(r['dispatch_authorized']);self.assertEqual(r['execution'],'NOT_RUN')
 
+    def test_configured_pr_owner_is_verified_through_full_gate(self):
+        source = self.c['sources'][0]
+        source['base_sha'] = 'd' * 40
+        self.rawpr['base']['sha'] = source['base_sha']
+        owner = {'repository':'example/accounts','workflow':'evidence.yml','event':'workflow_dispatch','artifact_prefix':'build','filename':'manifest.json','sha':'a'*40}
+        self.policy['feature_build_owners'] = {'example/accounts':owner}
+        self.rawruns[11].update(path='evidence.yml',event='workflow_dispatch',head_branch='main')
+        self.documents[102].update(evidence_kind='github-pr-run-and-registry',pr=source['pr'],base_sha=source['base_sha'],producer_workflow='.github/workflows/ci-pipeline.yml',producer_run_id=12,producer_attempt=1)
+        self.archive(102,'manifest.json',json.dumps(self.documents[102]))
+        self.rawruns[12]={'id':12,'run_attempt':1,'head_sha':source['sha'],'event':'workflow_dispatch','path':'.github/workflows/ci-pipeline.yml','status':'completed','conclusion':'success','repository':{'full_name':source['repository']},'head_repository':{'full_name':source['repository']}}
+        self.selectors={'builds':self.selectors['builds']}
+        self.assertEqual(self.decide('sit')['status'],'VERIFIED_GATE')
+        self.rawruns[12]['head_sha']='c'*40
+        with self.assertRaisesRegex(T.gate.Blocked,'original build run'):
+            self.decide('sit')
+
     def test_new_tag_candidate_is_blocked_without_trusted_provenance(self):
         self.c['schema'] = 2
         self.c['sources'][0]['base_sha'] = 'd' * 40
