@@ -210,9 +210,9 @@ verify_role_claims() {
     return
   fi
   if ! jq -e \
-    --arg repository "ai-workspace-infra/platform-ops-toolkit" \
-    --arg stage_workflow "ai-workspace-infra/platform-ops-toolkit/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/heads/main" \
-    --arg aggregator_workflow "ai-workspace-infra/platform-ops-toolkit/.github/workflows/ai-aggregator-v1.yml@refs/heads/main" \
+    --arg repository "ai-workspace-infra/Platform-Orchestrator" \
+    --arg stage_workflow "ai-workspace-infra/Platform-Orchestrator/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/heads/main" \
+    --arg aggregator_workflow "ai-workspace-infra/Platform-Orchestrator/.github/workflows/ai-aggregator-v1.yml@refs/heads/main" \
     --arg expected_environment "$expected_environment" \
     --arg policy "$policy_name" '
       .data as $role
