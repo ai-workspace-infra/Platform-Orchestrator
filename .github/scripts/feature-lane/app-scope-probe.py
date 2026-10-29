@@ -6,7 +6,8 @@ import sys
 import urllib.request
 
 EXPECTED = {
-    'INFRA_TOKEN': {'ai-workspace-infra/platform-orchestrator', 'ai-workspace-infra/artifacts', 'ai-workspace-infra/gitops'},
+    'INFRA_TOKEN': {'ai-workspace-infra/platform-orchestrator', 'ai-workspace-infra/artifacts', 'ai-workspace-infra/gitops',
+                    'ai-workspace-infra/playbooks'},
     'SERVICES_TOKEN': {'ai-workspace-services/portal', 'ai-workspace-services/accounts', 'ai-workspace-services/billing-service',
                        'ai-workspace-services/content-service', 'ai-workspace-services/postgresql', 'ai-workspace-services/knowledge'},
 }

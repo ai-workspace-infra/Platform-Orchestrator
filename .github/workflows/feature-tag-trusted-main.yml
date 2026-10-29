@@ -127,6 +127,7 @@ jobs:
             Platform-Orchestrator
             artifacts
             gitops
+            playbooks
           permission-actions: read
           permission-contents: read
           permission-issues: read
