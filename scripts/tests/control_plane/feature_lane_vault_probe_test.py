@@ -48,5 +48,13 @@ class ProbeTest(unittest.TestCase):
         self.assertEqual(json.loads(request.call_args_list[1].kwargs['body'])['role'],
                          'github-actions-feature-target-read-sit')
 
+    def test_delivery_denials_use_the_exact_roles(self):
+        for mode, role in [('lane-owner-denied','github-actions-playbooks-feature-lane-sit'),
+                           ('dns-owner-denied','github-actions-feature-dns-write-sit'),
+                           ('dns-target-denied','github-actions-feature-dns-target-read-sit')]:
+            with self.subTest(mode=mode),patch.object(probe,'request',side_effect=[self.oidc,(403,b'')]) as request:
+                probe.main(mode)
+                self.assertEqual(json.loads(request.call_args_list[1].kwargs['body'])['role'],role)
+
 if __name__ == '__main__':
     unittest.main()

@@ -21,3 +21,9 @@ jobs:
         run: python3 .github/scripts/feature-lane/vault-probe.py deploy-denied
       - name: Verify provider target identity rejects another workflow
         run: python3 .github/scripts/feature-lane/vault-probe.py target-denied
+      - name: Verify SIT execution identity rejects another workflow
+        run: python3 .github/scripts/feature-lane/vault-probe.py lane-owner-denied
+      - name: Verify DNS identity rejects another workflow
+        run: python3 .github/scripts/feature-lane/vault-probe.py dns-owner-denied
+      - name: Verify DNS target identity rejects another workflow
+        run: python3 .github/scripts/feature-lane/vault-probe.py dns-target-denied
