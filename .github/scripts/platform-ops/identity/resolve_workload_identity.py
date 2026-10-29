@@ -21,6 +21,20 @@ def validate(document):
         name=r'[a-z0-9](?:[a-z0-9-]*[a-z0-9])?'
         for v in (target['node'],identity['mount'],identity['role'],identity['policy'],identity['namespace'],identity['serviceAccount'],identity['probeServiceAccount']):
             if not isinstance(v,str) or not re.fullmatch(name,v) or len(v)>63:raise ContractError('invalid identity or node name')
+        for field in ('provider','account','sshUser'):
+            if not isinstance(target[field],str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}',target[field]):
+                raise ContractError('invalid target selector')
+        if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+[+A-Za-z0-9.-]*',target['kubernetesVersion']):
+            raise ContractError('explicit Kubernetes version required')
+        for field in ('accessRole','adminRole','adminPolicy'):
+            if not isinstance(vault[field],str) or not re.fullmatch(name,vault[field]) or len(vault[field])>128:
+                raise ContractError('invalid Vault role or policy')
+        for field in ('sshKeyField','providerTokenField'):
+            if not isinstance(vault[field],str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}',vault[field]):
+                raise ContractError('invalid secret field')
+        for field in ('audience','deniedAudience'):
+            if not isinstance(identity[field],str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:/-]{0,254}',identity[field]):
+                raise ContractError('invalid workload audience')
         if identity['serviceAccount']==identity['probeServiceAccount'] or identity['audience']==identity['deniedAudience'] or identity['allowedPath']==identity['deniedPath']:
             raise ContractError('authorization probes must be distinct')
         for p in (identity['allowedPath'],identity['deniedPath'],vault['sshKeyPath'],vault['providerTokenPath']):
@@ -35,6 +49,12 @@ def validate(document):
                 raise ContractError('invalid declaration path')
         for part in ('bootstrap','iac'):
             row=evidence[part]
+            if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+',row['repository']) or not re.fullmatch(r'v[0-9][A-Za-z0-9.+-]*',row['ref']):
+                raise ContractError('reviewed repository and stable tag required')
+            if row['event'] != 'workflow_dispatch' or not re.fullmatch(r'\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml',row['workflow']):
+                raise ContractError('reviewed workflow dispatch required')
+            if not re.fullmatch(r'[A-Za-z0-9_.-]+',row['artifactName']) or not re.fullmatch(r'[A-Za-z0-9_.-]+\.json',row['filename']):
+                raise ContractError('invalid artifact identity')
             for key in ('runId','attempt','artifactId'):
                 if type(row[key]) is not int or row[key] <= 0:raise ContractError('invalid evidence identifier')
             for key in ('commit','gitopsSha' if part=='bootstrap' else 'iacSha'):
