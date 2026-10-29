@@ -1,0 +1,7 @@
+cluster: PROD-K3S-V6
+node: prod-k3s-v6
+target_manifest: iac/targets/prod-akamai-k3s-v6.yaml
+resource_manifest: resources/svc.plus/prod/akamai/prod-k3s-v6.yaml
+root_path: environments/clusters/prod-k3s-v6
+iac_sha: a87fd9feda5fd41c5295588b1a8c57bdb15f3442
+playbooks_sha: PENDING_REVIEWED_MERGE

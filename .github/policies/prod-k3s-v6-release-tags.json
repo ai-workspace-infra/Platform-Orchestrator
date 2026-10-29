@@ -1,0 +1,8 @@
+{
+  "name": "prod-k3s-v6-immutable-release-tags",
+  "target": "tag",
+  "enforcement": "active",
+  "conditions": {"ref_name": {"include": ["refs/tags/v6.*"], "exclude": []}},
+  "bypass_actors": [],
+  "rules": [{"type": "update"}, {"type": "deletion"}]
+}

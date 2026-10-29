@@ -67,6 +67,9 @@ jobs:
       - name: Install offline parser dependency
         run: python3 -m pip install PyYAML==6.0.3
 
+      - name: Verify isolated V6 request and identity contracts
+        run: python3 scripts/tests/control_plane/prod_k3s_v6_test.py
+
       - name: Verify explicit Dev identity contracts with fake Vault
         run: |
           python3 scripts/tests/test_akamai_dev_oidc_contract.py -v

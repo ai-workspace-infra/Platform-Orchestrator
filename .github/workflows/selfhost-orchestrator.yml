@@ -36,7 +36,7 @@ on:
         required: false
         type: string
       source_ref:
-        description: "基础设施、Playbooks、GitOps、Toolkit 与 Console 共用的 Git Ref；留空使用各仓库默认（main，Console 回退 deploy_tag）"
+        description: "常规路径共用 Git Ref；V6 必填 GitOps 正式 tag，执行 owner 使用配置中独立固定 SHA"
         required: false
         default: ""
         type: string
@@ -72,7 +72,7 @@ on:
         default: ""
         type: string
       operation:
-        description: "plan=校验；infra=基础设施；deploy=应用；deploy+init=UAT空库初始化+应用；deploy+migrate=应用+迁移；migrate=仅迁移；destroy=销毁"
+        description: "plan=校验；infra=基础设施；deploy=应用（V6 为新资源与暂停式集群引导）；deploy+init=UAT空库初始化+应用；deploy+migrate=应用+迁移；migrate=仅迁移；destroy=销毁"
         required: true
         default: "plan"
         type: choice
@@ -233,7 +233,7 @@ env:
 jobs:
   resolve:
     name: "[1/5] Resolve & Validate"
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/tags/v6.') && !(github.event_name == 'workflow_dispatch' && inputs.vault_env_path == 'prod-v6') }}
     runs-on: ubuntu-latest
     timeout-minutes: 359
     outputs:
@@ -409,3 +409,183 @@ jobs:
           SELFHOST_DEPLOY_RUN_ID: ${{ needs.deploy.outputs.run_id }}
           SELFHOST_MIGRATION_RUN_ID: ${{ needs.migrate.outputs.run_id }}
         run: python3 .github/scripts/platform-ops/stage-dispatch.py
+
+  v6-resolve:
+    name: '[V6 1/4] Validate cold bootstrap'
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.vault_env_path == 'prod-v6' }}
+    runs-on: ubuntu-latest
+    outputs:
+      gitops_sha: ${{ steps.resolve.outputs.gitops_sha }}
+      iac_sha: ${{ steps.resolve.outputs.iac_sha }}
+      playbooks_sha: ${{ steps.resolve.outputs.playbooks_sha }}
+      target_manifest: ${{ steps.resolve.outputs.target_manifest }}
+      action: ${{ steps.resolve.outputs.action }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+          path: gitops
+          persist-credentials: false
+      - run: python3 -m pip install PyYAML==6.0.2
+      - id: resolve
+        env:
+          V6_INPUTS: ${{ toJSON(inputs) }}
+          V6_GITOPS: ${{ github.workspace }}/gitops
+        run: python3 .github/scripts/platform-ops/provision/resolve-prod-k3s-v6.py
+
+  v6-iac:
+    name: '[V6 2/4] Create isolated resources'
+    needs: v6-resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: write
+    outputs:
+      child_run_id: ${{ steps.iac.outputs.child_run_id }}
+      child_run_attempt: ${{ steps.iac.outputs.child_run_attempt }}
+      receipt_artifact_id: ${{ steps.iac.outputs.receipt_artifact_id }}
+      receipt_sha256: ${{ steps.iac.outputs.receipt_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: iac
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IAC_ACTION: ${{ needs.v6-resolve.outputs.action }}
+          IAC_ENVIRONMENT: prod
+          IAC_TARGET_MANIFEST: ${{ needs.v6-resolve.outputs.target_manifest }}
+          IAC_GITOPS_REF: ${{ needs.v6-resolve.outputs.gitops_sha }}
+          IAC_REF: ${{ needs.v6-resolve.outputs.iac_sha }}
+          IAC_STAGE_SCOPE: resources
+          IAC_BOOTSTRAP_MODE: verify
+          IAC_DISPATCH_REF: ${{ github.ref_name }}
+          IAC_CORRELATION_ID: ${{ github.run_id }}:${{ github.run_attempt }}:prod-k3s-v6
+          IAC_SELECTORS: '{"environment":"prod","provider":"akamai-cloud","account":"manbuzhe2026","namespace":"prod-k3s-v6"}'
+        run: python3 .github/scripts/platform-ops/provision/dispatch-iac-pipeline.py
+
+  v6-bootstrap:
+    name: '[V6 3/4] Load paused cluster declarations'
+    if: ${{ inputs.operation == 'deploy' }}
+    needs: [v6-resolve, v6-iac]
+    environment: prod
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ needs.v6-resolve.outputs.iac_sha }}
+          path: iac_modules
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ needs.v6-resolve.outputs.playbooks_sha }}
+          path: playbooks
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: ${{ needs.v6-resolve.outputs.gitops_sha }}
+          fetch-depth: 0
+          path: gitops
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.v6-iac.outputs.receipt_artifact_id }}
+          run-id: ${{ needs.v6-iac.outputs.child_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/v6-iac-summary
+          merge-multiple: true
+      - uses: ./iac_modules/.github/actions/iac-receipt-verify
+        with:
+          summary-file: ${{ runner.temp }}/v6-iac-summary/summary.json
+          receipt-sha256: ${{ needs.v6-iac.outputs.receipt_sha256 }}
+          run-id: ${{ needs.v6-iac.outputs.child_run_id }}
+          run-attempt: ${{ needs.v6-iac.outputs.child_run_attempt }}
+          gitops-sha: ${{ needs.v6-resolve.outputs.gitops_sha }}
+          iac-sha: ${{ needs.v6-resolve.outputs.iac_sha }}
+          target-manifest: ${{ needs.v6-resolve.outputs.target_manifest }}
+          action: apply
+          correlation-id: ${{ github.run_id }}:${{ github.run_attempt }}:prod-k3s-v6
+      - uses: ./iac_modules/.github/actions/iac-caller-inventory
+        with:
+          summary-file: ${{ runner.temp }}/v6-iac-summary/summary.json
+          output-dir: ${{ runner.temp }}/v6-cmdb
+      - id: checksum
+        env:
+          V6_CMDB: ${{ runner.temp }}/v6-cmdb/cmdb.json
+        run: echo "sha256=$(sha256sum "$V6_CMDB" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - id: vault
+        uses: hashicorp/vault-action@v3
+        with:
+          url: https://vault.svc.plus
+          method: jwt
+          role: github-actions-platform-ops-toolkit-prod-k3s-v6-bootstrap
+          jwtGithubAudience: vault
+          exportEnv: false
+          exportToken: false
+          secrets: |
+            kv/data/prod/platform/prod-k3s-v6/ssh SSH_PRIVATE_KEY | SSH_PRIVATE_KEY ;
+            kv/data/CICD/prod/akamai-cloud/manbuzhe2026 LINODE_TOKEN | LINODE_TOKEN ;
+      - id: identity
+        uses: ./iac_modules/.github/actions/akamai-candidate-hostkey
+        env:
+          LINODE_TOKEN: ${{ steps.vault.outputs.LINODE_TOKEN }}
+        with:
+          cmdb-file: ${{ runner.temp }}/v6-cmdb/cmdb.json
+          cmdb-sha256: ${{ steps.checksum.outputs.sha256 }}
+          account: manbuzhe2026
+          node: prod-k3s-v6
+          output-dir: ${{ runner.temp }}/v6-hostkey
+      - uses: ./playbooks/.github/actions/prod-k3s-bootstrap
+        env:
+          SSH_PRIVATE_KEY: ${{ steps.vault.outputs.SSH_PRIVATE_KEY }}
+        with:
+          cmdb: ${{ runner.temp }}/v6-cmdb/cmdb.json
+          cmdb-sha256: ${{ steps.checksum.outputs.sha256 }}
+          gitops: ${{ github.workspace }}/gitops
+          gitops-sha: ${{ needs.v6-resolve.outputs.gitops_sha }}
+          known-hosts: ${{ steps.identity.outputs.known-hosts }}
+          receipt: ${{ runner.temp }}/v6-paused-bootstrap.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prod-k3s-v6-paused-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/v6-paused-bootstrap.json
+          if-no-files-found: error
+
+  v6-summary:
+    name: '[V6 4/4] Record cold bootstrap boundary'
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.vault_env_path == 'prod-v6' }}
+    needs: [v6-resolve, v6-iac, v6-bootstrap]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record evidence boundary
+        env:
+          V6_RESULTS: ${{ toJSON(needs) }}
+          V6_OPERATION: ${{ inputs.operation }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          needs = json.loads(os.environ['V6_RESULTS'])
+          wanted = ['v6-resolve', 'v6-iac'] + (['v6-bootstrap'] if os.environ['V6_OPERATION'] == 'deploy' else [])
+          ok = all(needs[job]['result'] == 'success' for job in wanted)
+          result = 'verified_paused_bootstrap' if ok and os.environ['V6_OPERATION'] == 'deploy' else ('verified_infrastructure' if ok else 'failed_inspect_exact_stage')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+              out.write('PROD-K3S-V6: ' + result + '\n\nNo data migration, DNS or writer handoff.\n')
+          if not ok:
+              raise SystemExit(1)
+          PY
