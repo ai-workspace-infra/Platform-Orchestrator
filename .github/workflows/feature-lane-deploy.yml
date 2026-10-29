@@ -42,6 +42,12 @@ jobs:
     outputs:
       artifact: ${{ steps.receipt.outputs.artifact }}
       sha256: ${{ steps.receipt.outputs.sha256 }}
+      cmdb_artifact: ${{ steps.foundation_artifact.outputs.name }}
+      cmdb_sha256: ${{ steps.foundation.outputs.cmdb_sha256 }}
+      instance_id: ${{ steps.foundation.outputs.instance_id }}
+      node_uid: ${{ steps.foundation.outputs.node_uid }}
+      cluster_uid: ${{ steps.foundation.outputs.cluster_uid }}
+      platform_sha: ${{ steps.foundation.outputs.platform_sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -99,6 +105,25 @@ jobs:
           python3 .github/scripts/feature-lane/deploy-receipt.py > "$RUNNER_TEMP/feature-candidate/receipt.json"
           echo "sha256=$(sha256sum "$RUNNER_TEMP/feature-candidate/receipt.json" | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
           echo "artifact=feature-candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+      - name: Install pinned foundation parser
+        run: python3 -m pip install PyYAML==6.0.3
+      - name: Authenticate reviewed foundation evidence
+        id: foundation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FEATURE_GH_TOKEN_INFRA: ${{ steps.infra.outputs.token }}
+          FEATURE_GH_TOKEN_SERVICES: ${{ steps.services.outputs.token }}
+          FEATURE_RECEIPT_FILE: ${{ runner.temp }}/feature-candidate/receipt.json
+        run: python3 .github/scripts/feature-lane/foundation-projection.py
+      - name: Name same-run CMDB evidence
+        id: foundation_artifact
+        run: echo "name=feature-foundation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.foundation_artifact.outputs.name }}
+          path: ${{ runner.temp }}/feature-foundation/cmdb.json
+          if-no-files-found: error
+          retention-days: 7
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ steps.receipt.outputs.artifact }}

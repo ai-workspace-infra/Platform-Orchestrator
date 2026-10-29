@@ -105,6 +105,8 @@ jobs:
         run: python3 scripts/tests/control_plane/feature_lane_vault_probe_test.py
       - name: Verify protected Feature deployment entry contract
         run: python3 scripts/tests/control_plane/feature_deploy_entry_test.py
+      - name: Verify authenticated Feature foundation projection
+        run: python3 scripts/tests/control_plane/feature_foundation_projection_test.py
       - name: Verify same-run Feature deployment receipt contract
         run: python3 scripts/tests/control_plane/feature_lane_deploy_receipt_test.py
 
