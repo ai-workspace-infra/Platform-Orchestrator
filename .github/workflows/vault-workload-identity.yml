@@ -1,15 +1,15 @@
 name: Vault workload identity
 
-# Identity configuration and identity verification are separate operations.
-# Both require the released owner, reviewed immutable GitOps tag and trusted
-# bootstrap/IaC artifacts; this workflow does not release Flux or change DNS.
+# Identity configuration, authorization verification, and narrowly staged V6
+# Flux releases are separate operations. Each is bound to a protected release,
+# reviewed immutable GitOps tag, and trusted bootstrap/IaC evidence.
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Configure the dedicated Vault identity or verify real workload access
+        description: Configure or verify the Vault identity, or release a bounded V6 Flux stage
         type: choice
-        options: [configure, verify]
+        options: [configure, verify, release-root, release-eso, release-identity]
         required: true
       gitops_tag:
         description: Reviewed immutable GitOps release tag containing an identity operation
@@ -52,7 +52,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$REF_TYPE" == tag && "$REF_PROTECTED" == true && "$WORKFLOW_REF" == refs/tags/v* ]]
-          [[ "$MODE" == configure || "$MODE" == verify ]]
+          [[ "$MODE" == configure || "$MODE" == verify || "$MODE" == release-root || "$MODE" == release-eso || "$MODE" == release-identity ]]
           [[ "$OWNER_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$GITOPS_TAG" =~ ^v[0-9][A-Za-z0-9.+-]*$ ]]
   identity:
@@ -194,6 +194,7 @@ jobs:
           cmdb-sha256: ${{ steps.cmdb.outputs.sha256 }}
           gitops: ${{ github.workspace }}/gitops
           gitops-sha: ${{ steps.releases.outputs.gitops_sha }}
+          gitops-tag: ${{ inputs.gitops_tag }}
           bootstrap-receipt: ${{ steps.evidence.outputs.directory }}/bootstrap.json
           known-hosts: ${{ steps.identity.outputs.known-hosts }}
           receipt: ${{ runner.temp }}/workload-identity-receipt.json
