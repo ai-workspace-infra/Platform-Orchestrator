@@ -164,8 +164,12 @@ def verify_parent():
     parent = gh(f"repos/{repo}/actions/runs/{parent_id}")
     if not str(parent.get("path", "")).endswith(".github/workflows/selfhost-orchestrator.yml"):
         raise SystemExit("Stage parent is not Selfhost Orchestrator")
-    if parent.get("status") != "in_progress" or str(parent.get("run_attempt")) != attempt:
-        raise SystemExit("Stage parent is not the active requested run attempt")
+    # Dispatch can complete the parent job while the child is still starting.
+    # The immutable request artifact, run identity, attempt, workflow path and
+    # control SHA below bind this child to its parent; status is racy and must
+    # not invalidate an otherwise exact dispatch.
+    if str(parent.get("run_attempt")) != attempt:
+        raise SystemExit("Stage parent run attempt does not match the requested attempt")
     if parent.get("head_sha") != os.environ["GITHUB_SHA"]:
         raise SystemExit("Stage and parent control revisions do not match")
     if parent.get("head_branch") != os.environ["GITHUB_REF_NAME"]:
