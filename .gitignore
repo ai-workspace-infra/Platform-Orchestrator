@@ -11,6 +11,13 @@ merge_actions.py
 __pycache__/
 *.py[cod]
 
+# Ephemeral HCL/JSON projections generated from GitOps YAML for Vault API
+# contract fixtures. Authorization declarations are never tracked here.
+/scripts/vault/policies/*.hcl
+/scripts/vault/roles/*.json
+/scripts/vault/workload-identities/*.json
+/scripts/vault/templates/*.tmpl
+
 # Local worktrees & OS files
 .worktrees/
 .DS_Store

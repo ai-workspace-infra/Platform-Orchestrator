@@ -51,6 +51,8 @@ class DevOIDCContract(unittest.TestCase):
                  'VAULT_TOKEN':'fake-contract-only','AKAMAI_ACCOUNT_DEV':'test-account',
                  'AKAMAI_ACCOUNT_UAT':'test-uat','AKAMAI_ACCOUNT_PROD':'test-prod',
                  'FAKE_VAULT_DIR':tmp,'FAKE_MUTATION':mutation,'FAKE_SESSION':session}
+            if os.environ.get('GITOPS_ROOT'):
+                env['GITOPS_ROOT']=os.environ['GITOPS_ROOT']
             if helper: env.pop('VAULT_TOKEN')
             result=subprocess.run(['bash',str(SCRIPT),mode,'--env',target],env=env,text=True,capture_output=True)
             calls=[json.loads(x) for x in (root/'calls').read_text().splitlines()] if (root/'calls').exists() else []

@@ -147,8 +147,25 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Checkout Vault authorization declarations
+        if: matrix.suite == 'contracts'
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: contract/gitops-vault
+          persist-credentials: false
+      - name: Materialize ephemeral Vault contract fixtures
+        if: matrix.suite == 'contracts'
+        env:
+          GITOPS_ROOT: ${{ github.workspace }}/contract/gitops-vault
+        run: |
+          python3 -m pip install PyYAML==6.0.3
+          python3 scripts/vault/vault_declarations.py materialize-test-fixtures
       - name: Validate workflow and Vault contracts
         if: matrix.suite == 'contracts'
+        env:
+          GITOPS_ROOT: ${{ github.workspace }}/contract/gitops-vault
         run: |
           bash scripts/tests/control_plane/xconnect_formal_uat_lab_contract_test.sh
           bash scripts/tests/control_plane/xconnect_playbooks_observation_caller_contract_test.sh

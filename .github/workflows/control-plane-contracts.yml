@@ -37,6 +37,8 @@ jobs:
     name: Offline Toolkit caller contracts
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      GITOPS_ROOT: ${{ github.workspace }}/contract/gitops-vault
     steps:
       - name: Checkout Toolkit
         uses: actions/checkout@v7
@@ -68,8 +70,21 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: vpn-overlay/uat/xconnect-lab.json
 
+      - name: Checkout Vault authorization declarations
+        uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: contract/gitops-vault
+          persist-credentials: false
+
       - name: Install offline parser dependency
         run: python3 -m pip install PyYAML==6.0.3
+
+      - name: Materialize ephemeral Vault contract test fixtures
+        env:
+          GITOPS_ROOT: ${{ github.workspace }}/contract/gitops-vault
+        run: python3 scripts/vault/vault_declarations.py materialize-test-fixtures
 
       - name: Verify explicit Dev identity contracts with fake Vault
         run: |
