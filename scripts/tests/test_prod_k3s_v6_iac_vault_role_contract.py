@@ -37,6 +37,31 @@ class ProdK3sV6IacVaultRoleContract(unittest.TestCase):
         )
         self.assertEqual(role["token_policies"], [ROLE_NAME])
 
+    def test_bootstrap_role_is_provisionable_and_bound_to_protected_main(self):
+        role_name = "github-actions-platform-ops-toolkit-prod-k3s-v6-bootstrap"
+        role = json.loads(
+            (ROOT / "scripts/vault/roles" / f"{role_name}.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(role["role_name"], role_name)
+        self.assertTrue(role["description"])
+        self.assertEqual(role["token_type"], "batch")
+        self.assertTrue(role["token_no_default_policy"])
+        self.assertEqual(role["token_ttl"], "20m")
+        self.assertEqual(role["token_max_ttl"], "20m")
+        self.assertEqual(role["token_explicit_max_ttl"], "20m")
+        claims = role["bound_claims"]
+        self.assertEqual(claims["repository"], "ai-workspace-infra/Platform-Orchestrator")
+        self.assertEqual(claims["environment"], "prod")
+        self.assertEqual(claims["ref"], ["refs/heads/main"])
+        self.assertEqual(claims["ref_protected"], "true")
+        self.assertEqual(
+            claims["workflow_ref"],
+            "ai-workspace-infra/Platform-Orchestrator/.github/workflows/selfhost-orchestrator.yml@refs/heads/main",
+        )
+        self.assertEqual(role["token_policies"], [role_name])
+
     def test_policy_is_read_only_and_limited_to_iac_state(self):
         policy = (ROOT / "scripts/vault/policies" / f"{ROLE_NAME}.hcl").read_text(
             encoding="utf-8"
