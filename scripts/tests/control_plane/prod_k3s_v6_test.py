@@ -27,7 +27,7 @@ class RequestTests(unittest.TestCase):
         for kind,n,api in [('GitRepository',6,'source'),('Kustomization',9,'kustomize'),('HelmRelease',8,'helm')]:
             for i in range(n):
                 obj={'apiVersion':api+'.toolkit.fluxcd.io/v1','kind':kind,'metadata':{'name':kind+str(i)},'spec':{'suspend':True}}
-                if kind=='GitRepository':obj['spec'].update(url='https://github.com/ai-workspace-infra/gitops.git',ref={'commit':'a'*40})
+                if kind=='GitRepository':obj['spec'].update(url='https://github.com/ai-workspace-infra/gitops.git',ref={'tag':'v1.0.0'})
                 if kind=='Kustomization':obj['spec']['path']='./cluster'
                 objects.append(obj)
         root=next(o for o in objects if o['kind']=='Kustomization')
@@ -37,7 +37,10 @@ class RequestTests(unittest.TestCase):
         management['metadata'].update(name='config-prod',namespace='flux-system')
         self.graph=self.root/'cluster/graph.yaml';self.graph.write_text(yaml.safe_dump_all(objects))
     def validate(self,ref='refs/tags/v6.0.0-bootstrap.1'):
-        return v6.validate(self.inputs,self.config,self.root,ref,'a'*40)
+
+        from unittest.mock import patch
+        with patch.object(v6.subprocess, 'check_output', return_value='a'*40):
+            return v6.validate(self.inputs,self.config,self.root,ref,'a'*40)
     def test_valid_cold_bootstrap(self):self.assertEqual('deploy',self.validate())
     def test_destructive_operations_rejected(self):
         for op in ['destroy','migrate','deploy+migrate','deploy+init']:
@@ -67,7 +70,7 @@ class RequestTests(unittest.TestCase):
         self.assertEqual('deploy', self.validate())
     def test_wrong_config_pin_rejected(self):
         docs=list(yaml.safe_load_all(self.graph.read_text()))
-        next(d for d in docs if d['kind']=='GitRepository')['spec']['ref']={'commit':'b'*40}
+        next(d for d in docs if d['kind']=='GitRepository')['spec']['ref']={'branch':'main'}
         self.graph.write_text(yaml.safe_dump_all(docs))
         with self.assertRaisesRegex(ValueError,'Flux source'):self.validate()
     def test_legacy_path_excludes_v6(self):
