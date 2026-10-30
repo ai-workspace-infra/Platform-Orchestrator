@@ -164,7 +164,7 @@ class TerminalTests(unittest.TestCase):
         spec=importlib.util.spec_from_file_location('summary', ROOT/'.github/actions/prod-k3s-summary/summary.py')
         gate=importlib.util.module_from_spec(spec);spec.loader.exec_module(gate)
         needs={k:{'result':'success'} for k in ('v6-resolve','v6-iac','v6-bootstrap')}
-        self.assertEqual(('verified_paused_bootstrap',True),gate.classify(needs,'deploy'))
+        self.assertEqual(('bootstrap_owner_completed',True),gate.classify(needs,'deploy'))
         for name in needs:
             for status in ('failure','cancelled','skipped'):
                 failed=copy.deepcopy(needs);failed[name]['result']=status

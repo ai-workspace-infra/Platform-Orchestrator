@@ -14,7 +14,7 @@ def classify(needs, operation):
     if operation in {'infra','deploy'}:
         if needs['v6-bootstrap']['result']!='success':
             return 'mutated_and_failed', False
-        return ('verified_paused_bootstrap' if operation=='deploy' else 'verified_infrastructure_and_common'), True
+        return ('bootstrap_owner_completed' if operation=='deploy' else 'verified_infrastructure_and_common'), True
     if needs['v6-bootstrap']['result']!='skipped':
         return 'unexpected_bootstrap_execution', False
     return ('verified_plan' if operation=='plan' else 'verified_infrastructure'), True
