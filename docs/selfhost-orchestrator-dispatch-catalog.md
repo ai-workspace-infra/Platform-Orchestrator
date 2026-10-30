@@ -78,7 +78,7 @@ IaC owns resources, protected volume CMDB and provider SSH identity attestation.
 
 The 100 GB independent data volume mounts at /data; local-path storage is /data/k3s/storage. K3s depends on the mount. Only creates/no-ops are allowed; update/delete/replace, wrong disk owner, unknown signatures, nonempty mountpoints or active release graphs fail closed.
 
-Dedicated Vault roles accept only PROD OIDC from the exact reviewed workflows on v* tags. The one-time Playbooks system-admin initializer creates those roles and the V6 SSH KV binding. No administrator token is available to CI.
+Dedicated Vault roles accept PROD OIDC from the exact reviewed workflows on main. The one-time Playbooks system-admin initializer creates those roles and the V6 SSH KV binding. No administrator token is available to CI.
 
 The IaC child binds correlation, target path, GitOps/IaC SHAs, action, run attempt and artifact checksum. A public PAUSED_BOOTSTRAP_VERIFIED receipt records actual node/cluster UIDs, installed version, mount UUID and observed declaration identities/specs. This proves paused bootstrap only.
 
@@ -86,12 +86,13 @@ On failure retain the candidate/disk, inspect the exact run before retrying, fix
 
 Target preparation: [GitOps V6 PR](https://github.com/ai-workspace-infra/gitops/pull/658).
 
-V6 root releases use SemVer prerelease tags such as `v6.0.0-bootstrap.1`.
-The reviewed repository tag ruleset in
-`.github/policies/prod-k3s-v6-release-tags.json` prevents updates/deletion in
-that narrow namespace. Both preflight and Vault require protected tag claims;
-the V6 role does not accept arbitrary v* releases or main. Tag creation remains
-a deliberate operator action from the CI-passing merged commit.
+Platform-Orchestrator defaults to `main`. Select the environment, provider, account,
+resource profile, DNS mode and operation through `workflow_dispatch`. Record the
+resolved control commit and owner SHAs in each run. Infrastructure owner repositories
+default to `main`; business artifacts retain their independent release versions.
+Dedicated Vault identities bind the exact approved workflow paths to
+`refs/heads/main`. Apply the reviewed role declarations before dispatching from main;
+changing the files does not update live Vault roles.
 
 The first V6 apply created and converged only the three approved resources.
 Host bootstrap stopped before SSH because console binary frames were coerced to

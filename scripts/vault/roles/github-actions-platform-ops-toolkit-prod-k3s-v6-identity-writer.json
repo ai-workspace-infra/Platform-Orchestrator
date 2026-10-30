@@ -16,9 +16,9 @@
     "repository": "ai-workspace-infra/Platform-Orchestrator",
     "environment": "prod",
     "ref": [
-      "refs/tags/v6.*"
+      "refs/heads/main"
     ],
-    "workflow_ref": "ai-workspace-infra/Platform-Orchestrator/.github/workflows/selfhost-orchestrator.yml@refs/tags/v6.*",
+    "workflow_ref": "ai-workspace-infra/Platform-Orchestrator/.github/workflows/selfhost-orchestrator.yml@refs/heads/main",
     "ref_protected": "true"
   },
   "token_policies": [

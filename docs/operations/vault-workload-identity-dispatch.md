@@ -20,7 +20,7 @@ Vault TLS identity stages each have a separate dispatch.
 
 ## Enforced preconditions
 
-- The dispatch must run from a protected `refs/tags/v*` ref.
+- The dispatch runs from protected `refs/heads/main`; operation and environment are selected through workflow_dispatch inputs.
 - The Playbooks commit must be reachable from `main`, and the GitOps tag must
   be an immutable release reachable from `main`.
 - The selected declaration is path-confined to the GitOps checkout and must

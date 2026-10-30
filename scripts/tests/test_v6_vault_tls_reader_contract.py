@@ -34,8 +34,8 @@ class V6VaultTLSAdminContract(unittest.TestCase):
         claims = role['bound_claims']
         self.assertEqual(claims['environment'], 'prod')
         self.assertEqual(claims['ref_protected'], 'true')
-        self.assertEqual(claims['ref'], ['refs/tags/v6.*'])
-        self.assertEqual(claims['workflow_ref'], 'ai-workspace-infra/Platform-Orchestrator/.github/workflows/vault-workload-identity.yml@refs/tags/v6.*')
+        self.assertEqual(claims['ref'], ['refs/heads/main'])
+        self.assertEqual(claims['workflow_ref'], 'ai-workspace-infra/Platform-Orchestrator/.github/workflows/vault-workload-identity.yml@refs/heads/main')
 
     def test_policy_cannot_read_secrets_or_touch_other_auth_mounts(self):
         name = 'github-actions-platform-ops-toolkit-prod-k3s-v6-vault-tls-admin'
@@ -56,9 +56,9 @@ class V6VaultTLSAccessContract(unittest.TestCase):
         role = json.loads((ROOT / 'scripts/vault/roles' / (name + '.json')).read_text())
         self.assertEqual(role['token_policies'], [name])
         self.assertEqual(role['bound_claims']['environment'], 'prod')
-        self.assertEqual(role['bound_claims']['ref'], ['refs/tags/v6.*'])
+        self.assertEqual(role['bound_claims']['ref'], ['refs/heads/main'])
         self.assertEqual(role['bound_claims']['ref_protected'], 'true')
-        self.assertEqual(role['bound_claims']['workflow_ref'], 'ai-workspace-infra/Platform-Orchestrator/.github/workflows/vault-workload-identity.yml@refs/tags/v6.*')
+        self.assertEqual(role['bound_claims']['workflow_ref'], 'ai-workspace-infra/Platform-Orchestrator/.github/workflows/vault-workload-identity.yml@refs/heads/main')
         self.assertTrue(role['token_no_default_policy'])
         self.assertEqual(role['token_explicit_max_ttl'], '20m')
         policy=(ROOT / 'scripts/vault/policies' / (name + '.hcl')).read_text()

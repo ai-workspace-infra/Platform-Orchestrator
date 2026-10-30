@@ -14,10 +14,10 @@
     "repository": "ai-workspace-infra/Platform-Orchestrator",
     "environment": "prod",
     "ref": [
-      "refs/tags/v6.*"
+      "refs/heads/main"
     ],
-    "workflow_ref": "ai-workspace-infra/Platform-Orchestrator/.github/workflows/iac-orchestrator.yml@refs/tags/v6.*",
-    "job_workflow_ref": "ai-workspace-infra/Platform-Orchestrator/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/tags/v6.*",
+    "workflow_ref": "ai-workspace-infra/Platform-Orchestrator/.github/workflows/iac-orchestrator.yml@refs/heads/main",
+    "job_workflow_ref": "ai-workspace-infra/Platform-Orchestrator/.github/workflows/iac-pipeline-multi-cloud-stages.yaml@refs/heads/main",
     "ref_protected": "true"
   },
   "token_policies": [

@@ -27,8 +27,8 @@ class Contract(unittest.TestCase):
         self.assertEqual(claims['repository'], 'ai-workspace-infra/Platform-Orchestrator')
         self.assertEqual(claims['environment'], 'prod')
         self.assertEqual(claims['ref_protected'], 'true')
-        self.assertEqual(claims['ref'], ['refs/tags/v6.*'])
-        self.assertEqual(claims['workflow_ref'], 'ai-workspace-infra/Platform-Orchestrator/.github/workflows/selfhost-orchestrator.yml@refs/tags/v6.*')
+        self.assertEqual(claims['ref'], ['refs/heads/main'])
+        self.assertEqual(claims['workflow_ref'], 'ai-workspace-infra/Platform-Orchestrator/.github/workflows/selfhost-orchestrator.yml@refs/heads/main')
         self.assertEqual(role['token_explicit_max_ttl'], '10m')
 
 
