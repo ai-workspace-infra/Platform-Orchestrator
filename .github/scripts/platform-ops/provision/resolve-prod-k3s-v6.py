@@ -15,6 +15,54 @@ def require(ok, reason):
         raise ValueError(reason)
 
 
+def requested_refs(inputs):
+    try:
+        refs = json.loads(inputs.get('source_ref', ''))
+    except (TypeError, ValueError):
+        raise ValueError('V6 source_ref requires JSON keys gitops, playbooks and iac') from None
+    require(isinstance(refs, dict) and set(refs) == {'gitops', 'playbooks', 'iac'},
+            'V6 source_ref requires exactly gitops, playbooks and iac')
+    for key, value in refs.items():
+        require(isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/-]*', value),
+                'Invalid selected ref: ' + key)
+        require('..' not in value and not re.fullmatch(r'[0-9a-f]{40}', value),
+                'Select a branch or tag for ' + key)
+    require(re.fullmatch(r'v[0-9][A-Za-z0-9._-]*', refs['gitops']),
+            'V6 GitOps selection requires an immutable reviewed tag')
+    return refs
+
+
+def resolve_owner(checkout, requested):
+    """Resolve metadata only; never execute code from the selected checkout."""
+    checkout = Path(checkout).resolve()
+    def git(*args):
+        return subprocess.check_output(['git', '-C', str(checkout), *args],
+                                       text=True, stderr=subprocess.DEVNULL).strip()
+    if requested.startswith('refs/heads/'):
+        candidates = ['refs/remotes/origin/' + requested.removeprefix('refs/heads/')]
+    elif requested.startswith('refs/tags/'):
+        candidates = [requested]
+    else:
+        require(not requested.startswith('refs/'), 'Unsupported owner ref namespace')
+        candidates = ['refs/remotes/origin/' + requested, 'refs/tags/' + requested]
+    resolved = []
+    for ref in candidates:
+        try:
+            resolved.append(git('rev-parse', '--verify', ref + '^{commit}'))
+        except subprocess.CalledProcessError:
+            pass
+    require(len(resolved) == 1, 'Owner ref is missing or ambiguous; use refs/heads/ or refs/tags/')
+    sha = resolved[0]
+    require(re.fullmatch(r'[0-9a-f]{40}', sha), 'Owner SHA is invalid')
+    require(git('rev-parse', 'HEAD') == sha, 'Owner checkout differs from selected ref')
+    require(not git('status', '--porcelain', '--untracked-files=all'), 'Dirty owner checkout')
+    try:
+        git('merge-base', '--is-ancestor', sha, 'refs/remotes/origin/main')
+    except subprocess.CalledProcessError:
+        raise ValueError('Production owner commit must be merged into main') from None
+    return sha
+
+
 def validate(inputs, config, checkout, ref):
     require(re.fullmatch(r'refs/tags/v6\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?', ref), 'V6 production dispatch requires a reviewed release tag')
     fixed = {'vault_env_path':'prod-v6','cloud_provider':'akamai-cloud','cloud_account':'manbuzhe2026',
@@ -28,10 +76,7 @@ def validate(inputs, config, checkout, ref):
     require(inputs.get('akamai_account','') in ('','manbuzhe2026'), 'Conflicting account selector')
     for key in ('existing_target_host','deploy_tag','xray_exporter_image','agent_controller_url','vault_addr'):
         require(not inputs.get(key), 'V6 does not accept override: ' + key)
-    tag = inputs.get('source_ref','')
-    require(re.fullmatch(r'v[0-9][A-Za-z0-9._-]*',tag), 'V6 requires an immutable reviewed GitOps tag')
-    for key in ('iac_sha','playbooks_sha'):
-        require(re.fullmatch(r'[0-9a-f]{40}',config[key]), 'Reviewed owner SHA missing: '+key)
+    tag = requested_refs(inputs)['gitops']
     decl = yaml.safe_load((checkout/config['resource_manifest']).read_text())
     g=decl['global']
     require((g['provider'],g['environment'],g['account'],g['workspace'],g['state_namespace']) ==
@@ -78,16 +123,36 @@ def validate(inputs, config, checkout, ref):
 
 
 def main():
-    config=yaml.safe_load((ROOT/'.github/config/prod-k3s-v6.yaml').read_text())
     inputs=json.loads(os.environ['V6_INPUTS'])
+    refs=requested_refs(inputs)
+    if os.environ.get('V6_RESOLVE_REFS') == 'true':
+        with open(os.environ['GITHUB_OUTPUT'],'a') as out:
+            for key,value in refs.items():
+                out.write(f'{key}_ref={value}\n')
+        return
+    config=yaml.safe_load((ROOT/'.github/config/prod-k3s-v6.yaml').read_text())
     checkout=Path(os.environ['V6_GITOPS']).resolve()
     require(os.environ.get('GITHUB_REF_PROTECTED') == 'true', 'V6 release tag must be protected')
     mode=validate(inputs,config,checkout,os.environ['GITHUB_REF'])
     sha=subprocess.check_output(['git','-C',str(checkout),'rev-parse','HEAD'],text=True).strip()
-    pinned=subprocess.check_output(['git','-C',str(checkout),'rev-parse','refs/tags/'+inputs['source_ref']+'^{commit}'],text=True).strip()
+    pinned=subprocess.check_output(['git','-C',str(checkout),'rev-parse','refs/tags/'+refs['gitops']+'^{commit}'],text=True).strip()
     require(sha==pinned, 'GitOps tag and checkout differ')
     require(not subprocess.check_output(['git','-C',str(checkout),'status','--porcelain'],text=True).strip(), 'Dirty GitOps checkout')
-    outputs=dict(config,gitops_sha=sha,action='plan' if mode=='plan' else 'apply',operation=mode)
+    owners={name+'_sha': resolve_owner(os.environ['V6_'+name.upper()], refs[name])
+            for name in ('iac','playbooks')}
+    declaration=yaml.safe_load((checkout/config['resource_manifest']).read_text())
+    scope=declaration['global']
+    vault=config['bootstrap_vault']
+    require(all(isinstance(vault.get(key), str) and vault[key] and not any(c in vault[key] for c in '\n\r;')
+                for key in ('address','role','ssh_record','provider_record')), 'Invalid bootstrap Vault binding')
+    outputs=dict({k:v for k,v in config.items() if k != 'bootstrap_vault'},**owners,
+                 environment=scope['environment'],account=scope['account'],
+                 selectors=json.dumps({k:scope[v] for k,v in {'environment':'environment','provider':'provider',
+                                      'account':'account','namespace':'state_namespace'}.items()},separators=(',',':')),
+                 vault_address=vault['address'],vault_role=vault['role'],
+                 ssh_record=vault['ssh_record'],provider_record=vault['provider_record'],
+                 gitops_sha=sha,action='plan' if mode=='plan' else 'apply',operation=mode,
+                 **{name+'_ref': value for name,value in refs.items()})
     with open(os.environ['GITHUB_OUTPUT'],'a') as out:
         for key,value in outputs.items():
             require('\n' not in str(value), 'Multiline output rejected')

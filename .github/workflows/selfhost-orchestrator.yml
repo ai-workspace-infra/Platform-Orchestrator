@@ -36,7 +36,7 @@ on:
         required: false
         type: string
       source_ref:
-        description: "常规路径共用 Git Ref；V6 必填 GitOps 正式 tag，执行 owner 使用配置中独立固定 SHA"
+        description: '常规路径使用 Git Ref；V6 必填 JSON：{"gitops":"<tag>","playbooks":"<branch-or-tag>","iac":"<branch-or-tag>"}；预检解析后固定 SHA'
         required: false
         default: ""
         type: string
@@ -198,37 +198,6 @@ concurrency:
   group: deploy-env-migration-${{ github.event.inputs.vault_env_path || 'uat' }}-${{ github.event.inputs.cloud_provider || 'auto' }}-${{ github.event.inputs.cloud_account || github.event.inputs.akamai_account || 'profile' }}-${{ github.event.inputs.target_domains || 'auto' }}
   cancel-in-progress: false
 
-env:
-  VAULT_ADDR: ${{ github.event.inputs.vault_addr || 'https://vault.svc.plus' }}
-  # Branches select a complete deployment profile:
-  # - pull_request -> sit
-  # - main / release/* -> uat, except release/v* -> prod
-  # - tags (v*) -> prod
-  DEPLOY_ENV: ${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || github.event.inputs.vault_env_path || 'uat' }}
-  VAULT_ENV_PATH: ${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(github.event.inputs.vault_env_path, 'prod-v') && 'prod') || github.event.inputs.vault_env_path || 'uat' }}
-  VAULT_ROLE: github-actions-platform-ops-toolkit-${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(github.event.inputs.vault_env_path, 'prod-v') && 'prod') || github.event.inputs.vault_env_path || 'uat' }}
-  # 公共服务 secret: 三个环境共读、只读不可改 (GHCR 镜像拉取凭据等)。
-  # 拉的是同一批镜像, 不存在环境维度, 不拆分。
-  VAULT_KV: kv/data/CICD
-  # 基础凭据: 按环境拆分, 各 role 只读自己那份。
-  # VULTR_API_KEY / TF_STATE_* / SSH_PRIVATE_DEPLOY_KEY_B64 授予的是"控制基础
-  # 设施"和"登录主机"的能力, 是提权的实际载体, 必须隔离 —— sit 失陷不应拿到
-  # prod 的云账号与主机私钥。
-  VAULT_KV_BASE: kv/data/CICD/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(github.event.inputs.vault_env_path, 'prod-v') && 'prod') || github.event.inputs.vault_env_path || 'uat' }}
-  VAULT_KV_IAC_STATE: kv/data/CICD/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(github.event.inputs.vault_env_path, 'prod-v') && 'prod') || github.event.inputs.vault_env_path || 'uat' }}/iac_state
-  VAULT_KV_OPENCLAW: kv/data/openclaw
-  VAULT_KV_WEB_SAAS: kv/data/WEB_SAAS
-  # 计费域密钥按环境隔离, 与 databases / agent-proxy 同形。此前是共享的
-  # kv/data/billing-service, 靠 SANDBOX_/PROD_ 键前缀区分两套密钥 —— 但
-  # KV v2 的读权限是整份 secret 粒度, 那样 uat 角色必然连 PROD_STRIPE_SECRET_KEY
-  # 一起读到, 而那把密钥能对真实客户扣款退款。拆开之后, 既有的
-  # kv/data/<env>/* 规则天然完成隔离, 不需要任何额外 policy。
-  VAULT_KV_BILLING: kv/data/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(github.event.inputs.vault_env_path, 'prod-v') && 'prod') || github.event.inputs.vault_env_path || 'uat' }}/billing-service
-  VAULT_KV_DATABASES: kv/data/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(github.event.inputs.vault_env_path, 'prod-v') && 'prod') || github.event.inputs.vault_env_path || 'uat' }}/databases
-  VAULT_KV_SMTP: kv/data/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(github.event.inputs.vault_env_path, 'prod-v') && 'prod') || github.event.inputs.vault_env_path || 'uat' }}/platform/smtp/google
-  VAULT_KV_AGENT_PROXY: kv/data/${{ github.event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(github.event.inputs.vault_env_path, 'prod-v') && 'prod') || github.event.inputs.vault_env_path || 'uat' }}/agent-proxy
-  PLAYBOOKS_DIR: infra/playbooks
-  AKAMAI_ACCOUNT: ${{ github.event.inputs.akamai_account || 'manbuzhe2026' }}
 
 jobs:
   resolve:
@@ -420,23 +389,52 @@ jobs:
       playbooks_sha: ${{ steps.resolve.outputs.playbooks_sha }}
       target_manifest: ${{ steps.resolve.outputs.target_manifest }}
       action: ${{ steps.resolve.outputs.action }}
+      environment: ${{ steps.resolve.outputs.environment }}
+      account: ${{ steps.resolve.outputs.account }}
+      node: ${{ steps.resolve.outputs.node }}
+      selectors: ${{ steps.resolve.outputs.selectors }}
+      vault_address: ${{ steps.resolve.outputs.vault_address }}
+      vault_role: ${{ steps.resolve.outputs.vault_role }}
+      ssh_record: ${{ steps.resolve.outputs.ssh_record }}
+      provider_record: ${{ steps.resolve.outputs.provider_record }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - run: python3 -m pip install PyYAML==6.0.2
+      - id: refs
+        env:
+          V6_INPUTS: ${{ toJSON(inputs) }}
+          V6_RESOLVE_REFS: 'true'
+        run: python3 .github/scripts/platform-ops/provision/resolve-prod-k3s-v6.py
       - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/gitops
-          ref: ${{ inputs.source_ref }}
+          ref: ${{ steps.refs.outputs.gitops_ref }}
           fetch-depth: 0
           path: gitops
           persist-credentials: false
-      - run: python3 -m pip install PyYAML==6.0.2
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ steps.refs.outputs.playbooks_ref }}
+          fetch-depth: 0
+          path: playbooks-candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/iac_modules
+          ref: ${{ steps.refs.outputs.iac_ref }}
+          fetch-depth: 0
+          path: iac-candidate
+          persist-credentials: false
       - id: resolve
         env:
           V6_INPUTS: ${{ toJSON(inputs) }}
           V6_GITOPS: ${{ github.workspace }}/gitops
+          V6_PLAYBOOKS: ${{ github.workspace }}/playbooks-candidate
+          V6_IAC: ${{ github.workspace }}/iac-candidate
         run: python3 .github/scripts/platform-ops/provision/resolve-prod-k3s-v6.py
 
   v6-iac:
@@ -461,22 +459,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           IAC_ACTION: ${{ needs.v6-resolve.outputs.action }}
-          IAC_ENVIRONMENT: prod
+          IAC_ENVIRONMENT: ${{ needs.v6-resolve.outputs.environment }}
           IAC_TARGET_MANIFEST: ${{ needs.v6-resolve.outputs.target_manifest }}
           IAC_GITOPS_REF: ${{ needs.v6-resolve.outputs.gitops_sha }}
           IAC_REF: ${{ needs.v6-resolve.outputs.iac_sha }}
           IAC_STAGE_SCOPE: resources
           IAC_BOOTSTRAP_MODE: verify
           IAC_DISPATCH_REF: ${{ github.ref_name }}
-          IAC_CORRELATION_ID: ${{ github.run_id }}:${{ github.run_attempt }}:prod-k3s-v6
-          IAC_SELECTORS: '{"environment":"prod","provider":"akamai-cloud","account":"manbuzhe2026","namespace":"prod-k3s-v6"}'
+          IAC_CORRELATION_ID: ${{ github.run_id }}:${{ github.run_attempt }}:${{ needs.v6-resolve.outputs.node }}
+          IAC_SELECTORS: ${{ needs.v6-resolve.outputs.selectors }}
         run: python3 .github/scripts/platform-ops/provision/dispatch-iac-pipeline.py
 
   v6-bootstrap:
     name: '[V6 3/4] Common checks and paused cluster bootstrap'
     if: ${{ inputs.operation != 'plan' }}
     needs: [v6-resolve, v6-iac]
-    environment: prod
+    environment: ${{ needs.v6-resolve.outputs.environment }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -520,7 +518,7 @@ jobs:
           iac-sha: ${{ needs.v6-resolve.outputs.iac_sha }}
           target-manifest: ${{ needs.v6-resolve.outputs.target_manifest }}
           action: apply
-          correlation-id: ${{ github.run_id }}:${{ github.run_attempt }}:prod-k3s-v6
+          correlation-id: ${{ github.run_id }}:${{ github.run_attempt }}:${{ needs.v6-resolve.outputs.node }}
       - uses: ./iac_modules/.github/actions/iac-caller-inventory
         with:
           summary-file: ${{ runner.temp }}/v6-iac-summary/summary.json
@@ -532,15 +530,15 @@ jobs:
       - id: vault
         uses: hashicorp/vault-action@v3
         with:
-          url: https://vault.svc.plus
+          url: ${{ needs.v6-resolve.outputs.vault_address }}
           method: jwt
-          role: github-actions-platform-ops-toolkit-prod-k3s-v6-bootstrap
+          role: ${{ needs.v6-resolve.outputs.vault_role }}
           jwtGithubAudience: vault
           exportEnv: false
           exportToken: false
           secrets: |
-            kv/data/prod/platform/prod-k3s-v6/ssh SSH_PRIVATE_KEY | SSH_PRIVATE_KEY ;
-            kv/data/CICD/prod/akamai-cloud/manbuzhe2026 LINODE_TOKEN | LINODE_TOKEN ;
+            ${{ needs.v6-resolve.outputs.ssh_record }} SSH_PRIVATE_KEY | SSH_PRIVATE_KEY ;
+            ${{ needs.v6-resolve.outputs.provider_record }} LINODE_TOKEN | LINODE_TOKEN ;
       - id: identity
         uses: ./iac_modules/.github/actions/akamai-candidate-hostkey
         env:
@@ -548,8 +546,8 @@ jobs:
         with:
           cmdb-file: ${{ runner.temp }}/v6-cmdb/cmdb.json
           cmdb-sha256: ${{ steps.checksum.outputs.sha256 }}
-          account: manbuzhe2026
-          node: prod-k3s-v6
+          account: ${{ needs.v6-resolve.outputs.account }}
+          node: ${{ needs.v6-resolve.outputs.node }}
           output-dir: ${{ runner.temp }}/v6-hostkey
       - uses: ./playbooks/.github/actions/prod-k3s-bootstrap
         env:
@@ -564,7 +562,7 @@ jobs:
           receipt: ${{ runner.temp }}/v6-bootstrap-receipt.json
       - uses: actions/upload-artifact@v4
         with:
-          name: prod-k3s-v6-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ needs.v6-resolve.outputs.node }}-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/v6-bootstrap-receipt.json
           if-no-files-found: error
 

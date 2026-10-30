@@ -4,5 +4,8 @@ flux_root_name: prod-k3s
 target_manifest: iac/targets/prod-akamai-k3s-v6.yaml
 resource_manifest: resources/svc.plus/prod/akamai/prod-k3s-v6.yaml
 root_path: environments/clusters/prod-k3s-v6
-iac_sha: adf9c140cd2c120361012917cddcde1e58876c6c
-playbooks_sha: 37418aa0613f9fe1b4b248bd4d3bbfdacec34b3c
+bootstrap_vault:
+  address: https://vault.svc.plus
+  role: github-actions-platform-ops-toolkit-prod-k3s-v6-bootstrap
+  ssh_record: kv/data/prod/platform/prod-k3s-v6/ssh
+  provider_record: kv/data/CICD/prod/akamai-cloud/manbuzhe2026
