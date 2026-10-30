@@ -6,7 +6,7 @@ Source: `.github/workflows/selfhost-orchestrator.yml`. V6 uses a separate cold-b
 | --- | --- | --- | --- | --- |
 | `runner_type` | choice | true | `ubuntu-latest` | ubuntu-latest |
 | `deploy_tag` | string | false | `` | Must be blank; unused by V6 |
-| `source_ref` | string | false | `` | Required reviewed GitOps v* tag; owners independently pinned |
+| `source_ref` | string | false | `` | V6 requires JSON keys `gitops`, `playbooks`, `iac`; GitOps selects a reviewed tag, owners select a branch or tag, resolved once to SHAs. Legacy routes retain their plain-ref input. |
 | `offline_mode` | choice | false | `off` | off |
 | `source_host` | string | true | `install.svc.plus` | Ignored by V6; ineffective control |
 | `source_domain_base` | string | true | `svc.plus` | Ignored by V6; ineffective control |
@@ -32,7 +32,45 @@ Source: `.github/workflows/selfhost-orchestrator.yml`. V6 uses a separate cold-b
 
 ## Hidden rules and execution evidence
 
-Dispatch V6 only at a reviewed root release tag. The GitOps tag must contain all six initially self-pinned sources, six Flux Kustomizations and seven HelmReleases, suspended. Each later unit may use its own independent ref and chart pin.
+Dispatch V6 only at a reviewed root release tag. The GitOps tag must contain all six initially self-pinned sources, nine Flux Kustomizations and eight HelmReleases, suspended. Each later unit may use its own independent ref and chart pin.
+
+## Component selection and frozen execution
+
+The workflow has 25 dispatch inputs. V6 uses the existing `source_ref` as a structured
+selection rather than adding more inputs or editing component SHAs in environment config:
+
+```json
+{"gitops":"<reviewed-gitops-tag>","playbooks":"main","iac":"<reviewed-iac-branch-or-tag>"}
+```
+
+Use `refs/heads/<branch>` or `refs/tags/<tag>` if a short name is ambiguous.
+Both owner repositories are fetched without executing their code. Preflight verifies
+the selected commit matches the checkout, belongs to `origin/main` history, and has a
+clean tree. Unmerged feature commits, missing refs, ambiguous names and incomplete
+selections fail before IaC dispatch or Vault login. Main ancestry establishes the merge
+boundary; it does not establish that this component combination has passed integration
+or runtime acceptance.
+
+All downstream jobs consume `v6-resolve.outputs.iac_sha` and `playbooks_sha`.
+The log records each requested ref and resolved SHA. A branch moving after resolution
+does not change the code used by downstream jobs in that attempt. A complete rerun
+resolves branch inputs again; use immutable tags to repeat the previous candidate and
+revalidate receipts whenever the resolved candidate changes.
+
+### Workflow literal audit
+
+| Previous literal | Current source / reason |
+| --- | --- |
+| IaC / Playbooks commit SHAs in environment config | Dispatch selection, resolved to SHA before execution |
+| Environment, account, IaC selectors, node and correlation suffix in YAML | Validated GitOps global scope and selected profile outputs |
+| Vault URL, role and record paths in YAML | Reviewed `bootstrap_vault` identity binding in the selected control-plane profile; no caller-provided secret path |
+| Parent-wide environment routing and unused service KV variables | Removed; dispatched child workflows own their environment resolution and credential scope |
+| Action versions, repository identities, protocol field names, timeouts | Retained implementation/security contracts; not environment or component-version selection |
+| Existing `prod-v6` route, supported operations, protected tags and DNS gate | Retained authorization/compatibility boundary. Changing the selector alone does not implement a different generation; generic owner capability must exist first |
+
+V6 `dns_mode=none` protects canonical records. Dedicated batch records require their
+own explicit IaC DNS-owner operation and exact target address; this cleanup performs
+no DNS update and does not add a DNS stage.
 
 `plan` runs IaC plan; `infra` applies isolated resources and runs common identity checks; `deploy` applies resources and verifies paused bootstrap. No migratectl, SQL schema upgrade, restore, DNS or writer handoff runs in this path. Source host, source/target domain bases, telemetry override, agent plan and XConnect inputs are ignored, not effective V6 configuration.
 

@@ -1,7 +1,9 @@
 import copy
+import json
 import importlib.util
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 import yaml
 
@@ -12,9 +14,10 @@ v6=importlib.util.module_from_spec(spec);spec.loader.exec_module(v6)
 class RequestTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name)
-        self.config={'iac_sha':'a'*40,'playbooks_sha':'b'*40,'resource_manifest':'resource.yaml','target_manifest':'target.yaml','root_path':'cluster','node':'prod-k3s-v6','flux_root_name':'prod-k3s'}
+        self.config={'resource_manifest':'resource.yaml','target_manifest':'target.yaml','root_path':'cluster','node':'prod-k3s-v6','flux_root_name':'prod-k3s'}
         self.inputs={'vault_env_path':'prod-v6','cloud_provider':'akamai-cloud','cloud_account':'manbuzhe2026','instance_plan':'2C4G','target_domains':'web-saas','dns_mode':'none','open_platform_service':'none','offline_mode':'off','runner_type':'ubuntu-latest','operation':'deploy','include_external_agent_proxy':False,'skip_stripe_catalog':True,'source_ref':'v1.0.0'}
         self.host={'name':'prod-k3s-v6','type':'g6-standard-2','region':'jp-tyo-3','image':'linode/debian13','volume':{'label':'prod-k3s-v6-data','size':100,'filesystem':'ext4'},'firewall':{'ssh_cidrs':['0.0.0.0/0'],'ssh_ipv6_cidrs':[],'additional_tcp_ports':[]},'host_vars':{'public_dns_cutover':False,'reserved_dns_aliases':{},'target_generation':'prod-v6','k3s_platform_flux_bootstrap_mode':'declarative_paused','k3s_platform_flux_root_name':'prod-k3s','k3s_platform_write_kubeconfig_mode':'0600','k3s_platform_local_storage_path':'/data/k3s/storage','k3s_platform_require_data_mount':True}}
+        self.inputs['source_ref']=json.dumps({'gitops':'v1.0.0','playbooks':'main','iac':'v1.0.0'})
         self.decl={'global':{'provider':'akamai-cloud','environment':'prod','account':'manbuzhe2026','workspace':'prod-k3s-v6','state_namespace':'prod-k3s-v6','prevent_destroy':True},'hosts':[self.host]}
         (self.root/'resource.yaml').write_text(yaml.safe_dump(self.decl))
         target={'targets':[{'stages':{'resources':{'manifest':'resource.yaml','create_only':True,'requires_existing_state':False,'destroy_allowed':False}}}]}
@@ -47,8 +50,8 @@ class RequestTests(unittest.TestCase):
             self.inputs[key]=old
     def test_main_ref_rejected(self):
         with self.assertRaises(ValueError):self.validate('refs/heads/main')
-    def test_missing_owner_pin_rejected(self):
-        self.config['playbooks_sha']='main'
+    def test_missing_owner_selection_rejected(self):
+        self.inputs['source_ref']=json.dumps({'gitops':'v1.0.0','iac':'main'})
         with self.assertRaises(ValueError):self.validate()
     def test_flux_root_is_independent_from_node_hostname(self):
         self.assertEqual('prod-k3s-v6',self.config['node'])
@@ -63,7 +66,7 @@ class RequestTests(unittest.TestCase):
         self.graph.write_text(yaml.safe_dump_all(docs))
         with self.assertRaisesRegex(ValueError,'paused'):self.validate()
     def test_wrong_config_pin_rejected(self):
-        self.inputs['source_ref']='v2.0.0'
+        self.inputs['source_ref']=json.dumps({'gitops':'v2.0.0','playbooks':'main','iac':'main'})
         with self.assertRaisesRegex(ValueError,'reviewed tag'):self.validate()
     def test_legacy_path_excludes_v6(self):
         text=(ROOT/'.github/workflows/selfhost-orchestrator.yml').read_text()
@@ -82,6 +85,17 @@ class RequestTests(unittest.TestCase):
             self.assertNotIn('"write"',policy);self.assertNotIn('"update"',policy)
 
 class OwnerPhaseContractTests(unittest.TestCase):
+    def test_downstream_uses_frozen_owner_shas(self):
+        workflow=yaml.safe_load((ROOT/'.github/workflows/selfhost-orchestrator.yml').read_text())
+        job=workflow['jobs']['v6-bootstrap']
+        owners={s['with']['repository']:s['with']['ref'] for s in job['steps']
+                if s.get('uses','').startswith('actions/checkout')}
+        for repo,key in [('playbooks','playbooks'),('iac_modules','iac')]:
+            self.assertEqual('${{ needs.v6-resolve.outputs.'+key+'_sha }}',
+                             owners['ai-workspace-infra/'+repo])
+        config=yaml.safe_load((ROOT/'.github/config/prod-k3s-v6.yaml').read_text())
+        self.assertNotIn('playbooks_sha',config)
+        self.assertNotIn('iac_sha',config)
     def test_infra_runs_common_and_deploy_runs_cluster(self):
         d=yaml.safe_load((ROOT/'.github/workflows/selfhost-orchestrator.yml').read_text())['jobs']['v6-bootstrap']
         self.assertIn("inputs.operation != 'plan'", d['if'])
@@ -93,6 +107,52 @@ class OwnerPhaseContractTests(unittest.TestCase):
         if not root:self.skipTest('Owner checkout checked by repository integration job')
         action=yaml.safe_load((Path(root)/'.github/actions/prod-k3s-bootstrap/action.yml').read_text())
         self.assertEqual('cluster',action['inputs']['phase']['default'])
+
+class OwnerRefTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.repo=Path(self.tmp.name)
+        self.git('init','-q')
+        self.git('-c','user.name=Fixture','-c','user.email=fixture@example.invalid',
+                 'commit','--allow-empty','-qm','initial')
+        self.sha=self.git('rev-parse','HEAD')
+        self.git('update-ref','refs/remotes/origin/main',self.sha)
+        self.git('tag','v1.0.0')
+    def git(self,*args):
+        return subprocess.check_output(['git','-C',str(self.repo),*args],text=True,
+                                       stderr=subprocess.DEVNULL).strip()
+    def test_branch_and_annotated_tag_resolve_to_commit(self):
+        self.git('-c','user.name=Fixture','-c','user.email=fixture@example.invalid',
+                 'tag','-a','v1.0.1','-m','release')
+        for ref in ('main','refs/heads/main','v1.0.0','refs/tags/v1.0.1'):
+            with self.subTest(ref=ref):
+                self.assertEqual(self.sha,v6.resolve_owner(self.repo,ref))
+    def test_missing_and_ambiguous_refs_are_rejected(self):
+        with self.assertRaisesRegex(ValueError,'missing or ambiguous'):
+            v6.resolve_owner(self.repo,'missing')
+        self.git('tag','main')
+        with self.assertRaisesRegex(ValueError,'ambiguous'):
+            v6.resolve_owner(self.repo,'main')
+        self.assertEqual(self.sha,v6.resolve_owner(self.repo,'refs/heads/main'))
+    def test_unmerged_owner_and_dirty_checkout_are_rejected(self):
+        (self.repo/'untracked').touch()
+        with self.assertRaisesRegex(ValueError,'Dirty'):
+            v6.resolve_owner(self.repo,'main')
+        self.git('add','untracked')
+        self.git('-c','user.name=Fixture','-c','user.email=fixture@example.invalid',
+                 'commit','-qm','unmerged')
+        self.git('update-ref','refs/remotes/origin/feature',self.git('rev-parse','HEAD'))
+        with self.assertRaisesRegex(ValueError,'merged into main'):
+            v6.resolve_owner(self.repo,'feature')
+        with self.assertRaisesRegex(ValueError,'differs'):
+            v6.resolve_owner(self.repo,'main')
+    def test_structured_selection_rejects_incomplete_or_unsafe_values(self):
+        for value in ('v1.0.0','{}',json.dumps({'gitops':'main','playbooks':'main','iac':'main'}),
+                      json.dumps({'gitops':'v1.0.0','playbooks':'a'*40,'iac':'main'}),
+                      json.dumps({'gitops':'v1.0.0','playbooks':'main\nINJECT=yes','iac':'main'})):
+            with self.subTest(value=value),self.assertRaises(ValueError):
+                v6.requested_refs({'source_ref':value})
+
 
 class TerminalTests(unittest.TestCase):
     def test_real_failures_cannot_be_reported_successful(self):

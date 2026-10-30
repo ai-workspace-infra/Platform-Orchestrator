@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - .github/actions/**
+      - .github/config/**
       - .github/scripts/**
       - .github/feature-candidates/**
       - .github/policies/**
@@ -17,6 +18,7 @@ on:
     branches: [main]
     paths:
       - .github/actions/**
+      - .github/config/**
       - .github/scripts/**
       - .github/feature-candidates/**
       - .github/policies/**
