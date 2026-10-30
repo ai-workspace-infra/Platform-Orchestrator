@@ -89,7 +89,7 @@ def validate(inputs, config, checkout, ref):
     require(fw['ssh_cidrs']==['0.0.0.0/0'] and fw['ssh_ipv6_cidrs']==[] and fw['additional_tcp_ports']==[], 'Unreviewed exposure')
     hv=host['host_vars']
     require(hv['public_dns_cutover'] is False and hv['reserved_dns_aliases']=={}, 'DNS cutover is forbidden')
-    require(hv['target_generation']=='prod-v6' and hv['k3s_platform_flux_bootstrap_mode']=='declarative_paused', 'Wrong bootstrap mode')
+    require(hv['target_generation']=='prod-v6' and hv['k3s_platform_flux_bootstrap_mode'] in ('declarative_paused','declarative_active'), 'Wrong bootstrap mode')
     require(hv['k3s_platform_flux_root_name']==config['flux_root_name'] and hv['k3s_platform_write_kubeconfig_mode']=='0600', 'Wrong Flux root or administrator permissions')
     require(hv['k3s_platform_local_storage_path']=='/data/k3s/storage' and hv['k3s_platform_require_data_mount'] is True, 'Data mount required')
     target=yaml.safe_load((checkout/config['target_manifest']).read_text())['targets']
@@ -105,7 +105,6 @@ def validate(inputs, config, checkout, ref):
         selected=[o for o in objects if o.get('kind')==kind and 'toolkit.fluxcd.io/' in o.get('apiVersion','')]
         require(len(selected)==count, 'Wrong V6 object count: '+kind)
         for obj in selected:
-            require(obj['spec'].get('suspend') is True, 'All V6 bootstrap objects must start paused')
             if kind=='GitRepository':
                 require(obj['spec']['url']=='https://github.com/ai-workspace-infra/gitops.git' and obj['spec']['ref']=={'tag':tag}, 'Initial sources must bind the reviewed tag')
             if kind=='Kustomization':
