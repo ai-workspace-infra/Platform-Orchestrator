@@ -36,7 +36,7 @@ on:
         required: false
         type: string
       source_ref:
-        description: '常规路径使用 Git Ref；V6 必填 JSON：{"gitops":"<tag>","playbooks":"<branch-or-tag>","iac":"<branch-or-tag>"}；预检解析后固定 SHA'
+        description: '基础仓库来源 Git Ref；留空时使用 main。业务制品版本通过 deploy_tag 单独选择。'
         required: false
         default: ""
         type: string
@@ -72,7 +72,7 @@ on:
         default: ""
         type: string
       operation:
-        description: "plan=校验；infra=基础设施（V6 自动 common 检查）；deploy=应用（V6 为新资源与暂停式集群引导）；deploy+init=UAT空库初始化+应用；deploy+migrate=应用+迁移；migrate=仅迁移；destroy=销毁"
+        description: "plan=校验；infra=基础设施；deploy=部署；deploy+init=UAT空库初始化+部署；deploy+migrate=部署+迁移；migrate=仅迁移；destroy=销毁"
         required: true
         default: "plan"
         type: choice
@@ -202,7 +202,7 @@ concurrency:
 jobs:
   resolve:
     name: "[1/5] Resolve & Validate"
-    if: ${{ github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/tags/v6.') && !(github.event_name == 'workflow_dispatch' && inputs.vault_env_path == 'prod-v6') }}
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 359
     outputs:
@@ -379,206 +379,3 @@ jobs:
           SELFHOST_MIGRATION_RUN_ID: ${{ needs.migrate.outputs.run_id }}
         run: python3 .github/scripts/platform-ops/stage-dispatch.py
 
-  v6-resolve:
-    name: '[V6 1/4] Validate cold bootstrap'
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.vault_env_path == 'prod-v6' }}
-    runs-on: ubuntu-latest
-    outputs:
-      gitops_sha: ${{ steps.resolve.outputs.gitops_sha }}
-      iac_sha: ${{ steps.resolve.outputs.iac_sha }}
-      playbooks_sha: ${{ steps.resolve.outputs.playbooks_sha }}
-      resource_manifest: ${{ steps.resolve.outputs.resource_manifest }}
-      target_manifest: ${{ steps.resolve.outputs.target_manifest }}
-      action: ${{ steps.resolve.outputs.action }}
-      environment: ${{ steps.resolve.outputs.environment }}
-      account: ${{ steps.resolve.outputs.account }}
-      node: ${{ steps.resolve.outputs.node }}
-      selectors: ${{ steps.resolve.outputs.selectors }}
-      vault_address: ${{ steps.resolve.outputs.vault_address }}
-      vault_role: ${{ steps.resolve.outputs.vault_role }}
-      ssh_record: ${{ steps.resolve.outputs.ssh_record }}
-      provider_record: ${{ steps.resolve.outputs.provider_record }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - run: python3 -m pip install PyYAML==6.0.2
-      - id: refs
-        env:
-          V6_INPUTS: ${{ toJSON(inputs) }}
-          V6_RESOLVE_REFS: 'true'
-        run: python3 .github/scripts/platform-ops/provision/resolve-prod-k3s-v6.py
-      - uses: actions/checkout@v4
-        with:
-          repository: ai-workspace-infra/gitops
-          ref: ${{ steps.refs.outputs.gitops_ref }}
-          fetch-depth: 0
-          path: gitops
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          repository: ai-workspace-infra/playbooks
-          ref: ${{ steps.refs.outputs.playbooks_ref }}
-          fetch-depth: 0
-          path: playbooks-candidate
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          repository: ai-workspace-infra/iac_modules
-          ref: ${{ steps.refs.outputs.iac_ref }}
-          fetch-depth: 0
-          path: iac-candidate
-          persist-credentials: false
-      - id: resolve
-        env:
-          V6_INPUTS: ${{ toJSON(inputs) }}
-          V6_GITOPS: ${{ github.workspace }}/gitops
-          V6_PLAYBOOKS: ${{ github.workspace }}/playbooks-candidate
-          V6_IAC: ${{ github.workspace }}/iac-candidate
-        run: python3 .github/scripts/platform-ops/provision/resolve-prod-k3s-v6.py
-
-  v6-iac:
-    name: '[V6 2/4] Create isolated resources'
-    needs: v6-resolve
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    permissions:
-      contents: read
-      actions: write
-    outputs:
-      child_run_id: ${{ steps.iac.outputs.child_run_id }}
-      child_run_attempt: ${{ steps.iac.outputs.child_run_attempt }}
-      receipt_artifact_id: ${{ steps.iac.outputs.receipt_artifact_id }}
-      receipt_sha256: ${{ steps.iac.outputs.receipt_sha256 }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - id: iac
-        env:
-          GH_TOKEN: ${{ github.token }}
-          IAC_ACTION: ${{ needs.v6-resolve.outputs.action }}
-          IAC_ENVIRONMENT: ${{ needs.v6-resolve.outputs.environment }}
-          IAC_TARGET_MANIFEST: ${{ needs.v6-resolve.outputs.target_manifest }}
-          IAC_GITOPS_REF: ${{ needs.v6-resolve.outputs.gitops_sha }}
-          IAC_REF: ${{ needs.v6-resolve.outputs.iac_sha }}
-          IAC_STAGE_SCOPE: resources
-          IAC_BOOTSTRAP_MODE: verify
-          IAC_DISPATCH_REF: ${{ github.ref_name }}
-          IAC_CORRELATION_ID: ${{ github.run_id }}:${{ github.run_attempt }}:${{ needs.v6-resolve.outputs.node }}
-          IAC_SELECTORS: ${{ needs.v6-resolve.outputs.selectors }}
-        run: python3 .github/scripts/platform-ops/provision/dispatch-iac-pipeline.py
-
-  v6-bootstrap:
-    name: '[V6 3/4] Common checks and paused cluster bootstrap'
-    if: ${{ inputs.operation != 'plan' }}
-    needs: [v6-resolve, v6-iac]
-    environment: ${{ needs.v6-resolve.outputs.environment }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    permissions:
-      contents: read
-      actions: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: ai-workspace-infra/iac_modules
-          ref: ${{ needs.v6-resolve.outputs.iac_sha }}
-          path: iac_modules
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          repository: ai-workspace-infra/playbooks
-          ref: ${{ needs.v6-resolve.outputs.playbooks_sha }}
-          path: playbooks
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          repository: ai-workspace-infra/gitops
-          ref: ${{ needs.v6-resolve.outputs.gitops_sha }}
-          fetch-depth: 0
-          path: gitops
-          persist-credentials: false
-      - uses: actions/download-artifact@v4
-        with:
-          artifact-ids: ${{ needs.v6-iac.outputs.receipt_artifact_id }}
-          run-id: ${{ needs.v6-iac.outputs.child_run_id }}
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/v6-iac-summary
-          merge-multiple: true
-      - uses: ./iac_modules/.github/actions/iac-receipt-verify
-        with:
-          summary-file: ${{ runner.temp }}/v6-iac-summary/summary.json
-          receipt-sha256: ${{ needs.v6-iac.outputs.receipt_sha256 }}
-          run-id: ${{ needs.v6-iac.outputs.child_run_id }}
-          run-attempt: ${{ needs.v6-iac.outputs.child_run_attempt }}
-          gitops-sha: ${{ needs.v6-resolve.outputs.gitops_sha }}
-          iac-sha: ${{ needs.v6-resolve.outputs.iac_sha }}
-          target-manifest: ${{ needs.v6-resolve.outputs.target_manifest }}
-          action: apply
-          correlation-id: ${{ github.run_id }}:${{ github.run_attempt }}:${{ needs.v6-resolve.outputs.node }}
-      - uses: ./iac_modules/.github/actions/iac-caller-inventory
-        with:
-          summary-file: ${{ runner.temp }}/v6-iac-summary/summary.json
-          output-dir: ${{ runner.temp }}/v6-cmdb
-      - id: checksum
-        env:
-          V6_CMDB: ${{ runner.temp }}/v6-cmdb/cmdb.json
-        run: echo "sha256=$(sha256sum "$V6_CMDB" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-      - id: vault
-        uses: hashicorp/vault-action@v3
-        with:
-          url: ${{ needs.v6-resolve.outputs.vault_address }}
-          method: jwt
-          role: ${{ needs.v6-resolve.outputs.vault_role }}
-          jwtGithubAudience: vault
-          exportEnv: false
-          exportToken: false
-          secrets: |
-            ${{ needs.v6-resolve.outputs.ssh_record }} SSH_PRIVATE_KEY | SSH_PRIVATE_KEY ;
-            ${{ needs.v6-resolve.outputs.provider_record }} LINODE_TOKEN | LINODE_TOKEN ;
-      - id: identity
-        uses: ./iac_modules/.github/actions/akamai-candidate-hostkey
-        env:
-          LINODE_TOKEN: ${{ steps.vault.outputs.LINODE_TOKEN }}
-        with:
-          cmdb-file: ${{ runner.temp }}/v6-cmdb/cmdb.json
-          cmdb-sha256: ${{ steps.checksum.outputs.sha256 }}
-          account: ${{ needs.v6-resolve.outputs.account }}
-          node: ${{ needs.v6-resolve.outputs.node }}
-          output-dir: ${{ runner.temp }}/v6-hostkey
-      - uses: ./playbooks/.github/actions/prod-k3s-bootstrap
-        env:
-          SSH_PRIVATE_KEY: ${{ steps.vault.outputs.SSH_PRIVATE_KEY }}
-        with:
-          resource-manifest: ${{ needs.v6-resolve.outputs.resource_manifest }}
-          phase: ${{ inputs.operation == 'infra' && 'common' || 'cluster' }}
-          cmdb: ${{ runner.temp }}/v6-cmdb/cmdb.json
-          cmdb-sha256: ${{ steps.checksum.outputs.sha256 }}
-          gitops: ${{ github.workspace }}/gitops
-          gitops-sha: ${{ needs.v6-resolve.outputs.gitops_sha }}
-          known-hosts: ${{ steps.identity.outputs.known-hosts }}
-          receipt: ${{ runner.temp }}/v6-bootstrap-receipt.json
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ needs.v6-resolve.outputs.node }}-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/v6-bootstrap-receipt.json
-          if-no-files-found: error
-
-  v6-summary:
-    name: '[V6 4/4] Record cold bootstrap boundary'
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.vault_env_path == 'prod-v6' }}
-    needs: [v6-resolve, v6-iac, v6-bootstrap]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: ./.github/actions/prod-k3s-summary
-        with:
-          needs-json: ${{ toJSON(needs) }}
-          operation: ${{ inputs.operation }}

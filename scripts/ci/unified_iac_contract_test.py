@@ -176,7 +176,7 @@ class UnifiedWorkflowContract(unittest.TestCase):
             trigger = workflow.get('on',workflow.get(True))
             self.assertLessEqual(len(trigger['workflow_dispatch']['inputs']),25)
             legacy_jobs = ['resolve', 'infrastructure', 'deploy', 'migrate', 'verify']
-            self.assertEqual(list(workflow['jobs']), legacy_jobs + ['v6-resolve','v6-iac','v6-bootstrap','v6-summary'])
+            self.assertEqual(list(workflow['jobs']), legacy_jobs)
             self.assertEqual([workflow['jobs'][job]['name'] for job in legacy_jobs], [f'[{i}/5] {label}' for i,label in enumerate(('Resolve & Validate','IaC & Provision','Deploy','Migrate & Configure','Verify & Report'),1)])
             jobs = load('selfhost-stage-infra.yml')['jobs']
             self.assertIn('dispatch external pipeline', jobs['iac']['name'])

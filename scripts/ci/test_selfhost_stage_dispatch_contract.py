@@ -29,9 +29,8 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
     def test_parent_graph_has_five_dispatch_and_wait_jobs(self):
         parent = load_workflow(ROOT / ".github/workflows/selfhost-orchestrator.yml")
         jobs = parent["jobs"]
-        self.assertEqual(list(jobs), list(PARENT_JOBS) + ['v6-resolve', 'v6-iac', 'v6-bootstrap', 'v6-summary'])
-        self.assertIn("inputs.vault_env_path == 'prod-v6'", jobs['v6-resolve']['if'])
-        self.assertEqual(jobs['v6-summary']['needs'], ['v6-resolve', 'v6-iac', 'v6-bootstrap'])
+        self.assertEqual(list(jobs), list(PARENT_JOBS))
+        self.assertFalse(any(job.startswith('v6-') for job in jobs))
         self.assertNotIn("id-token", parent["permissions"])
         request_step = next(step for step in jobs["resolve"]["steps"] if step.get("id") == "request")
         self.assertEqual(
