@@ -25,10 +25,7 @@ def requested_refs(inputs):
     for key, value in refs.items():
         require(isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/-]*', value),
                 'Invalid selected ref: ' + key)
-        require('..' not in value and not re.fullmatch(r'[0-9a-f]{40}', value),
-                'Select a branch or tag for ' + key)
-    require(re.fullmatch(r'v[0-9][A-Za-z0-9._-]*', refs['gitops']),
-            'V6 GitOps selection requires an immutable reviewed tag')
+        require('..' not in value and value == 'main', 'Base repositories must use main: ' + key)
     return refs
 
 
@@ -63,7 +60,7 @@ def resolve_owner(checkout, requested):
     return sha
 
 
-def validate(inputs, config, checkout, ref):
+def validate(inputs, config, checkout, ref, gitops_sha):
     require(re.fullmatch(r'refs/tags/v6\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?', ref), 'V6 production dispatch requires a reviewed release tag')
     fixed = {'vault_env_path':'prod-v6','cloud_provider':'akamai-cloud','cloud_account':'manbuzhe2026',
              'instance_plan':'2C4G','target_domains':'web-saas','dns_mode':'none','open_platform_service':'none',
@@ -106,7 +103,8 @@ def validate(inputs, config, checkout, ref):
         require(bool(selected), 'Missing Flux declarations: '+kind)
         for obj in selected:
             if kind=='GitRepository':
-                require(obj['spec']['url']=='https://github.com/ai-workspace-infra/gitops.git' and obj['spec']['ref']=={'tag':tag}, 'Initial sources must bind the reviewed tag')
+                require(obj['spec']['url']=='https://github.com/ai-workspace-infra/gitops.git', 'Unexpected GitOps source')
+                require(obj['spec'].get('ref') == {'commit':gitops_sha}, 'Flux source must pin resolved GitOps main SHA')
             if kind=='Kustomization':
                 path=(checkout/obj['spec']['path'].removeprefix('./')).resolve()
                 require(path.is_relative_to(checkout.resolve()) and path.is_dir(), 'Missing or escaped source path')
@@ -132,13 +130,12 @@ def main():
     config=yaml.safe_load((ROOT/'.github/config/prod-k3s-v6.yaml').read_text())
     checkout=Path(os.environ['V6_GITOPS']).resolve()
     require(os.environ.get('GITHUB_REF_PROTECTED') == 'true', 'V6 release tag must be protected')
-    mode=validate(inputs,config,checkout,os.environ['GITHUB_REF'])
-    sha=subprocess.check_output(['git','-C',str(checkout),'rev-parse','HEAD'],text=True).strip()
-    pinned=subprocess.check_output(['git','-C',str(checkout),'rev-parse','refs/tags/'+refs['gitops']+'^{commit}'],text=True).strip()
-    require(sha==pinned, 'GitOps tag and checkout differ')
+    owners={name+'_sha': resolve_owner(os.environ['V6_'+name.upper()], 'main')
+            for name in ('gitops','iac','playbooks')}
+    sha=owners['gitops_sha']
+    mode=validate(inputs,config,checkout,os.environ['GITHUB_REF'],sha)
+    require(subprocess.check_output(['git','-C',str(checkout),'rev-parse','HEAD'],text=True).strip()==sha, 'GitOps checkout differs from resolved main SHA')
     require(not subprocess.check_output(['git','-C',str(checkout),'status','--porcelain'],text=True).strip(), 'Dirty GitOps checkout')
-    owners={name+'_sha': resolve_owner(os.environ['V6_'+name.upper()], refs[name])
-            for name in ('iac','playbooks')}
     declaration=yaml.safe_load((checkout/config['resource_manifest']).read_text())
     scope=declaration['global']
     vault=config['bootstrap_vault']
@@ -150,7 +147,7 @@ def main():
                                       'account':'account','namespace':'state_namespace'}.items()},separators=(',',':')),
                  vault_address=vault['address'],vault_role=vault['role'],
                  ssh_record=vault['ssh_record'],provider_record=vault['provider_record'],
-                 gitops_sha=sha,action='plan' if mode=='plan' else 'apply',operation=mode,
+                 action='plan' if mode=='plan' else 'apply',operation=mode,
                  **{name+'_ref': value for name,value in refs.items()})
     with open(os.environ['GITHUB_OUTPUT'],'a') as out:
         for key,value in outputs.items():
