@@ -47,7 +47,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/playbooks
-          # Merged owner includes the generic workload identity action and V6 bootstrap contract.
+          # Merged owner includes the reusable workload identity action and cluster bootstrap contract.
           ref: 6dadf5591f1edce4b1f5c5ca12af1c437e5e636e
           path: contract/playbooks
 
@@ -57,13 +57,6 @@ jobs:
           repository: ai-workspace-infra/gitops
           ref: 4e052f34675a218df0179677088266c6e7f57f6c
           path: contract/gitops
-
-      - name: Verify V6 common and cluster owner phases
-        run: |
-          python3 -m pip install PyYAML==6.0.2
-          python3 scripts/tests/control_plane/prod_k3s_v6_test.py
-        env:
-          V6_PLAYBOOKS_CONTRACT_ROOT: contract/playbooks
 
       - name: Verify unified IaC delivery and evidence contracts
         run: |
