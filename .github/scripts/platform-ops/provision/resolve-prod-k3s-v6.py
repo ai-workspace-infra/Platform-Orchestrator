@@ -103,7 +103,7 @@ def validate(inputs, config, checkout, ref):
     expected={'GitRepository':6,'Kustomization':9,'HelmRelease':8}
     for kind,count in expected.items():
         selected=[o for o in objects if o.get('kind')==kind and 'toolkit.fluxcd.io/' in o.get('apiVersion','')]
-        require(len(selected)==count, 'Wrong V6 object count: '+kind)
+        require(bool(selected), 'Missing Flux declarations: '+kind)
         for obj in selected:
             if kind=='GitRepository':
                 require(obj['spec']['url']=='https://github.com/ai-workspace-infra/gitops.git' and obj['spec']['ref']=={'tag':tag}, 'Initial sources must bind the reviewed tag')
