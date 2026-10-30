@@ -73,9 +73,13 @@ class RequestTests(unittest.TestCase):
         next(d for d in docs if d['kind']=='GitRepository')['spec']['ref']={'branch':'main'}
         self.graph.write_text(yaml.safe_dump_all(docs))
         with self.assertRaisesRegex(ValueError,'Flux source'):self.validate()
-    def test_legacy_path_excludes_v6(self):
-        text=(ROOT/'.github/workflows/selfhost-orchestrator.yml').read_text()
-        self.assertIn("!(github.event_name == 'workflow_dispatch' && inputs.vault_env_path == 'prod-v6')",text)
+    def test_environment_batch_uses_shared_five_stage_pipeline(self):
+        workflow=yaml.safe_load((ROOT/'.github/workflows/selfhost-orchestrator.yml').read_text())
+        jobs=workflow['jobs']
+        self.assertEqual({'resolve','infrastructure','deploy','migrate','verify'},
+                         {'resolve','infrastructure','deploy','migrate','verify'} & set(jobs))
+        self.assertFalse(any(name.startswith('v6-') for name in jobs))
+        self.assertEqual("${{ github.event_name != 'pull_request' }}", jobs['resolve']['if'])
     def test_identity_roles_read_only_and_exact(self):
         import json
         for kind in ['iac','bootstrap']:
@@ -90,28 +94,12 @@ class RequestTests(unittest.TestCase):
             self.assertNotIn('"write"',policy);self.assertNotIn('"update"',policy)
 
 class OwnerPhaseContractTests(unittest.TestCase):
-    def test_downstream_uses_frozen_owner_shas(self):
+    def test_v6_specific_jobs_are_not_a_second_execution_path(self):
         workflow=yaml.safe_load((ROOT/'.github/workflows/selfhost-orchestrator.yml').read_text())
-        job=workflow['jobs']['v6-bootstrap']
-        owners={s['with']['repository']:s['with']['ref'] for s in job['steps']
-                if s.get('uses','').startswith('actions/checkout')}
-        for repo,key in [('playbooks','playbooks'),('iac_modules','iac')]:
-            self.assertEqual('${{ needs.v6-resolve.outputs.'+key+'_sha }}',
-                             owners['ai-workspace-infra/'+repo])
-        config=yaml.safe_load((ROOT/'.github/config/prod-k3s-v6.yaml').read_text())
-        self.assertNotIn('playbooks_sha',config)
-        self.assertNotIn('iac_sha',config)
-    def test_infra_runs_common_and_deploy_runs_cluster(self):
-        d=yaml.safe_load((ROOT/'.github/workflows/selfhost-orchestrator.yml').read_text())['jobs']['v6-bootstrap']
-        self.assertIn("inputs.operation != 'plan'", d['if'])
-        owner=next(s for s in d['steps'] if s.get('uses')=='./playbooks/.github/actions/prod-k3s-bootstrap')
-        self.assertEqual("${{ inputs.operation == 'infra' && 'common' || 'cluster' }}",owner['with']['phase'])
-    def test_pinned_owner_supports_the_phase_contract(self):
-        import os
-        root=os.environ.get('V6_PLAYBOOKS_CONTRACT_ROOT')
-        if not root:self.skipTest('Owner checkout checked by repository integration job')
-        action=yaml.safe_load((Path(root)/'.github/actions/prod-k3s-bootstrap/action.yml').read_text())
-        self.assertEqual('cluster',action['inputs']['phase']['default'])
+        jobs=workflow['jobs']
+        self.assertEqual({'resolve','infrastructure','deploy','migrate','verify'},
+                         {'resolve','infrastructure','deploy','migrate','verify'} & set(jobs))
+        self.assertFalse(any(name.startswith('v6-') for name in jobs))
 
 class OwnerRefTests(unittest.TestCase):
     def setUp(self):
