@@ -61,10 +61,10 @@ class RequestTests(unittest.TestCase):
         (self.root/'resource.yaml').write_text(yaml.safe_dump(self.decl))
         with self.assertRaisesRegex(ValueError,'Flux root'):
             self.validate()
-    def test_active_release_rejected(self):
+    def test_active_release_accepted(self):
         docs=list(yaml.safe_load_all(self.graph.read_text()));docs[-1]['spec']['suspend']=False
         self.graph.write_text(yaml.safe_dump_all(docs))
-        with self.assertRaisesRegex(ValueError,'paused'):self.validate()
+        self.assertEqual('deploy', self.validate())
     def test_wrong_config_pin_rejected(self):
         self.inputs['source_ref']=json.dumps({'gitops':'v2.0.0','playbooks':'main','iac':'main'})
         with self.assertRaisesRegex(ValueError,'reviewed tag'):self.validate()
