@@ -580,6 +580,14 @@ jobs:
       uses: actions/checkout@v7
       with:
         ref: ${{ fromJSON(inputs.payload_json || '{}').__parent_head_sha || github.sha }}
+    - name: Checkout GitOps source for target resolution
+      if: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' }}
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/gitops
+        ref: ${{ fromJSON(inputs.payload_json || '{}').source_ref || 'main' }}
+        path: gitops
+        persist-credentials: false
     - name: Route ref to an explicit profile
       id: route
       # env block inherited from job level — no repetition needed here
