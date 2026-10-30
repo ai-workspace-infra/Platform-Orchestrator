@@ -29,8 +29,14 @@ def resolve(root, profile, account):
             for key in ("environment", "provider", "account", "project", "workspace"):
                 if declaration.get(key) != target.get(key):
                     raise ValueError("target/resource identity mismatch")
-            if not spec.get("requires_existing_state") or spec.get("mode") != "terraform":
-                raise ValueError("generation deployment requires its existing Terraform state")
+            # A generation may be either an existing-state rollout or a fresh,
+            # protected create-only bootstrap.  Both are valid when declared by
+            # GitOps; the IaC stage is responsible for enforcing the matching
+            # state/create contract.
+            if spec.get("mode") != "terraform":
+                raise ValueError("generation deployment requires a Terraform resource stage")
+            if not (spec.get("requires_existing_state") is True or spec.get("create_only") is True):
+                raise ValueError("generation deployment must declare existing-state or create-only semantics")
             state_key = spec["state"]["key"]
             expected = f"terraform/prod/{target['project']}/akamai-cloud/{account}/{target['workspace']}/terraform.tfstate"
             if state_key != expected:

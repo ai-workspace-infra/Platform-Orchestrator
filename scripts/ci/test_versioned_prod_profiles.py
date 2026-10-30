@@ -48,6 +48,30 @@ class VersionedProdProfilesTest(unittest.TestCase):
                 INPUT_CLOUD_PROVIDER='akamai-cloud', INPUT_CLOUD_ACCOUNT='fixture-account')
             self.assertNotEqual(refused.returncode, 0)
 
+    def test_akamai_generation_accepts_fresh_create_only_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / 'config').symlink_to(ROOT / 'config', target_is_directory=True)
+            root = workspace / 'gitops'
+            targets = root / 'iac/targets'
+            targets.mkdir(parents=True)
+            resource = root / 'resources/example/prod/akamai/prod-k3s-v6.yaml'
+            resource.parent.mkdir(parents=True)
+            identity = dict(environment='prod', provider='akamai-cloud', account='fixture-account',
+                            project='fixture-project', workspace='prod-k3s-v6')
+            state = 'terraform/prod/fixture-project/akamai-cloud/fixture-account/prod-k3s-v6/terraform.tfstate'
+            resource.write_text(yaml.safe_dump({'global': {**identity, 'region': 'fixture-region'},
+                'hosts': [{'host_vars': {'target_generation': 'prod-v6'}}]}))
+            target = {**identity, 'stages': {'resources': {'mode': 'terraform',
+                'manifest': str(resource.relative_to(root)), 'requires_existing_state': False,
+                'create_only': True, 'state': {'key': state}}}}
+            (targets / 'fixture.yaml').write_text(yaml.safe_dump({'targets': [target]}))
+            result, values = self.route('prod-v6', GITHUB_WORKSPACE=str(workspace),
+                INPUT_CLOUD_PROVIDER='akamai-cloud', INPUT_CLOUD_ACCOUNT='fixture-account')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(values['state_key'], state)
+            self.assertEqual(values['terraform_namespace'], identity['workspace'])
+
     def route(self, profile="prod-v3", tag="", **overrides):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "output"
