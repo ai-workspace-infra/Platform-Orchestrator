@@ -334,10 +334,12 @@ assert observe_step["env"]["OBSERVE_EXPECTED_CODES"] == "200,200,404,401"
 resolve = resolve_stage["jobs"]["resolve-targets"]
 resolve_steps = resolve["steps"]
 owner_checkout = next(step for step in resolve_steps if step.get("with", {}).get("repository") == "ai-workspace-infra/iac_modules")
-assert re.fullmatch(r"[0-9a-f]{40}", owner_checkout["with"]["ref"])
+assert owner_checkout["with"]["ref"] == "${{ steps.route.outputs.infra_ref }}"
 assert owner_checkout["with"]["path"] == "iac_modules"
 target = next(step for step in resolve_steps if step.get("uses") == "./iac_modules/.github/actions/iac-caller-targets")
 assert resolve_steps.index(owner_checkout) < resolve_steps.index(target)
+route_script = open(".github/scripts/platform-ops/provision/platform-ops_provision_route-ref-to-an-explicit-profile.sh", encoding="utf-8").read()
+assert 'infra_ref="${source_ref:-main}"' in route_script
 assert target["if"] == owner_checkout["if"]
 assert target["with"]["caller"] == "selfhost"
 assert target["with"]["iac-root"] == "${{ github.workspace }}/iac_modules"
