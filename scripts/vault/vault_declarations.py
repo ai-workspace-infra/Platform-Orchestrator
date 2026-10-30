@@ -122,7 +122,7 @@ def main() -> None:
                 print(doc["metadata"].get("name", ""))
     elif args.command == "policy":
         doc = find("policies", args.name, {"VaultACLPolicy"})
-        print(hcl_policy(doc["spec"]), end="")
+        sys.stdout.write(hcl_policy(doc["spec"]))
     elif args.command == "role":
         doc = find("roles", args.name, {"VaultJWTAuthRole"})
         rendered = {"role_name": doc["metadata"]["name"],
@@ -135,7 +135,7 @@ def main() -> None:
     elif args.command == "template-policy":
         doc = template("akamai-oidc-policy", "policy")
         rendered = replace(doc["spec"], {"__ENV__": args.environment, "__ACCOUNT__": args.account})
-        print(hcl_policy(rendered))
+        sys.stdout.write(hcl_policy(rendered))
     elif args.command == "template-role":
         doc = template(f"akamai-oidc-role-{args.environment}", "role")
         role_data = replace(doc["spec"]["role"], {"__ACCOUNT__": args.account, "__POLICY__": args.policy})
@@ -165,7 +165,7 @@ def main() -> None:
         templates_dir.mkdir(parents=True, exist_ok=True)
         policy_doc = template("akamai-oidc-policy", "policy")
         # Preserve placeholder strings solely for existing renderer contract tests.
-        (templates_dir / "akamai-oidc-policy.hcl.tmpl").write_text(hcl_policy(policy_doc["spec"]).rstrip("\n"), encoding="utf-8")
+        (templates_dir / "akamai-oidc-policy.hcl.tmpl").write_text(hcl_policy(policy_doc["spec"]), encoding="utf-8")
         for env in ("dev", "uat", "prod"):
             role_doc = template(f"akamai-oidc-role-{env}", "role")
             role_data = {"role_name": role_doc["metadata"].get("roleNameTemplate", ""),
