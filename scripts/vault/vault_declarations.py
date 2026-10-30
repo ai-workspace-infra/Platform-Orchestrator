@@ -165,7 +165,7 @@ def main() -> None:
         templates_dir.mkdir(parents=True, exist_ok=True)
         policy_doc = template("akamai-oidc-policy", "policy")
         # Preserve placeholder strings solely for existing renderer contract tests.
-        (templates_dir / "akamai-oidc-policy.hcl.tmpl").write_text(hcl_policy(policy_doc["spec"]), encoding="utf-8")
+        (templates_dir / "akamai-oidc-policy.hcl.tmpl").write_text(hcl_policy(policy_doc["spec"]).rstrip("\n"), encoding="utf-8")
         for env in ("dev", "uat", "prod"):
             role_doc = template(f"akamai-oidc-role-{env}", "role")
             role_data = {"role_name": role_doc["metadata"].get("roleNameTemplate", ""),

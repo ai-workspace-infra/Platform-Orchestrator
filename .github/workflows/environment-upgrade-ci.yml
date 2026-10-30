@@ -7,6 +7,7 @@ on:
       - .github/workflows/*orchestrator.yml
       - scripts/vault/**
       - .github/workflows/environment-upgrade*.yml
+      - scripts/vault/**
       - .github/scripts/environment-upgrade/**
       - scripts/tests/control_plane/environment_upgrade_test.py
       - scripts/tests/control_plane/environment_data_operations_test.py
@@ -20,6 +21,7 @@ on:
     paths:
       - .github/workflows/environment-data-operations.yml
       - .github/workflows/environment-upgrade*.yml
+      - scripts/vault/**
       - .github/scripts/environment-upgrade/**
       - scripts/tests/control_plane/environment_upgrade_test.py
       - scripts/tests/control_plane/environment_data_operations_test.py
@@ -34,13 +36,22 @@ jobs:
   offline-rehearsal:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      GITOPS_ROOT: ${{ github.workspace }}/contract/gitops-vault
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: contract/gitops-vault
+          persist-credentials: false
       - name: Falsify both environments and all phase gates without deployment credentials
         run: |
           python3 -m pip install PyYAML==6.0.3
+          python3 scripts/vault/vault_declarations.py materialize-test-fixtures
           python3 scripts/tests/control_plane/environment_upgrade_test.py
           python3 scripts/tests/control_plane/environment_data_operations_test.py
           python3 scripts/tests/control_plane/import_receipt_test.py
