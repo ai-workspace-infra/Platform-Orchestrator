@@ -1,5 +1,6 @@
 cluster: PROD-K3S-V6
 node: prod-k3s-v6
+flux_root_name: prod-k3s
 target_manifest: iac/targets/prod-akamai-k3s-v6.yaml
 resource_manifest: resources/svc.plus/prod/akamai/prod-k3s-v6.yaml
 root_path: environments/clusters/prod-k3s-v6

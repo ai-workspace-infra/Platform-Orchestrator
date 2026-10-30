@@ -45,7 +45,7 @@ def validate(inputs, config, checkout, ref):
     hv=host['host_vars']
     require(hv['public_dns_cutover'] is False and hv['reserved_dns_aliases']=={}, 'DNS cutover is forbidden')
     require(hv['target_generation']=='prod-v6' and hv['k3s_platform_flux_bootstrap_mode']=='declarative_paused', 'Wrong bootstrap mode')
-    require(hv['k3s_platform_flux_root_name']==config['node'] and hv['k3s_platform_write_kubeconfig_mode']=='0600', 'Wrong root or administrator permissions')
+    require(hv['k3s_platform_flux_root_name']==config['flux_root_name'] and hv['k3s_platform_write_kubeconfig_mode']=='0600', 'Wrong Flux root or administrator permissions')
     require(hv['k3s_platform_local_storage_path']=='/data/k3s/storage' and hv['k3s_platform_require_data_mount'] is True, 'Data mount required')
     target=yaml.safe_load((checkout/config['target_manifest']).read_text())['targets']
     require(len(target)==1, 'One V6 target required')
@@ -66,6 +66,14 @@ def validate(inputs, config, checkout, ref):
             if kind=='Kustomization':
                 path=(checkout/obj['spec']['path'].removeprefix('./')).resolve()
                 require(path.is_relative_to(checkout.resolve()) and path.is_dir(), 'Missing or escaped source path')
+    roots=[o for o in objects if o.get('kind')=='Kustomization'
+           and o.get('metadata',{}).get('namespace')=='flux-system'
+           and o.get('metadata',{}).get('name')==config['flux_root_name']]
+    require(len(roots)==1, 'Expected exactly one stable environment root')
+    root=roots[0]
+    require(root['spec'].get('path')=='./'+config['root_path']
+            and root['spec'].get('sourceRef')=={'kind':'GitRepository','name':'config-prod'},
+            'Flux root must select the configured batch path and management source')
     return inputs['operation']
 
 

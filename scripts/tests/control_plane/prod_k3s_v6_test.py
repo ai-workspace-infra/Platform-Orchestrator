@@ -12,11 +12,11 @@ v6=importlib.util.module_from_spec(spec);spec.loader.exec_module(v6)
 class RequestTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name)
-        self.config={'iac_sha':'a'*40,'playbooks_sha':'b'*40,'resource_manifest':'resource.yaml','target_manifest':'target.yaml','root_path':'cluster','node':'prod-k3s-v6'}
+        self.config={'iac_sha':'a'*40,'playbooks_sha':'b'*40,'resource_manifest':'resource.yaml','target_manifest':'target.yaml','root_path':'cluster','node':'prod-k3s-v6','flux_root_name':'prod-k3s'}
         self.inputs={'vault_env_path':'prod-v6','cloud_provider':'akamai-cloud','cloud_account':'manbuzhe2026','instance_plan':'2C4G','target_domains':'web-saas','dns_mode':'none','open_platform_service':'none','offline_mode':'off','runner_type':'ubuntu-latest','operation':'deploy','include_external_agent_proxy':False,'skip_stripe_catalog':True,'source_ref':'v1.0.0'}
-        self.host={'name':'prod-k3s-v6','type':'g6-standard-2','region':'jp-tyo-3','image':'linode/debian13','volume':{'label':'prod-k3s-v6-data','size':100,'filesystem':'ext4'},'firewall':{'ssh_cidrs':['0.0.0.0/0'],'ssh_ipv6_cidrs':[],'additional_tcp_ports':[]},'host_vars':{'public_dns_cutover':False,'reserved_dns_aliases':{},'target_generation':'prod-v6','k3s_platform_flux_bootstrap_mode':'declarative_paused','k3s_platform_flux_root_name':'prod-k3s-v6','k3s_platform_write_kubeconfig_mode':'0600','k3s_platform_local_storage_path':'/data/k3s/storage','k3s_platform_require_data_mount':True}}
-        decl={'global':{'provider':'akamai-cloud','environment':'prod','account':'manbuzhe2026','workspace':'prod-k3s-v6','state_namespace':'prod-k3s-v6','prevent_destroy':True},'hosts':[self.host]}
-        (self.root/'resource.yaml').write_text(yaml.safe_dump(decl))
+        self.host={'name':'prod-k3s-v6','type':'g6-standard-2','region':'jp-tyo-3','image':'linode/debian13','volume':{'label':'prod-k3s-v6-data','size':100,'filesystem':'ext4'},'firewall':{'ssh_cidrs':['0.0.0.0/0'],'ssh_ipv6_cidrs':[],'additional_tcp_ports':[]},'host_vars':{'public_dns_cutover':False,'reserved_dns_aliases':{},'target_generation':'prod-v6','k3s_platform_flux_bootstrap_mode':'declarative_paused','k3s_platform_flux_root_name':'prod-k3s','k3s_platform_write_kubeconfig_mode':'0600','k3s_platform_local_storage_path':'/data/k3s/storage','k3s_platform_require_data_mount':True}}
+        self.decl={'global':{'provider':'akamai-cloud','environment':'prod','account':'manbuzhe2026','workspace':'prod-k3s-v6','state_namespace':'prod-k3s-v6','prevent_destroy':True},'hosts':[self.host]}
+        (self.root/'resource.yaml').write_text(yaml.safe_dump(self.decl))
         target={'targets':[{'stages':{'resources':{'manifest':'resource.yaml','create_only':True,'requires_existing_state':False,'destroy_allowed':False}}}]}
         (self.root/'target.yaml').write_text(yaml.safe_dump(target))
         (self.root/'cluster').mkdir();(self.root/'services/prod-k3s-v6/unit').mkdir(parents=True)
@@ -27,6 +27,11 @@ class RequestTests(unittest.TestCase):
                 if kind=='GitRepository':obj['spec'].update(url='https://github.com/ai-workspace-infra/gitops.git',ref={'tag':'v1.0.0'})
                 if kind=='Kustomization':obj['spec']['path']='./cluster'
                 objects.append(obj)
+        root=next(o for o in objects if o['kind']=='Kustomization')
+        root['metadata'].update(name='prod-k3s',namespace='flux-system')
+        root['spec']['sourceRef']={'kind':'GitRepository','name':'config-prod'}
+        management=next(o for o in objects if o['kind']=='GitRepository')
+        management['metadata'].update(name='config-prod',namespace='flux-system')
         self.graph=self.root/'cluster/graph.yaml';self.graph.write_text(yaml.safe_dump_all(objects))
     def validate(self,ref='refs/tags/v6.0.0-bootstrap.1'):
         return v6.validate(self.inputs,self.config,self.root,ref)
@@ -45,6 +50,14 @@ class RequestTests(unittest.TestCase):
     def test_missing_owner_pin_rejected(self):
         self.config['playbooks_sha']='main'
         with self.assertRaises(ValueError):self.validate()
+    def test_flux_root_is_independent_from_node_hostname(self):
+        self.assertEqual('prod-k3s-v6',self.config['node'])
+        self.assertEqual('prod-k3s',self.host['host_vars']['k3s_platform_flux_root_name'])
+        self.assertEqual('deploy',self.validate())
+        self.host['host_vars']['k3s_platform_flux_root_name']='prod-k3s-v6'
+        (self.root/'resource.yaml').write_text(yaml.safe_dump(self.decl))
+        with self.assertRaisesRegex(ValueError,'Flux root'):
+            self.validate()
     def test_active_release_rejected(self):
         docs=list(yaml.safe_load_all(self.graph.read_text()));docs[-1]['spec']['suspend']=False
         self.graph.write_text(yaml.safe_dump_all(docs))
