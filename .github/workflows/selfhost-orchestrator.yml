@@ -387,6 +387,7 @@ jobs:
       gitops_sha: ${{ steps.resolve.outputs.gitops_sha }}
       iac_sha: ${{ steps.resolve.outputs.iac_sha }}
       playbooks_sha: ${{ steps.resolve.outputs.playbooks_sha }}
+      resource_manifest: ${{ steps.resolve.outputs.resource_manifest }}
       target_manifest: ${{ steps.resolve.outputs.target_manifest }}
       action: ${{ steps.resolve.outputs.action }}
       environment: ${{ steps.resolve.outputs.environment }}
@@ -553,6 +554,7 @@ jobs:
         env:
           SSH_PRIVATE_KEY: ${{ steps.vault.outputs.SSH_PRIVATE_KEY }}
         with:
+          resource-manifest: ${{ needs.v6-resolve.outputs.resource_manifest }}
           phase: ${{ inputs.operation == 'infra' && 'common' || 'cluster' }}
           cmdb: ${{ runner.temp }}/v6-cmdb/cmdb.json
           cmdb-sha256: ${{ steps.checksum.outputs.sha256 }}
