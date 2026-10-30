@@ -628,14 +628,14 @@ jobs:
         DEPLOYMENT_ENV: ${{ steps.route.outputs.deployment_env }}
         GITOPS_SERVERLESS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/serverless/runtime-topology.yaml
     - name: Render GitOps selfhost routing declaration
-      if: ${{ (steps.route.outputs.run_infrastructure == 'true' || steps.route.outputs.toolkit_action == 'migrate') && steps.route.outputs.terraform_action != 'destroy'
+      if: ${{ steps.route.outputs.deployment_env != 'prod-v6' && (steps.route.outputs.run_infrastructure == 'true' || steps.route.outputs.toolkit_action == 'migrate') && steps.route.outputs.terraform_action != 'destroy'
         && contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), steps.route.outputs.target_domains) }}
       run: ${{ github.workspace }}/.github/scripts/gitops/prepare_gitops_routing_config.sh
       env:
         GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/selfhost/runtime-topology.yaml
         GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/selfhost-edge-routing.json
     - name: Validate GitOps selfhost routing contract
-      if: ${{ (steps.route.outputs.run_infrastructure == 'true' || steps.route.outputs.toolkit_action == 'migrate') && steps.route.outputs.terraform_action != 'destroy'
+      if: ${{ steps.route.outputs.deployment_env != 'prod-v6' && (steps.route.outputs.run_infrastructure == 'true' || steps.route.outputs.toolkit_action == 'migrate') && steps.route.outputs.terraform_action != 'destroy'
         && contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), steps.route.outputs.target_domains) }}
       run: python3 ${{ github.workspace }}/.github/scripts/gitops/validate_selfhost_contract.py
       env:
@@ -644,7 +644,7 @@ jobs:
         EXPECTED_TARGET_DOMAIN_BASE: ${{ steps.route.outputs.target_domain_base }}
     - name: Resolve Accounts migration target from GitOps
       id: resolve_migration_target
-      if: ${{ (steps.route.outputs.run_infrastructure == 'true' || steps.route.outputs.toolkit_action == 'migrate') && steps.route.outputs.terraform_action != 'destroy'
+      if: ${{ steps.route.outputs.deployment_env != 'prod-v6' && (steps.route.outputs.run_infrastructure == 'true' || steps.route.outputs.toolkit_action == 'migrate') && steps.route.outputs.terraform_action != 'destroy'
         && contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), steps.route.outputs.target_domains) }}
       run: ${{ github.workspace }}/.github/scripts/gitops/resolve_gitops_migration_target.sh
       env:
