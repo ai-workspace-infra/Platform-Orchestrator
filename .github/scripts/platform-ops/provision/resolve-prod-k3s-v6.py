@@ -61,7 +61,7 @@ def resolve_owner(checkout, requested):
 
 
 def validate(inputs, config, checkout, ref, gitops_sha):
-    require(re.fullmatch(r'refs/tags/v6\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?', ref), 'V6 production dispatch requires a reviewed release tag')
+    require(ref == 'refs/heads/main', 'Orchestrator dispatch uses main')
     fixed = {'vault_env_path':'prod-v6','cloud_provider':'akamai-cloud','cloud_account':'manbuzhe2026',
              'instance_plan':'2C4G','target_domains':'web-saas','dns_mode':'none','open_platform_service':'none',
              'offline_mode':'off','runner_type':'ubuntu-latest'}
@@ -132,7 +132,7 @@ def main():
         return
     config=yaml.safe_load((ROOT/'.github/config/prod-k3s-v6.yaml').read_text())
     checkout=Path(os.environ['V6_GITOPS']).resolve()
-    require(os.environ.get('GITHUB_REF_PROTECTED') == 'true', 'V6 release tag must be protected')
+    require(os.environ.get('GITHUB_REF') == 'refs/heads/main', 'Orchestrator dispatch uses main')
     owners={name+'_sha': resolve_owner(os.environ['V6_'+name.upper()], 'main')
             for name in ('gitops','iac','playbooks')}
     sha=owners['gitops_sha']

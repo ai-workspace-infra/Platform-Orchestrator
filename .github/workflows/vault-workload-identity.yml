@@ -40,7 +40,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Reject unprotected refs and malformed inputs
+      - name: Reject non-main refs and malformed inputs
         shell: bash
         env:
           WORKFLOW_REF: ${{ github.ref }}
@@ -51,7 +51,7 @@ jobs:
           GITOPS_TAG: ${{ inputs.gitops_tag }}
         run: |
           set -euo pipefail
-          [[ "$REF_TYPE" == tag && "$REF_PROTECTED" == true && "$WORKFLOW_REF" == refs/tags/v* ]]
+          [[ "$REF_TYPE" == branch && "$REF_PROTECTED" == true && "$WORKFLOW_REF" == refs/heads/main ]]
           [[ "$MODE" == configure || "$MODE" == verify || "$MODE" == release-root || "$MODE" == release-eso || "$MODE" == release-identity ]]
           [[ "$OWNER_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$GITOPS_TAG" =~ ^v[0-9][A-Za-z0-9.+-]*$ ]]

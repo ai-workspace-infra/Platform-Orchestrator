@@ -481,9 +481,9 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
 
   if [ "${deployment_env}" = "prod" ] || [[ "${deployment_env}" == prod-v* ]]; then
     case "${GITHUB_REF:-}" in
-      refs/tags/v*|refs/heads/release/v*|refs/tags/prod-v*|refs/heads/release/prod-v*) ;;
+      refs/heads/main|refs/tags/v*|refs/heads/release/v*|refs/tags/prod-v*|refs/heads/release/prod-v*) ;;
       *)
-        echo "::error::prod accepts only v* or prod-v* release tags/branches; select the workflow from an allowed release ref." >&2
+        echo "::error::prod dispatch accepts main or an explicitly selected release ref." >&2
         exit 1
         ;;
     esac

@@ -36,7 +36,7 @@ class RequestTests(unittest.TestCase):
         management=next(o for o in objects if o['kind']=='GitRepository')
         management['metadata'].update(name='config-prod',namespace='flux-system')
         self.graph=self.root/'cluster/graph.yaml';self.graph.write_text(yaml.safe_dump_all(objects))
-    def validate(self,ref='refs/tags/v6.0.0-bootstrap.1'):
+    def validate(self,ref='refs/heads/main'):
 
         from unittest.mock import patch
         with patch.object(v6.subprocess, 'check_output', return_value='a'*40):
@@ -52,7 +52,7 @@ class RequestTests(unittest.TestCase):
             with self.assertRaises(ValueError):self.validate()
             self.inputs[key]=old
     def test_main_ref_is_default(self):
-        self.assertEqual('deploy', self.validate('refs/tags/v6.0.0-bootstrap.1'))
+        self.assertEqual('deploy', self.validate('refs/heads/main'))
     def test_missing_owner_selection_rejected(self):
         self.inputs['source_ref']=json.dumps({'gitops':'main','iac':'main'})
         with self.assertRaises(ValueError):self.validate()
@@ -85,7 +85,7 @@ class RequestTests(unittest.TestCase):
         for kind in ['iac','bootstrap']:
             name='github-actions-platform-ops-toolkit-prod-k3s-v6-'+kind
             role=json.loads((ROOT/'scripts/vault/roles'/f'{name}.json').read_text())
-            self.assertEqual(['refs/tags/v6.*'],role['bound_claims']['ref'])
+            self.assertEqual(['refs/heads/main'],role['bound_claims']['ref'])
             self.assertEqual('true',role['bound_claims']['ref_protected'])
             self.assertEqual('ai-workspace-infra/Platform-Orchestrator',role['bound_claims']['repository'])
             self.assertEqual([name],role['token_policies'])

@@ -13,8 +13,8 @@
   "bound_claims": {
     "repository": "ai-workspace-infra/Platform-Orchestrator",
     "environment": "prod",
-    "ref": ["refs/tags/v6.*"],
-    "workflow_ref": "ai-workspace-infra/Platform-Orchestrator/.github/workflows/vault-workload-identity.yml@refs/tags/v6.*",
+    "ref": ["refs/heads/main"],
+    "workflow_ref": "ai-workspace-infra/Platform-Orchestrator/.github/workflows/vault-workload-identity.yml@refs/heads/main",
     "ref_protected": "true"
   },
   "token_policies": ["github-actions-platform-ops-toolkit-prod-k3s-v6-vault-tls-access"]
