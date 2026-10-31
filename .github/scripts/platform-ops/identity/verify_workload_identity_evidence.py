@@ -33,10 +33,10 @@ def verify(spec, api=matrix.api, artifact_file=matrix.artifact_file):
     inventory=provenance.verify_artifact(api,artifact_file,{**artifact_contract(iac),'filename':'inventory.json','file_sha256':iac['inventorySha256']})
     try:
         b=json.loads(raw_boot);summary=json.loads(raw_iac);c=summary['context']
-        if (b['result']!='PAUSED_BOOTSTRAP_VERIFIED' or b['node']!=target['node']
+        if (b['result']!='FLUX_HANDOVER_VERIFIED' or b['node']!=target['node']
                 or b['version']!=target['kubernetesVersion'] or b['gitops_sha']!=boot['gitopsSha']
                 or b['common']['result']!='COMMON_NODE_VERIFIED' or b['common']['node']!=target['node']
-                or b['audit']['result']!='AUDIT_ALLOW_DENY_VERIFIED'):
+                or b['common']['os_identities']!='OS_IDENTITY_CHECKS_PASSED'):
             raise ValueError('bootstrap receipt does not satisfy identity prerequisites')
         if (summary['result']!='applied_verified' or c['action']!='apply' or c['environment']!=spec['environment']
                 or c['gitops_sha']!=boot['gitopsSha'] or c['iac_sha']!=iac['iacSha']
