@@ -48,6 +48,25 @@ def require_positive_decimal(value: str, label: str) -> str:
     return value
 
 
+def migration_stage_may_be_skipped(request: dict) -> bool:
+    """Return true only when the caller explicitly requested no migration/config work."""
+    operation = request.get("operation")
+    return operation == "plan" or (
+        operation == "deploy"
+        and request.get("dns_mode") == "none"
+        and request.get("skip_stripe_catalog") is True
+    )
+
+
+def verification_prior_stages(stage: str, request: dict, contexts: dict):
+    prior_stages = PRIOR_STAGE_CONTEXTS[stage]
+    if stage == "verify" and migration_stage_may_be_skipped(request):
+        if contexts.get("migration_context") or contexts.get("migration_run_id"):
+            raise SystemExit("Skipped Migrate stage must not supply migration evidence")
+        return prior_stages[:-1]
+    return prior_stages
+
+
 def gh(*args: str, payload: dict | None = None, timeout: int = 30):
     command = ["gh", "api", *args]
     result = subprocess.run(
@@ -183,7 +202,8 @@ def verify_parent():
         raise SystemExit("Stage request does not match the immutable parent request")
 
     contexts = json.loads(os.environ.get("SELFHOST_CONTEXTS_JSON", "{}"))
-    for prior_stage, context_field, run_id_field in PRIOR_STAGE_CONTEXTS[stage]:
+    prior_stages = verification_prior_stages(stage, request, contexts)
+    for prior_stage, context_field, run_id_field in prior_stages:
         result = download_parent_artifact(
             repo, parent_id, f"selfhost-parent-stage-{prior_stage}-{attempt_suffix}", "selfhost-stage-result.json")
         if result.get("schema") != 1 or result.get("stage") != prior_stage:

@@ -103,6 +103,37 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
         self.assertEqual(jobs["deploy"]["needs"], ["resolve", "infrastructure"])
         self.assertEqual(jobs["migrate"]["needs"], ["resolve", "infrastructure", "deploy"])
         self.assertEqual(jobs["verify"]["needs"], ["resolve", "infrastructure", "deploy", "migrate"])
+        self.assertIn("operation != 'plan'", jobs["migrate"]["if"])
+        self.assertIn("dns_mode == 'none'", jobs["migrate"]["if"])
+        self.assertIn("skip_stripe_catalog == true", jobs["migrate"]["if"])
+        self.assertIn("needs.migrate.result == 'skipped'", jobs["verify"]["if"])
+        verify_stage = load_workflow(ROOT / ".github/workflows/selfhost-stage-verify.yml")
+        verify_inputs = verify_stage["on"]["workflow_dispatch"]["inputs"]
+        self.assertEqual(verify_inputs["migration_context"]["required"], "false")
+        self.assertEqual(verify_inputs["migration_run_id"]["required"], "false")
+
+    def test_verify_allows_missing_migration_only_for_non_migrating_requests(self):
+        common = {"migration_context": "", "migration_run_id": ""}
+        self.assertTrue(stage_dispatch.migration_stage_may_be_skipped({"operation": "plan"}))
+        self.assertTrue(stage_dispatch.migration_stage_may_be_skipped({
+            "operation": "deploy", "dns_mode": "none", "skip_stripe_catalog": True,
+        }))
+        self.assertFalse(stage_dispatch.migration_stage_may_be_skipped({
+            "operation": "deploy", "dns_mode": "none", "skip_stripe_catalog": False,
+        }))
+        self.assertFalse(stage_dispatch.migration_stage_may_be_skipped({
+            "operation": "deploy+migrate", "dns_mode": "none", "skip_stripe_catalog": True,
+        }))
+        verify_prior = stage_dispatch.verification_prior_stages(
+            "verify", {"operation": "deploy", "dns_mode": "none", "skip_stripe_catalog": True}, common,
+        )
+        self.assertEqual([stage for stage, _, _ in verify_prior], ["infra", "deploy"])
+        with self.assertRaises(SystemExit):
+            stage_dispatch.verification_prior_stages(
+                "verify",
+                {"operation": "plan"},
+                {"migration_context": "{}", "migration_run_id": "123"},
+            )
 
     def test_dispatched_stage_requires_parent_and_uploads_context(self):
         for stage in STAGES:
