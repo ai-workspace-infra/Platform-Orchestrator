@@ -58,6 +58,17 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
             step = next(step for step in steps if step.get('name') == name)
             self.assertIn("steps.k3s_target.outputs.manifest == ''", step['if'])
 
+    def test_native_web_saas_jobs_do_not_target_kubernetes_hosts(self):
+        workflow = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')
+        for job_name in ('capture_web_saas_baseline', 'deploy_web_saas', 'accept_web_saas_upgrade'):
+            job = workflow['jobs'][job_name]
+            self.assertIn('hosts_web_saas_native', job['if'])
+            self.assertIn('hosts_web_saas_native', job['strategy']['matrix']['host'])
+        infra = load_workflow(ROOT / '.github/workflows/selfhost-stage-infra.yml')
+        select = next(t for t in infra['jobs']['provision']['steps'] if t.get('id') == 'bootstrap_selection')
+        self.assertIn('deployment_mode', select['run'])
+        self.assertIn('hosts_kubernetes', select['run'])
+
     def test_infra_evidence_is_carried_into_deploy_context(self):
         infra = load_workflow(ROOT / '.github/workflows/selfhost-stage-infra.yml')
         deploy = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')

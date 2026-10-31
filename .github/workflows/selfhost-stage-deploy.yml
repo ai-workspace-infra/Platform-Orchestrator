@@ -128,6 +128,8 @@ jobs:
       hosts: ${{ fromJSON(inputs.provision_context || '{}').outputs.hosts || '' }}
       bootstrap_hosts: ${{ fromJSON(inputs.provision_context || '{}').outputs.bootstrap_hosts || '' }}
       hosts_web_saas: ${{ fromJSON(inputs.provision_context || '{}').outputs.hosts_web_saas || '' }}
+      hosts_web_saas_native: ${{ fromJSON(inputs.provision_context || '{}').outputs.hosts_web_saas_native || '[]' }}
+      hosts_kubernetes: ${{ fromJSON(inputs.provision_context || '{}').outputs.hosts_kubernetes || '[]' }}
       hosts_ai_workspace: ${{ fromJSON(inputs.provision_context || '{}').outputs.hosts_ai_workspace || '' }}
       count: ${{ fromJSON(inputs.provision_context || '{}').outputs.count || '' }}
     steps:
@@ -692,13 +694,13 @@ jobs:
       needs.provision.outputs.deployment_env != 'prod' &&
       needs.provision.outputs.count != '0' &&
       contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
-      needs.provision.outputs.hosts_web_saas != '[]' &&
-      needs.provision.outputs.hosts_web_saas != '' }}
+      needs.provision.outputs.hosts_web_saas_native != '[]' &&
+      needs.provision.outputs.hosts_web_saas_native != '' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas) }}
+        host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas_native) }}
     steps:
     - name: Check out the toolkit dispatcher
       uses: actions/checkout@v7
@@ -715,7 +717,7 @@ jobs:
         RELEASE_TAG: ${{ needs.provision.outputs.deploy_tag }}
         ACCOUNTS_REF: ${{ needs.provision.outputs.deploy_tag || 'main' }}
         DATA_WORKFLOW_REF: main
-        WEB_SAAS_HOSTS_JSON: ${{ needs.provision.outputs.hosts_web_saas }}
+        WEB_SAAS_HOSTS_JSON: ${{ needs.provision.outputs.hosts_web_saas_native }}
       run: |
         python3 - <<'PY'
         import json, os
@@ -758,7 +760,8 @@ jobs:
       (needs.capture_web_saas_baseline.result == 'success' || needs.capture_web_saas_baseline.result == 'skipped') &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
-      needs.provision.outputs.deploy_tag != '' }}
+      needs.provision.outputs.deploy_tag != '' &&
+      (needs.provision.outputs.hosts_kubernetes == '[]' || needs.provision.outputs.hosts_web_saas_native != '[]') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout playbook scripts
@@ -906,12 +909,12 @@ jobs:
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
       contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
-      needs.provision.outputs.hosts_web_saas != '[]' &&
-      needs.provision.outputs.hosts_web_saas != '' }}
+      needs.provision.outputs.hosts_web_saas_native != '[]' &&
+      needs.provision.outputs.hosts_web_saas_native != '' }}
     strategy:
       fail-fast: false
       matrix:
-        host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas) }}
+        host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas_native) }}
     uses: ai-workspace-infra/playbooks/.github/workflows/web-saas-domain-cd.yaml@ed7397b9b61b244b36000acebd50519a2649f310
     with:
       target_host: ${{ matrix.host }}
@@ -940,13 +943,13 @@ jobs:
       needs.provision.result == 'success' &&
       needs.capture_web_saas_baseline.result == 'success' &&
       needs.deploy_web_saas.result == 'success' &&
-      needs.provision.outputs.hosts_web_saas != '[]' &&
-      needs.provision.outputs.hosts_web_saas != '' }}
+      needs.provision.outputs.hosts_web_saas_native != '[]' &&
+      needs.provision.outputs.hosts_web_saas_native != '' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas) }}
+        host: ${{ fromJSON(needs.provision.outputs.hosts_web_saas_native) }}
     steps:
     - name: Check out the toolkit dispatcher
       uses: actions/checkout@v7
