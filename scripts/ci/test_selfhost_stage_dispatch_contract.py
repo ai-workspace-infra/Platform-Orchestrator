@@ -40,6 +40,11 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
                 selector.writer_role(root, 'resource.yaml', 'node')
             (root / 'resource.yaml').write_text('hosts:\n- name: node\n  host_vars:\n    deployment_mode: kubernetes\n    k3s_identity_vault_writer_role: scoped-writer\n')
             self.assertEqual('scoped-writer', selector.writer_role(root, 'resource.yaml', 'node'))
+            with self.assertRaises(ValueError):
+                selector.bootstrap_reader(root, 'resource.yaml', 'node')
+            with (root / 'resource.yaml').open('a') as stream:
+                stream.write('    k3s_platform_vault_bootstrap_reader_role: scoped-reader\n    k3s_platform_vault_ssh_key_path: kv/data/prod/platform/cluster/ssh\n    k3s_platform_vault_ssh_key_field: SSH_PRIVATE_KEY\n')
+            self.assertEqual('scoped-reader', selector.bootstrap_reader(root, 'resource.yaml', 'node')['role'])
             (root / 'target.yaml').write_text('targets:\n- stages:\n    resources:\n      manifest: ../outside.yaml\n')
             with self.assertRaises(ValueError):
                 selector.select(root, 'target.yaml', root / 'cmdb.json', 'node')
@@ -86,6 +91,9 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
         select = next(t for t in infra['jobs']['provision']['steps'] if t.get('id') == 'bootstrap_selection')
         self.assertIn('deployment_mode', select['run'])
         self.assertIn('hosts_kubernetes', select['run'])
+        vault = next(t for t in infra['jobs']['provision']['steps'] if t.get('name') == 'Authenticate Vault for the existing application credential preparation')
+        self.assertIn('steps.bootstrap_selection.outputs.hosts_kubernetes', vault['if'])
+        self.assertIn('steps.bootstrap_selection.outputs.hosts_web_saas_native', vault['if'])
 
     def test_infra_evidence_is_carried_into_deploy_context(self):
         infra = load_workflow(ROOT / '.github/workflows/selfhost-stage-infra.yml')
