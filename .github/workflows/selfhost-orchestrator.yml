@@ -354,20 +354,12 @@ jobs:
       needs.resolve.result == 'success' &&
       needs.infrastructure.result == 'success' &&
       needs.deploy.result == 'success' &&
-      (
-        needs.migrate.result == 'success' ||
-        (
-          needs.migrate.result == 'skipped' &&
-          (
-            fromJSON(needs.resolve.outputs.payload_json || '{}').operation == 'plan' ||
-            (
-              fromJSON(needs.resolve.outputs.payload_json || '{}').operation == 'deploy' &&
-              fromJSON(needs.resolve.outputs.payload_json || '{}').dns_mode == 'none' &&
-              fromJSON(needs.resolve.outputs.payload_json || '{}').skip_stripe_catalog == true
-            )
-          )
-        )
-      ) }}
+      (needs.migrate.result == 'success' ||
+      (needs.migrate.result == 'skipped' &&
+      (fromJSON(needs.resolve.outputs.payload_json || '{}').operation == 'plan' ||
+      (fromJSON(needs.resolve.outputs.payload_json || '{}').operation == 'deploy' &&
+      fromJSON(needs.resolve.outputs.payload_json || '{}').dns_mode == 'none' &&
+      fromJSON(needs.resolve.outputs.payload_json || '{}').skip_stripe_catalog == true)))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 359
     steps:
