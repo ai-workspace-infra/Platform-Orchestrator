@@ -586,6 +586,27 @@ jobs:
         resource-manifest: ${{ steps.k3s_target.outputs.manifest }}
         receipt: ${{ runner.temp }}/k3s-bootstrap-${{ matrix.host }}.json
 
+    - name: Assemble verified target handover receipt
+      if: ${{ steps.k3s_target.outputs.manifest != '' }}
+      uses: ./playbooks/.github/actions/k3s-handover-receipt
+      with:
+        host: ${{ matrix.host }}
+        environment: ${{ needs.provision.outputs.deployment_env }}
+        cmdb: ${{ github.workspace }}/cmdb/cmdb.json
+        cmdb-sha256: ${{ needs.provision.outputs.cmdb_sha256 }}
+        gitops-checkout: ${{ github.workspace }}/gitops
+        gitops-sha: ${{ needs.provision.outputs.gitops_sha }}
+        bootstrap-receipt: ${{ runner.temp }}/k3s-bootstrap-${{ matrix.host }}.json
+        output: ${{ runner.temp }}/k3s-handover-${{ matrix.host }}.json
+
+    - name: Publish verified target handover receipt
+      if: ${{ steps.k3s_target.outputs.manifest != '' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: k3s-handover-${{ matrix.host }}-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/k3s-handover-${{ matrix.host }}.json
+        if-no-files-found: error
+
     - name: Bootstrap non-K3s node through Playbooks owner
       if: ${{ steps.k3s_target.outputs.manifest == '' }}
       working-directory: playbooks
@@ -1638,12 +1659,34 @@ jobs:
       run: ${{ github.workspace }}/playbooks/scripts/pipeline/verify-xray-billing-chain.sh
   stage-output:
     name: "Export deployment results"
-    if: ${{ always() && !cancelled() && needs.prod_availability.result != '' && needs.deploy_xconnect_zero_uat.result != '' && needs.deploy_base.result != '' && needs.capture_web_saas_baseline.result != '' && needs.update_gitops_tags.result != '' && needs.initialize_empty_web_saas.result != '' && needs.deploy_web_saas.result != '' && needs.accept_web_saas_upgrade.result != '' && needs.deploy_infra_platform.result != '' && needs.deploy_agent_proxy.result != '' && needs.deploy_agent_proxy_non_iac.result != '' && needs.deploy_ai_workspace.result != '' && needs.deploy_monitor_agent.result != '' }}
-    needs: [prod_availability, deploy_xconnect_zero_uat, deploy_base, capture_web_saas_baseline, update_gitops_tags, initialize_empty_web_saas, deploy_web_saas, accept_web_saas_upgrade, deploy_infra_platform, deploy_agent_proxy, deploy_agent_proxy_non_iac, deploy_ai_workspace, deploy_monitor_agent]
+    if: ${{ always() && !cancelled() && needs.provision.result != '' && needs.prod_availability.result != '' && needs.deploy_xconnect_zero_uat.result != '' && needs.deploy_base.result != '' && needs.capture_web_saas_baseline.result != '' && needs.update_gitops_tags.result != '' && needs.initialize_empty_web_saas.result != '' && needs.deploy_web_saas.result != '' && needs.accept_web_saas_upgrade.result != '' && needs.deploy_infra_platform.result != '' && needs.deploy_agent_proxy.result != '' && needs.deploy_agent_proxy_non_iac.result != '' && needs.deploy_ai_workspace.result != '' && needs.deploy_monitor_agent.result != '' }}
+    needs: [provision, prod_availability, deploy_xconnect_zero_uat, deploy_base, capture_web_saas_baseline, update_gitops_tags, initialize_empty_web_saas, deploy_web_saas, accept_web_saas_upgrade, deploy_infra_platform, deploy_agent_proxy, deploy_agent_proxy_non_iac, deploy_ai_workspace, deploy_monitor_agent]
     runs-on: ubuntu-latest
     outputs:
       context: ${{ toJSON(needs) }}
     steps:
+      - name: Checkout receipt verifier
+        if: ${{ needs.provision.outputs.run_application_deploy == 'true' && needs.provision.outputs.hosts_kubernetes != '[]' && needs.provision.outputs.hosts_kubernetes != '' }}
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download target handover receipts
+        if: ${{ needs.provision.outputs.run_application_deploy == 'true' && needs.provision.outputs.hosts_kubernetes != '[]' && needs.provision.outputs.hosts_kubernetes != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: k3s-handover-*-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/k3s-handover-receipts
+      - name: Verify target handover coverage
+        if: ${{ needs.provision.outputs.run_application_deploy == 'true' && needs.provision.outputs.hosts_kubernetes != '[]' && needs.provision.outputs.hosts_kubernetes != '' }}
+        env:
+          HANDOVER_DIRECTORY: ${{ runner.temp }}/k3s-handover-receipts
+          EXPECTED_TARGETS: ${{ needs.provision.outputs.hosts_kubernetes }}
+          DEPLOYMENT_ENVIRONMENT: ${{ needs.provision.outputs.deployment_env }}
+          GITOPS_SHA: ${{ needs.provision.outputs.gitops_sha }}
+          PLAYBOOKS_SHA: ${{ needs.provision.outputs.playbooks_ref }}
+          CMDB_SHA256: ${{ needs.provision.outputs.cmdb_sha256 }}
+        run: .github/scripts/platform-ops/evidence/aggregate-k3s-handover.sh
       - name: Write correlated stage context
         env:
           STAGE_NAME: deploy
