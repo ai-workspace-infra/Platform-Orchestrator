@@ -351,7 +351,29 @@ jobs:
         repository: ${{ github.repository }}
         path: cmdb
 
+    - name: Select declared K3s resource for this CMDB host
+      id: k3s_target
+      if: ${{ needs.provision.outputs.target_manifest != '' }}
+      env:
+        TARGET_MANIFEST: ${{ needs.provision.outputs.target_manifest }}
+        TARGET_ENVIRONMENT: ${{ needs.provision.outputs.vault_env_path }}
+        TARGET_PROVIDER: ${{ needs.provision.outputs.cloud_provider }}
+        TARGET_ACCOUNT: ${{ needs.provision.outputs.account }}
+        TARGET_WORKSPACE: ${{ needs.provision.outputs.terraform_namespace }}
+      run: |
+        set -euo pipefail
+        python3 -c 'import yaml' || python3 -m pip install --user PyYAML==6.0.2
+        manifest="$(python3 scripts/ci/select_k3s_manifest.py gitops "$TARGET_MANIFEST" cmdb/cmdb.json "$MATRIX_HOST" "$TARGET_ENVIRONMENT" "$TARGET_PROVIDER" "$TARGET_ACCOUNT" "$TARGET_WORKSPACE")"
+        printf 'manifest=%s\n' "$manifest" >> "$GITHUB_OUTPUT"
+        if [ -n "$manifest" ]; then
+          role="$(python3 scripts/ci/select_k3s_manifest.py --writer-role gitops "$manifest" "$MATRIX_HOST")"
+          printf 'writer_role=%s\n' "$role" >> "$GITHUB_OUTPUT"
+          reader="$(python3 scripts/ci/select_k3s_manifest.py --bootstrap-reader gitops "$manifest" "$MATRIX_HOST")"
+          printf 'bootstrap_role=%s\nssh_path=%s\nssh_field=%s\n' "$(jq -r .role <<<"$reader")" "$(jq -r .path <<<"$reader")" "$(jq -r .field <<<"$reader")" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Resolve agent-proxy source CIDRs for Billing Caddy
+      if: ${{ steps.k3s_target.outputs.manifest == '' }}
       env:
         CMDB_FILE: cmdb/cmdb.json
         DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
@@ -363,6 +385,7 @@ jobs:
 
     - name: Load Vault secrets
       id: vault
+      if: ${{ steps.k3s_target.outputs.manifest == '' }}
       uses: hashicorp/vault-action@v4
       with:
         url: ${{ env.VAULT_ADDR }}
@@ -390,6 +413,33 @@ jobs:
           ${{ env.VAULT_KV_WEB_SAAS }} STUNNEL_SERVER_KEY_B64 | WEB_SAAS_STUNNEL_SERVER_KEY_B64 ;
           ${{ env.VAULT_KV }} CLOUDFLARE_DNS_API_TOKEN | CLOUDFLARE_DNS_API_TOKEN
 
+    - name: Load scoped K3s bootstrap SSH identity
+      id: k3s_vault
+      if: ${{ steps.k3s_target.outputs.manifest != '' }}
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: ${{ steps.k3s_target.outputs.bootstrap_role }}
+        jwtGithubAudience: vault
+        exportToken: true
+        exportEnv: false
+        secrets: |
+          ${{ steps.k3s_target.outputs.ssh_path }} ${{ steps.k3s_target.outputs.ssh_field }} | K3S_SSH_PRIVATE_KEY
+
+    - name: Encode the scoped SSH key for the runner owner
+      id: k3s_ssh
+      if: ${{ steps.k3s_target.outputs.manifest != '' }}
+      env:
+        K3S_SSH_KEY: ${{ steps.k3s_vault.outputs.K3S_SSH_PRIVATE_KEY }}
+      run: |
+        set -euo pipefail
+        test -n "$K3S_SSH_KEY"
+        encoded="$(printf '%s\n' "$K3S_SSH_KEY" | base64 | tr -d '\n')"
+        echo "::add-mask::$encoded"
+        printf 'key_b64=%s\n' "$encoded" >> "$GITHUB_OUTPUT"
+        unset encoded K3S_SSH_KEY
+
     # OAUTH_* / INTERNAL_SERVICE_TOKEN 是真正可选的(不影响是否能起服务),
     # 但 vault-action 的 ignoreNotFound 只在整个 KV 路径 404 时生效 —— 路径
     # 存在而某个键缺失照样硬失败。放到独立脚本里自己读、缺则空。
@@ -399,6 +449,7 @@ jobs:
     # 耦合。ACTIONS_ID_TOKEN_REQUEST_URL/TOKEN 由 id-token: write 权限
     # (workflow 顶层已声明)自动注入, 无需在此显式传递。
     - name: Load optional web-saas secrets
+      if: ${{ steps.k3s_target.outputs.manifest == '' }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/deploy/platform-ops_deploy_base_load-optional-web-saas.sh
 
     # SSH 可达不等于机器可用。新 VPS 此时通常还在跑 cloud-init 与
@@ -421,25 +472,11 @@ jobs:
       id: runner
       uses: ai-workspace-infra/playbooks/.github/actions/setup-deployment-runner@18fa333e5d76143f2a3a3ce94b1766a04003ebd8
       with:
-        ssh_key_b64: ${{ steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
+        ssh_key_b64: ${{ steps.k3s_ssh.outputs.key_b64 || steps.vault.outputs.ANSIBLE_SSH_KEY_B64 }}
         matrix_host: ${{ matrix.host }}
         wait_for_ssh: 'true'
         wait_for_package_init: 'true'
         install_ansible: 'true'
-
-    - name: Select declared K3s resource for this CMDB host
-      id: k3s_target
-      if: ${{ needs.provision.outputs.target_manifest != '' }}
-      env:
-        TARGET_MANIFEST: ${{ needs.provision.outputs.target_manifest }}
-      run: |
-        set -euo pipefail
-        manifest="$(python3 scripts/ci/select_k3s_manifest.py gitops "$TARGET_MANIFEST" cmdb/cmdb.json "$MATRIX_HOST")"
-        printf 'manifest=%s\n' "$manifest" >> "$GITHUB_OUTPUT"
-        if [ -n "$manifest" ]; then
-          role="$(python3 scripts/ci/select_k3s_manifest.py --writer-role gitops "$manifest" "$MATRIX_HOST")"
-          printf 'writer_role=%s\n' "$role" >> "$GITHUB_OUTPUT"
-        fi
 
     - name: Obtain scoped Vault writer for Kubernetes identities
       if: ${{ steps.k3s_target.outputs.manifest != '' }}

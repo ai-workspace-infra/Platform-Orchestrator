@@ -314,7 +314,7 @@ jobs:
         echo "hosts_web_saas_native=${native}" >> "${GITHUB_OUTPUT}"
         echo "hosts_kubernetes=${kubernetes}" >> "${GITHUB_OUTPUT}"
     - name: Authenticate Vault for the existing application credential preparation
-      if: needs.resolve-targets.outputs.run_application_deploy == 'true' && needs.resolve-targets.outputs.terraform_action == 'apply'
+      if: ${{ needs.resolve-targets.outputs.run_application_deploy == 'true' && needs.resolve-targets.outputs.terraform_action == 'apply' && (needs.resolve-targets.outputs.target_domains != 'web-saas' || steps.bootstrap_selection.outputs.hosts_kubernetes == '[]' || steps.bootstrap_selection.outputs.hosts_web_saas_native != '[]') }}
       uses: hashicorp/vault-action@v4
       with:
         url: ${{ env.VAULT_ADDR }}

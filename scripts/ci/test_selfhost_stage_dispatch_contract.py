@@ -40,9 +40,32 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
                 selector.writer_role(root, 'resource.yaml', 'node')
             (root / 'resource.yaml').write_text('hosts:\n- name: node\n  host_vars:\n    deployment_mode: kubernetes\n    k3s_identity_vault_writer_role: scoped-writer\n')
             self.assertEqual('scoped-writer', selector.writer_role(root, 'resource.yaml', 'node'))
+            with self.assertRaises(ValueError):
+                selector.bootstrap_reader(root, 'resource.yaml', 'node')
+            with (root / 'resource.yaml').open('a') as stream:
+                stream.write('    k3s_platform_vault_bootstrap_reader_role: scoped-reader\n    k3s_platform_vault_ssh_key_path: kv/data/prod/platform/cluster/ssh\n    k3s_platform_vault_ssh_key_field: SSH_PRIVATE_KEY\n')
+            self.assertEqual('scoped-reader', selector.bootstrap_reader(root, 'resource.yaml', 'node')['role'])
             (root / 'target.yaml').write_text('targets:\n- stages:\n    resources:\n      manifest: ../outside.yaml\n')
             with self.assertRaises(ValueError):
                 selector.select(root, 'target.yaml', root / 'cmdb.json', 'node')
+
+    def test_k3s_catalog_selects_exact_scope_and_refuses_ambiguity(self):
+        spec = spec_from_file_location('k3s_catalog', ROOT / 'scripts/ci/select_k3s_manifest.py')
+        selector = module_from_spec(spec)
+        spec.loader.exec_module(selector)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'cmdb.json').write_text('{"node":{"deployment_mode":"kubernetes"}}')
+            (root / 'resource.yaml').write_text('hosts:\n- name: node\n  host_vars: {deployment_mode: kubernetes}\n')
+            entry = {'environment': 'prod', 'provider': 'cloud', 'account': 'account', 'workspace': 'cluster', 'stages': {'resources': {'manifest': 'resource.yaml'}}}
+            (root / 'target.yaml').write_text(yaml.safe_dump({'targets': [entry]}))
+            (root / 'catalog.yaml').write_text(yaml.safe_dump({'kind': 'IaCTargetCatalog', 'target_manifests': ['target.yaml']}))
+            self.assertEqual('resource.yaml', selector.select(root, 'catalog.yaml', root / 'cmdb.json', 'node', 'prod', 'cloud', 'account', 'cluster'))
+            with self.assertRaises(ValueError):
+                selector.select(root, 'catalog.yaml', root / 'cmdb.json', 'node', 'prod', 'cloud', 'wrong-account', 'cluster')
+            (root / 'target.yaml').write_text(yaml.safe_dump({'targets': [entry, entry]}))
+            with self.assertRaises(ValueError):
+                selector.select(root, 'catalog.yaml', root / 'cmdb.json', 'node', 'prod', 'cloud', 'account', 'cluster')
 
     def test_k3s_owner_inputs_and_tls_ownership_are_wired(self):
         workflow = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')
@@ -68,6 +91,9 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
         select = next(t for t in infra['jobs']['provision']['steps'] if t.get('id') == 'bootstrap_selection')
         self.assertIn('deployment_mode', select['run'])
         self.assertIn('hosts_kubernetes', select['run'])
+        vault = next(t for t in infra['jobs']['provision']['steps'] if t.get('name') == 'Authenticate Vault for the existing application credential preparation')
+        self.assertIn('steps.bootstrap_selection.outputs.hosts_kubernetes', vault['if'])
+        self.assertIn('steps.bootstrap_selection.outputs.hosts_web_saas_native', vault['if'])
 
     def test_infra_evidence_is_carried_into_deploy_context(self):
         infra = load_workflow(ROOT / '.github/workflows/selfhost-stage-infra.yml')
