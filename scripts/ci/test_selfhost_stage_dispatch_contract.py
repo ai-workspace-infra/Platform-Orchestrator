@@ -70,16 +70,31 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
     def test_k3s_owner_inputs_and_tls_ownership_are_wired(self):
         workflow = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')
         steps = workflow['jobs']['deploy_base']['steps']
-        bootstrap = next(step for step in steps if step.get('name') == 'Bootstrap node according to CMDB role')
+        bootstrap = next(step for step in steps if step.get('name') == 'Bootstrap declared K3s node through Playbooks owner')
         writer = next(step for step in steps if step.get('name') == 'Obtain scoped Vault writer for Kubernetes identities')
         self.assertLess(steps.index(writer), steps.index(bootstrap))
         self.assertIn('K3S_IDENTITY_VAULT_TOKEN', writer['run'])
         self.assertIn('::add-mask::', writer['run'])
-        for key in ('K3S_GITOPS_CHECKOUT', 'K3S_GITOPS_SHA', 'K3S_RESOURCE_MANIFEST', 'K3S_CMDB_SHA256', 'K3S_BOOTSTRAP_RECEIPT'):
-            self.assertIn(key, bootstrap['env'])
+        self.assertEqual(bootstrap['uses'], './playbooks/.github/actions/k3s-bootstrap')
+        for key in ('host', 'gitops-checkout', 'gitops-sha', 'resource-manifest', 'cmdb', 'cmdb-sha256', 'receipt'):
+            self.assertIn(key, bootstrap['with'])
+        self.assertIn('matrix.host', bootstrap['with']['receipt'])
         for name in ('Read domain TLS record through the authorized Vault session', 'Read the brand-domain certificate from its Vault KV path'):
             step = next(step for step in steps if step.get('name') == name)
             self.assertIn("steps.k3s_target.outputs.manifest == ''", step['if'])
+
+    def test_playbooks_commit_is_resolved_before_downstream_handoff(self):
+        resolve = load_workflow(ROOT / '.github/workflows/selfhost-stage-resolve.yml')['jobs']['resolve-targets']
+        checkout = next(step for step in resolve['steps'] if step.get('id') == 'playbooks_snapshot')
+        self.assertEqual(checkout['with']['repository'], 'ai-workspace-infra/playbooks')
+        self.assertIn('steps.route.outputs.playbooks_ref', checkout['with']['ref'])
+        self.assertIn('steps.playbooks_snapshot.outputs.commit', resolve['outputs']['playbooks_ref'])
+        infra = load_workflow(ROOT / '.github/workflows/selfhost-stage-infra.yml')
+        deploy = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')
+        self.assertIn('outputs.playbooks_ref', infra['jobs']['resolve-targets']['outputs']['playbooks_ref'])
+        self.assertIn('outputs.playbooks_ref', deploy['jobs']['provision']['outputs']['playbooks_ref'])
+        checkout_deploy = next(step for step in deploy['jobs']['deploy_base']['steps'] if step.get('name') == 'Checkout playbooks')
+        self.assertIn('needs.provision.outputs.playbooks_ref', checkout_deploy['with']['ref'])
 
     def test_native_web_saas_jobs_do_not_target_kubernetes_hosts(self):
         workflow = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')

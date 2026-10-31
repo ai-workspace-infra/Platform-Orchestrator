@@ -536,7 +536,7 @@ jobs:
       toolkit_action: ${{ steps.route.outputs.toolkit_action }}
       toolkit_ref: ${{ steps.route.outputs.toolkit_ref }}
       infra_ref: ${{ steps.route.outputs.infra_ref }}
-      playbooks_ref: ${{ steps.route.outputs.playbooks_ref }}
+      playbooks_ref: ${{ steps.playbooks_snapshot.outputs.commit }}
       gitops_ref: ${{ steps.route.outputs.gitops_ref }}
       console_ref: ${{ steps.route.outputs.console_ref }}
       offline_mode: ${{ steps.route.outputs.offline_mode }}
@@ -596,6 +596,22 @@ jobs:
       # env block inherited from job level — no repetition needed here
       run: |-
         ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_route-ref-to-an-explicit-profile.sh
+
+    - name: Resolve Playbooks ref once for downstream owner calls
+      id: playbooks_snapshot
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/playbooks
+        ref: ${{ steps.route.outputs.playbooks_ref }}
+        path: resolved-playbooks
+        persist-credentials: false
+    - name: Require resolved Playbooks commit
+      shell: bash
+      env:
+        PLAYBOOKS_COMMIT: ${{ steps.playbooks_snapshot.outputs.commit }}
+      run: |
+        [[ "$PLAYBOOKS_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::Playbooks checkout did not resolve to a commit SHA'; exit 1; }
+        echo "Playbooks commit: $PLAYBOOKS_COMMIT" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Checkout GitOps selfhost routing declaration
       if: steps.route.outputs.run_infrastructure == 'true' || steps.route.outputs.run_application_deploy == 'true' || steps.route.outputs.toolkit_action == 'migrate'
