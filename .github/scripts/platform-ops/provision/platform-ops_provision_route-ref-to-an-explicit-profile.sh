@@ -257,6 +257,11 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     versioned_akamai_route="$(python3 "$(dirname "${BASH_SOURCE[0]}")/resolve-versioned-akamai-target.py" \
       --gitops-root "${GITHUB_WORKSPACE:-${PWD}}/gitops" --profile "${deployment_env}" --account "${account}")"
   fi
+  gitops_k3s_artifacts=false
+  if [[ -n "${versioned_akamai_route:-}" && "${INPUT_OPERATION:-plan}" == deploy && -z "${INPUT_DEPLOY_TAG:-}" ]]; then
+    gitops_k3s_artifacts="$(python3 "${GITHUB_WORKSPACE:-${PWD}}/scripts/ci/validate_gitops_k3s_artifacts.py" \
+      "${GITHUB_WORKSPACE:-${PWD}}/gitops" "$(jq -er '.resource_manifest' <<<"${versioned_akamai_route}")")"
+  fi
   existing_target_host="${INPUT_EXISTING_TARGET_HOST:-}"
   existing_target_user="${INPUT_EXISTING_TARGET_USER:-root}"
   if [[ "${deployment_env}" == "uat" && "${target_domains}" == "all" ]]; then
@@ -672,7 +677,11 @@ if [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
   if [ "${operation:-}" = "destroy" ]; then
     deploy_tag=""
   else
-    deploy_tag="${INPUT_DEPLOY_TAG:-${deploy_ref}}"
+    if [[ "${gitops_k3s_artifacts:-false}" == true ]]; then
+      deploy_tag=""
+    else
+      deploy_tag="${INPUT_DEPLOY_TAG:-${deploy_ref}}"
+    fi
   fi
 else
   case "${deployment_env}" in
@@ -743,7 +752,7 @@ fi
 # 从来没有被推送过的 tag。规则见 docs/domains/IMAGE-TAG-CONTRACT.md。
 deploy_tag="${deploy_tag//\//-}"
 
-if [ "${run_application_deploy}" = "true" ]; then
+if [ "${run_application_deploy}" = "true" ] && [ "${gitops_k3s_artifacts:-false}" != "true" ]; then
   case "${deploy_tag}" in
     ""|latest|main)
       echo "::error::application deployment requires an explicit immutable deploy_tag (for example, daily-build-2026.07.30-r1). Set workflow_dispatch input deploy_tag; deploy_ref is only a source checkout ref, and main/latest are not valid image versions." >&2
