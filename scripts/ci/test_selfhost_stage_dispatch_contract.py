@@ -26,6 +26,19 @@ def load_workflow(path: Path):
 
 
 class SelfhostStageDispatchContractTest(unittest.TestCase):
+    def test_infra_evidence_is_carried_into_deploy_context(self):
+        infra = load_workflow(ROOT / '.github/workflows/selfhost-stage-infra.yml')
+        deploy = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')
+        source = infra['jobs']['provision']
+        digest = next(step for step in source['steps'] if step.get('id') == 'cmdb_digest')
+        upload = next(step for step in source['steps'] if step.get('name') == 'Upload CMDB artifact')
+        self.assertLess(source['steps'].index(digest), source['steps'].index(upload))
+        self.assertIn('sha256sum', digest['run'])
+        self.assertIn('cmdb-artifact/cmdb.json', digest['env']['CMDB_PATH'])
+        for field in ('target_manifest', 'gitops_sha', 'cmdb_sha256'):
+            self.assertIn(field, source['outputs'])
+            self.assertIn(field, deploy['jobs']['provision']['outputs'])
+            self.assertIn('outputs.' + field, deploy['jobs']['provision']['outputs'][field])
     def test_parent_graph_has_five_dispatch_and_wait_jobs(self):
         parent = load_workflow(ROOT / ".github/workflows/selfhost-orchestrator.yml")
         jobs = parent["jobs"]

@@ -176,6 +176,9 @@ jobs:
     outputs:
       deployment_env: ${{ needs.resolve-targets.outputs.deployment_env }}
       resource_file: ${{ needs.resolve-targets.outputs.resource_file }}
+      target_manifest: ${{ needs.resolve-targets.outputs.target_manifest }}
+      gitops_sha: ${{ needs.resolve-targets.outputs.gitops_sha }}
+      cmdb_sha256: ${{ steps.cmdb_digest.outputs.sha256 }}
       terraform_workspace: ${{ needs.resolve-targets.outputs.terraform_workspace }}
       state_key: ${{ needs.resolve-targets.outputs.state_key }}
       terraform_namespace: ${{ needs.resolve-targets.outputs.terraform_namespace }}
@@ -329,6 +332,15 @@ jobs:
       if: always()
       shell: bash
       run: printf 'VAULT_TOKEN=\n' >> "$GITHUB_ENV"
+    - name: Bind deploy CMDB to this stage context
+      id: cmdb_digest
+      if: needs.resolve-targets.outputs.run_application_deploy == 'true'
+      env:
+        CMDB_PATH: ${{ runner.temp }}/cmdb-artifact/cmdb.json
+      run: |
+        set -euo pipefail
+        test -s "$CMDB_PATH"
+        echo "sha256=$(sha256sum "$CMDB_PATH" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
     - name: Upload CMDB artifact
       if: ${{ (needs.resolve-targets.outputs.run_infrastructure == 'true' && needs.resolve-targets.outputs.terraform_action == 'apply') || (needs.resolve-targets.outputs.reuse_existing_host
         == 'true' && needs.resolve-targets.outputs.run_application_deploy == 'true') }}

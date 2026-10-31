@@ -84,6 +84,9 @@ jobs:
     outputs:
       deployment_env: ${{ fromJSON(inputs.provision_context || '{}').outputs.deployment_env || '' }}
       resource_file: ${{ fromJSON(inputs.provision_context || '{}').outputs.resource_file || '' }}
+      target_manifest: ${{ fromJSON(inputs.provision_context || '{}').outputs.target_manifest || '' }}
+      gitops_sha: ${{ fromJSON(inputs.provision_context || '{}').outputs.gitops_sha || '' }}
+      cmdb_sha256: ${{ fromJSON(inputs.provision_context || '{}').outputs.cmdb_sha256 || '' }}
       terraform_workspace: ${{ fromJSON(inputs.provision_context || '{}').outputs.terraform_workspace || '' }}
       state_key: ${{ fromJSON(inputs.provision_context || '{}').outputs.state_key || '' }}
       terraform_namespace: ${{ fromJSON(inputs.provision_context || '{}').outputs.terraform_namespace || '' }}
