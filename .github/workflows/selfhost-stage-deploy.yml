@@ -423,6 +423,7 @@ jobs:
         role: ${{ steps.k3s_target.outputs.bootstrap_role }}
         jwtGithubAudience: vault
         exportToken: true
+        exportEnv: false
         secrets: |
           ${{ steps.k3s_target.outputs.ssh_path }} ${{ steps.k3s_target.outputs.ssh_field }} | K3S_SSH_PRIVATE_KEY
 
