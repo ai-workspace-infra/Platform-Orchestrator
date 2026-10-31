@@ -19,8 +19,8 @@ class EvidenceTests(unittest.TestCase):
                       'iac':{'repository':'example/repo','ref':'v1','commit':'a'*40,'iacSha':'c'*40,'runId':1,'attempt':1,'correlationId':'1:1:candidate','inventorySha256':'d'*64}}}
         common={'runId':1,'attempt':1,'workflow':'workflow','event':'workflow_dispatch','artifactId':1,'artifactName':'artifact','artifactDigest':'sha256:'+'e'*64,'filename':'receipt','fileSha256':'f'*64}
         for row in self.decl['evidence'].values():row.update(common)
-        self.boot={'result':'PAUSED_BOOTSTRAP_VERIFIED','node':'candidate','version':'v1.33.4','gitops_sha':'b'*40,
-                   'common':{'result':'COMMON_NODE_VERIFIED','node':'candidate','cmdb_instance_id':'123'},'audit':{'result':'AUDIT_ALLOW_DENY_VERIFIED'}}
+        self.boot={'result':'FLUX_HANDOVER_VERIFIED','node':'candidate','version':'v1.33.4','gitops_sha':'b'*40,
+                   'common':{'result':'COMMON_NODE_VERIFIED','node':'candidate','cmdb_instance_id':'123','os_identities':'OS_IDENTITY_CHECKS_PASSED'}}
         self.summary={'result':'applied_verified','context':{'action':'apply','environment':'uat','gitops_sha':'b'*40,'iac_sha':'c'*40,'run_id':'1','run_attempt':'1','correlation_id':'1:1:candidate','manifest_path':'iac/test.yaml'}}
         self.inventory={'target':{'candidate':{'instance_id':'123'}}}
     def fake(self,api,fetch,contract):
@@ -39,6 +39,13 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.run_verify()
         self.inventory['target']['candidate']['instance_id']='123';self.summary['context']['environment']='prod'
         with self.assertRaises(ValueError):self.run_verify()
+    def test_rejects_old_bootstrap_or_missing_os_identity_evidence(self):
+        self.boot['result']='PAUSED_BOOTSTRAP_VERIFIED'
+        with self.assertRaises(ValueError): self.run_verify()
+        self.boot['result']='FLUX_HANDOVER_VERIFIED'
+        del self.boot['common']['os_identities']
+        with self.assertRaises(ValueError): self.run_verify()
+
     def test_rejects_tag_drift_before_fetch(self):
         with patch.object(m.provenance,'verify_artifact') as f:
             with self.assertRaises(ValueError):m.verify(self.decl,lambda path:{'sha':'0'*40},lambda *a:None)
