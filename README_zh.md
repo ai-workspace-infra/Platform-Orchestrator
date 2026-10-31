@@ -34,7 +34,7 @@
 无需预先配置外部密钥库，自动生成管理员强密码：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/platform-ops-toolkit/main/scripts/setup-gitea.sh | \
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/playbooks/main/roles/vhosts/gitea/files/setup-gitea.sh | \
   bash -s -- --domain git.example.com --standalone
 ```
 
@@ -47,7 +47,7 @@ export GITEA_DOMAIN="git.example.com"
 export GITEA_ADMIN_USER="platform-admin"
 export GITEA_ADMIN_PASSWORD="<runtime-secret>"
 export RUNNER_REGISTRATION_TOKEN="<runtime-secret>"
-curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/platform-ops-toolkit/main/scripts/setup-gitea.sh | \
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/playbooks/main/roles/vhosts/gitea/files/setup-gitea.sh | \
   bash -s -- --domain "$GITEA_DOMAIN" --with-runner
 unset GITEA_ADMIN_PASSWORD RUNNER_REGISTRATION_TOKEN
 ```
@@ -57,7 +57,7 @@ unset GITEA_ADMIN_PASSWORD RUNNER_REGISTRATION_TOKEN
 停止运行中的容器，自动备份持久化数据至 `/var/backups/gitea`，并移除 Compose 部署栈：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/platform-ops-toolkit/main/scripts/setup-gitea.sh | \
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/playbooks/main/roles/vhosts/gitea/files/setup-gitea.sh | \
   bash -s -- --uninstall
 ```
 
