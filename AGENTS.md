@@ -1,4 +1,17 @@
-# platform-ops-toolkit Agent 约束：只做控制面
+# Platform-Orchestrator Agent 约束：只做最上层编排调度
+
+Platform-Orchestrator 只负责跨仓调度：输入选择、审批与授权、DAG、调用 owner、等待与关联运行、汇总回执和最终状态。不得成为下列仓库的第二套实现：
+
+| Owner | 职责 |
+| --- | --- |
+| IaC / `iac_modules` | 云资源、DNS、State、云事实及 CMDB 产出 |
+| GitOps / `gitops` | 环境拓扑、资源配置、版本引用、Flux 声明和非敏感配置引用 |
+| Artifacts / `artifacts` | 应用制品构建、镜像与 chart 打包、发布及制品元数据 |
+| Playbooks / `playbooks` | 主机、服务、身份、数据库、备份恢复、迁移及健康检查执行 |
+
+基础仓库来源由 dispatch 参数选择，默认 `main`；每次运行记录实际解析的 SHA。业务制品版本独立选择。
+
+已有 workflow 依赖不是执行实现或资源声明留在本仓的理由。清理时追踪间接调用，把实现或声明移入对应 owner，切换并验证调用后删除旧副本。本仓只保留调度所需胶水、输入与回执契约及其测试。
 
 本文件是仓库根级强制规则。四边界完整判定见
 [`execution-ownership-migration`](https://github.com/ai-workspace-lab/xworkspace-core-skills/blob/main/skills/engineering-standards/execution-ownership-migration/SKILL.md)。
