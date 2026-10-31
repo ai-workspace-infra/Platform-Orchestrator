@@ -26,6 +26,62 @@ def load_workflow(path: Path):
 
 
 class SelfhostStageDispatchContractTest(unittest.TestCase):
+    def test_k3s_target_selection_requires_exactly_one_contained_manifest(self):
+        spec = spec_from_file_location('k3s_target', ROOT / 'scripts/ci/select_k3s_manifest.py')
+        selector = module_from_spec(spec)
+        spec.loader.exec_module(selector)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'cmdb.json').write_text('{"node": {"host_vars": {"deployment_mode": "kubernetes"}}}')
+            (root / 'resource.yaml').write_text('hosts:\n- name: node\n  host_vars:\n    deployment_mode: kubernetes\n')
+            (root / 'target.yaml').write_text('targets:\n- stages:\n    resources:\n      manifest: resource.yaml\n')
+            self.assertEqual('resource.yaml', selector.select(root, 'target.yaml', root / 'cmdb.json', 'node'))
+            with self.assertRaises(ValueError):
+                selector.writer_role(root, 'resource.yaml', 'node')
+            (root / 'resource.yaml').write_text('hosts:\n- name: node\n  host_vars:\n    deployment_mode: kubernetes\n    k3s_identity_vault_writer_role: scoped-writer\n')
+            self.assertEqual('scoped-writer', selector.writer_role(root, 'resource.yaml', 'node'))
+            (root / 'target.yaml').write_text('targets:\n- stages:\n    resources:\n      manifest: ../outside.yaml\n')
+            with self.assertRaises(ValueError):
+                selector.select(root, 'target.yaml', root / 'cmdb.json', 'node')
+
+    def test_k3s_owner_inputs_and_tls_ownership_are_wired(self):
+        workflow = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')
+        steps = workflow['jobs']['deploy_base']['steps']
+        bootstrap = next(step for step in steps if step.get('name') == 'Bootstrap node according to CMDB role')
+        writer = next(step for step in steps if step.get('name') == 'Obtain scoped Vault writer for Kubernetes identities')
+        self.assertLess(steps.index(writer), steps.index(bootstrap))
+        self.assertIn('K3S_IDENTITY_VAULT_TOKEN', writer['run'])
+        self.assertIn('::add-mask::', writer['run'])
+        for key in ('K3S_GITOPS_CHECKOUT', 'K3S_GITOPS_SHA', 'K3S_RESOURCE_MANIFEST', 'K3S_CMDB_SHA256', 'K3S_BOOTSTRAP_RECEIPT'):
+            self.assertIn(key, bootstrap['env'])
+        for name in ('Read domain TLS record through the authorized Vault session', 'Read the brand-domain certificate from its Vault KV path'):
+            step = next(step for step in steps if step.get('name') == name)
+            self.assertIn("steps.k3s_target.outputs.manifest == ''", step['if'])
+
+    def test_native_web_saas_jobs_do_not_target_kubernetes_hosts(self):
+        workflow = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')
+        for job_name in ('capture_web_saas_baseline', 'deploy_web_saas', 'accept_web_saas_upgrade'):
+            job = workflow['jobs'][job_name]
+            self.assertIn('hosts_web_saas_native', job['if'])
+            self.assertIn('hosts_web_saas_native', job['strategy']['matrix']['host'])
+        infra = load_workflow(ROOT / '.github/workflows/selfhost-stage-infra.yml')
+        select = next(t for t in infra['jobs']['provision']['steps'] if t.get('id') == 'bootstrap_selection')
+        self.assertIn('deployment_mode', select['run'])
+        self.assertIn('hosts_kubernetes', select['run'])
+
+    def test_infra_evidence_is_carried_into_deploy_context(self):
+        infra = load_workflow(ROOT / '.github/workflows/selfhost-stage-infra.yml')
+        deploy = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')
+        source = infra['jobs']['provision']
+        digest = next(step for step in source['steps'] if step.get('id') == 'cmdb_digest')
+        upload = next(step for step in source['steps'] if step.get('name') == 'Upload CMDB artifact')
+        self.assertLess(source['steps'].index(digest), source['steps'].index(upload))
+        self.assertIn('sha256sum', digest['run'])
+        self.assertIn('cmdb-artifact/cmdb.json', digest['env']['CMDB_PATH'])
+        for field in ('target_manifest', 'gitops_sha', 'cmdb_sha256'):
+            self.assertIn(field, source['outputs'])
+            self.assertIn(field, deploy['jobs']['provision']['outputs'])
+            self.assertIn('outputs.' + field, deploy['jobs']['provision']['outputs'][field])
     def test_parent_graph_has_five_dispatch_and_wait_jobs(self):
         parent = load_workflow(ROOT / ".github/workflows/selfhost-orchestrator.yml")
         jobs = parent["jobs"]
