@@ -93,6 +93,7 @@ jobs:
         run: |
           python3 scripts/ci/workflow_stage_depth_verify.py
           python3 scripts/ci/tests/test_workflow_stage_depth.py -v
+          python3 scripts/ci/tests/test_flux_event_summary.py -v
 
       - name: Verify repository conventions
         run: >-
