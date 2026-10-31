@@ -108,18 +108,22 @@ class UnifiedWorkflowContract(unittest.TestCase):
             'shared': {'ip': '192.0.2.1', 'groups': ['infra_platform']},
             'vault': {'ip': '192.0.2.2', 'groups': ['open_platform']},
             'app': {'ip': '192.0.2.3', 'groups': ['web_saas']},
+            'cluster': {'ip': '192.0.2.4', 'groups': ['web_saas', 'k3s'], 'host_vars': {'deployment_mode': 'kubernetes'}},
             'metadata': 'a platform fact, never an SSH target',
         }
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'cmdb.json').write_text(json.dumps(fixture))
-            for selection, expected in [('none', ['app']), ('all', ['shared', 'vault', 'app'])]:
+            for selection, expected in [('none', ['app', 'cluster']), ('all', ['shared', 'vault', 'app', 'cluster'])]:
                 output = root / (selection + '.output')
                 environment = dict(os.environ, CMDB_FILE=str(root / 'cmdb.json'),
                                    OPEN_PLATFORM_SERVICE=selection, GITHUB_OUTPUT=str(output))
                 result = subprocess.run(['bash', '-c', script], env=environment, text=True, capture_output=True, timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(json.loads(output.read_text().strip().split('=', 1)[1]), expected)
+                outputs = dict(line.split('=', 1) for line in output.read_text().splitlines())
+                self.assertEqual(json.loads(outputs['hosts']), expected)
+                self.assertEqual(json.loads(outputs['hosts_web_saas_native']), ['app'])
+                self.assertEqual(json.loads(outputs['hosts_kubernetes']), ['cluster'])
         base = load('selfhost-stage-deploy.yml')['jobs']['deploy_base']
         self.assertIn('bootstrap_hosts', base['strategy']['matrix']['host'])
 
