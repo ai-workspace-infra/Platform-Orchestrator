@@ -75,17 +75,17 @@ role 绑定与 policy 生成见 [vault_authentication_and_policy_isolation.md](.
 
 | 脚本 | 作用 | 是否写 Vault |
 |---|---|---|
-| [`scripts/backup/vault_backup_to_keychain.sh`](../../scripts/backup/vault_backup_to_keychain.sh) | 全量导出 → macOS Keychain，回读比对 sha256 | 否（只读） |
+| [Playbooks `vault_backup` role](https://github.com/ai-workspace-infra/playbooks/tree/main/roles/vault_backup) | 受控执行 Vault 备份、导出和恢复 | 备份只读；恢复会写入 |
 | [`scripts/vault/vault_layout_verify.py`](../../scripts/vault/vault_layout_verify.py) | 校验上面 7 条不变式 | 否（只读） |
 | [`scripts/vault/vault_migrate_base_credentials.sh`](../../scripts/vault/vault_migrate_base_credentials.sh) | 迁移第 1 步：provider/主机凭据 → `kv/CICD/<env>`，state 凭据 → `kv/CICD/<env>/iac_state` | 是（只新增，不删除） |
 | [`docs/tasks/vault_auth_split.sh`](../tasks/vault_auth_split.sh) | 生成 policy 与 jwt role | 是 |
 
 ### 执行顺序
 
-```bash
-# 0. 先备份 —— 后面每一步都改 Vault
-./scripts/backup/vault_backup_to_keychain.sh
+先使用 Playbooks `vault_backup` role 在授权的执行主机完成备份；后续步骤会修改 Vault。
+历史加密备份的恢复兼容性须在隔离环境演练，不能仅凭脚本迁移认定恢复可用。
 
+```bash
 # 1. 基础凭据落到各环境路径 (先看要做什么)
 ./scripts/vault/vault_migrate_base_credentials.sh --dry-run
 ./scripts/vault/vault_migrate_base_credentials.sh
