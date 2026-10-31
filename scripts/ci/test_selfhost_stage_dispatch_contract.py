@@ -26,6 +26,30 @@ def load_workflow(path: Path):
 
 
 class SelfhostStageDispatchContractTest(unittest.TestCase):
+    def test_k3s_target_selection_requires_exactly_one_contained_manifest(self):
+        spec = spec_from_file_location('k3s_target', ROOT / 'scripts/ci/select_k3s_manifest.py')
+        selector = module_from_spec(spec)
+        spec.loader.exec_module(selector)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'cmdb.json').write_text('{"node": {"host_vars": {"deployment_mode": "kubernetes"}}}')
+            (root / 'resource.yaml').write_text('hosts:\n- name: node\n  host_vars:\n    deployment_mode: kubernetes\n')
+            (root / 'target.yaml').write_text('targets:\n- stages:\n    resources:\n      manifest: resource.yaml\n')
+            self.assertEqual('resource.yaml', selector.select(root, 'target.yaml', root / 'cmdb.json', 'node'))
+            (root / 'target.yaml').write_text('targets:\n- stages:\n    resources:\n      manifest: ../outside.yaml\n')
+            with self.assertRaises(ValueError):
+                selector.select(root, 'target.yaml', root / 'cmdb.json', 'node')
+
+    def test_k3s_owner_inputs_and_tls_ownership_are_wired(self):
+        workflow = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')
+        steps = workflow['jobs']['deploy_base']['steps']
+        bootstrap = next(step for step in steps if step.get('name') == 'Bootstrap node according to CMDB role')
+        for key in ('K3S_GITOPS_CHECKOUT', 'K3S_GITOPS_SHA', 'K3S_RESOURCE_MANIFEST', 'K3S_CMDB_SHA256', 'K3S_BOOTSTRAP_RECEIPT'):
+            self.assertIn(key, bootstrap['env'])
+        for name in ('Read domain TLS record through the authorized Vault session', 'Read the brand-domain certificate from its Vault KV path'):
+            step = next(step for step in steps if step.get('name') == name)
+            self.assertIn("steps.k3s_target.outputs.manifest == ''", step['if'])
+
     def test_infra_evidence_is_carried_into_deploy_context(self):
         infra = load_workflow(ROOT / '.github/workflows/selfhost-stage-infra.yml')
         deploy = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')
