@@ -574,14 +574,22 @@ jobs:
         expected_hostname: xworktech.com
         deploy_key_file: ${{ steps.runner.outputs.deploy_key_file }}
 
-    - name: Bootstrap node according to CMDB role
+    - name: Bootstrap declared K3s node through Playbooks owner
+      if: ${{ steps.k3s_target.outputs.manifest != '' }}
+      uses: ./playbooks/.github/actions/k3s-bootstrap
+      with:
+        host: ${{ matrix.host }}
+        cmdb: ${{ github.workspace }}/cmdb/cmdb.json
+        cmdb-sha256: ${{ needs.provision.outputs.cmdb_sha256 }}
+        gitops-checkout: ${{ github.workspace }}/gitops
+        gitops-sha: ${{ needs.provision.outputs.gitops_sha }}
+        resource-manifest: ${{ steps.k3s_target.outputs.manifest }}
+        receipt: ${{ runner.temp }}/k3s-bootstrap-${{ matrix.host }}.json
+
+    - name: Bootstrap non-K3s node through Playbooks owner
+      if: ${{ steps.k3s_target.outputs.manifest == '' }}
       working-directory: playbooks
       env:
-        K3S_GITOPS_CHECKOUT: ${{ github.workspace }}/gitops
-        K3S_GITOPS_SHA: ${{ needs.provision.outputs.gitops_sha }}
-        K3S_RESOURCE_MANIFEST: ${{ steps.k3s_target.outputs.manifest }}
-        K3S_CMDB_SHA256: ${{ needs.provision.outputs.cmdb_sha256 }}
-        K3S_BOOTSTRAP_RECEIPT: ${{ runner.temp }}/k3s-bootstrap-${{ matrix.host }}.json
         # The new UAT open-platform VPS is bootstrapped before DNS cutover.
         # Keep VAULT_ADDR public here so create_databases_and_users can read
         # kv/data/uat/databases, while the bootstrap helper passes the Vault
