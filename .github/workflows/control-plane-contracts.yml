@@ -158,6 +158,7 @@ jobs:
           python3 scripts/tests/control_plane/test_daily_snapshot_service_fallback.py -v
           bash scripts/tests/control_plane/workflow_dispatch_input_limit_test.sh
           python3 scripts/ci/test_selfhost_stage_dispatch_contract.py
+          python3 scripts/ci/tests/test_gitops_k3s_artifacts.py
 
       - name: Verify XConnect caller contracts
         env:

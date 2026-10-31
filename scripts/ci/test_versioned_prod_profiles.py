@@ -72,6 +72,30 @@ class VersionedProdProfilesTest(unittest.TestCase):
             self.assertEqual(values['state_key'], state)
             self.assertEqual(values['terraform_namespace'], identity['workspace'])
 
+    def test_kubernetes_gitops_digests_can_replace_single_deploy_tag(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / 'config').symlink_to(ROOT / 'config', target_is_directory=True)
+            (workspace / 'scripts').symlink_to(ROOT / 'scripts', target_is_directory=True)
+            root = workspace / 'gitops'
+            (root / 'iac/targets').mkdir(parents=True)
+            (root / 'cluster').mkdir()
+            (root / 'unit').mkdir()
+            resource = root / 'resource.yaml'
+            identity = dict(environment='prod', provider='akamai-cloud', account='fixture-account', project='fixture-project', workspace='cluster-a')
+            resource.write_text(yaml.safe_dump({'global': {**identity, 'region': 'fixture-region'}, 'hosts': [{'host_vars': {'target_generation': 'prod-v6', 'deployment_mode': 'kubernetes', 'k3s_platform_flux_root_path': 'cluster'}}]}))
+            target = {**identity, 'stages': {'resources': {'mode': 'terraform', 'manifest': 'resource.yaml', 'create_only': True, 'state': {'key': 'terraform/prod/fixture-project/akamai-cloud/fixture-account/cluster-a/terraform.tfstate'}}}}
+            (root / 'iac/targets/target.yaml').write_text(yaml.safe_dump({'targets': [target]}))
+            (root / 'cluster/unit.yaml').write_text('apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nspec: {path: unit}\n')
+            (root / 'unit/app.yaml').write_text('kind: OCIRepository\nmetadata: {name: chart, namespace: app}\nspec:\n  ref: {digest: sha256:' + 'a'*64 + '}\n---\nkind: HelmRelease\nmetadata: {name: app, namespace: app}\nspec:\n  chartRef: {kind: OCIRepository, name: chart}\n  values:\n    image: app@sha256:' + 'b'*64 + '\n')
+            result, values = self.route('prod-v6', GITHUB_WORKSPACE=str(workspace), INPUT_OPERATION='deploy', INPUT_CLOUD_PROVIDER='akamai-cloud', INPUT_CLOUD_ACCOUNT='fixture-account')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(values['deploy_tag'], '')
+            unit = root / 'unit/app.yaml'
+            unit.write_text(unit.read_text().replace('app@sha256:' + 'b'*64, 'app:latest'))
+            refused, _ = self.route('prod-v6', GITHUB_WORKSPACE=str(workspace), INPUT_OPERATION='deploy', INPUT_CLOUD_PROVIDER='akamai-cloud', INPUT_CLOUD_ACCOUNT='fixture-account')
+            self.assertNotEqual(refused.returncode, 0)
+
     def route(self, profile="prod-v3", tag="", **overrides):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "output"

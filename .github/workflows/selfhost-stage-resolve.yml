@@ -575,6 +575,10 @@ jobs:
         ref: ${{ fromJSON(inputs.payload_json || '{}').source_ref || 'main' }}
         path: gitops
         persist-credentials: false
+    - name: Record GitOps snapshot for this dispatch
+      id: gitops_snapshot
+      if: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' }}
+      run: echo "sha=$(git -C gitops rev-parse HEAD)" >> "$GITHUB_OUTPUT"
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -598,7 +602,7 @@ jobs:
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/gitops
-        ref: ${{ steps.route.outputs.gitops_ref }}
+        ref: ${{ steps.gitops_snapshot.outputs.sha || steps.route.outputs.gitops_ref }}
         path: gitops
     - name: Set up YAML reader for the existing-host owner
       if: steps.route.outputs.reuse_existing_host == 'true' && steps.route.outputs.run_application_deploy == 'true'
