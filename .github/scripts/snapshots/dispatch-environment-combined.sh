@@ -78,7 +78,6 @@ case "${workflow}" in
       -f target_domain_base=svc.plus
       -f source_host=install.svc.plus
       -f source_domain_base=svc.plus
-      -f vault_addr=https://vault.svc.plus
       -f observability_endpoint=https://observability.svc.plus
       -f include_external_agent_proxy=false
       -f skip_stripe_catalog=false

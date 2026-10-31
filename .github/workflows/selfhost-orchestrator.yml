@@ -32,7 +32,7 @@ on:
         - ubuntu-latest
         - self-hosted
       deploy_tag:
-        description: "应用部署的不可变镜像版本（例如 daily-build-2026.07.30-r1）。operation=deploy 或 deploy+migrate 时必填；基础设施、迁移操作可留空。"
+        description: "应用部署的不可变镜像版本（例如 daily-build-2026.07.30-r1）。operation=deploy、deploy+init 或 deploy+migrate 时必填；基础设施、迁移操作可留空。"
         required: false
         type: string
       source_ref:
@@ -72,7 +72,7 @@ on:
         default: ""
         type: string
       operation:
-        description: "plan=校验；infra=基础设施；deploy=部署；deploy+init=UAT空库初始化+部署；deploy+migrate=部署+迁移；migrate=仅迁移；destroy=销毁"
+        description: "plan=校验；infra=基础设施；deploy=基础设施+部署；deploy+init=空库初始化+部署；deploy+migrate=部署+迁移；migrate=仅迁移；destroy=销毁"
         required: true
         default: "plan"
         type: choice
@@ -113,11 +113,6 @@ on:
         - ucloud
       cloud_account:
         description: "所选云厂商的具体账户名/ID；留空时使用环境 profile 的账户"
-        required: false
-        default: ""
-        type: string
-      akamai_account:
-        description: "Akamai Cloud concrete account name/ID used by the state key; blank uses cloud_account or the environment profile"
         required: false
         default: ""
         type: string
@@ -163,15 +158,6 @@ on:
         required: false
         default: false
         type: boolean
-      agent_controller_url:
-        description: "Agent Proxy 注册到的 Accounts 控制器 HTTPS 地址；留空使用同一 Selfhost Web SaaS Accounts"
-        required: false
-        default: ""
-        type: string
-      vault_addr:
-        description: "Vault 服务地址 (可选，覆盖默认的 https://vault.svc.plus)"
-        required: false
-        type: string
       xconnect_gateway_ref:
         description: "UAT XConnect Gateway DNS/Vault record key; other XConnect settings use the target workflow defaults"
         required: false
@@ -195,7 +181,7 @@ concurrency:
   # Aggregate UAT deployment is a parent orchestrator that dispatches child
   # runs of this same workflow. Include target_domains so the parent `all`
   # lock does not block its isolated namespace child lock.
-  group: deploy-env-migration-${{ github.event.inputs.vault_env_path || 'uat' }}-${{ github.event.inputs.cloud_provider || 'auto' }}-${{ github.event.inputs.cloud_account || github.event.inputs.akamai_account || 'profile' }}-${{ github.event.inputs.target_domains || 'auto' }}
+  group: deploy-env-migration-${{ github.event.inputs.vault_env_path || 'uat' }}-${{ github.event.inputs.cloud_provider || 'auto' }}-${{ github.event.inputs.cloud_account || 'profile' }}-${{ github.event.inputs.target_domains || 'auto' }}
   cancel-in-progress: false
 
 

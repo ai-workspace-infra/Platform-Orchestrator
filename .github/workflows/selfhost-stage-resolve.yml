@@ -19,7 +19,7 @@ permissions:
   id-token: write
 
 env:
-  VAULT_ADDR: ${{ fromJSON(inputs.payload_json || '{}').vault_addr || 'https://vault.svc.plus' }}
+  VAULT_ADDR: https://vault.svc.plus
   # Branches select a complete deployment profile:
   # - pull_request -> sit
   # - main / release/* -> uat, except release/v* -> prod
@@ -48,7 +48,7 @@ env:
   VAULT_KV_SMTP: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(fromJSON(inputs.payload_json || '{}').vault_env_path, 'prod-v') && 'prod') || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/platform/smtp/google
   VAULT_KV_AGENT_PROXY: kv/data/${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'pull_request' && 'sit' || (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/v')) && 'prod' || (startsWith(fromJSON(inputs.payload_json || '{}').vault_env_path, 'prod-v') && 'prod') || fromJSON(inputs.payload_json || '{}').vault_env_path || 'uat' }}/agent-proxy
   PLAYBOOKS_DIR: infra/playbooks
-  AKAMAI_ACCOUNT: ${{ fromJSON(inputs.payload_json || '{}').akamai_account || 'manbuzhe2026' }}
+  AKAMAI_ACCOUNT: ${{ fromJSON(inputs.payload_json || '{}').cloud_provider == 'akamai-cloud' && (fromJSON(inputs.payload_json || '{}').cloud_account || fromJSON(inputs.payload_json || '{}').akamai_account) || fromJSON(inputs.payload_json || '{}').akamai_account || 'manbuzhe2026' }}
 
 jobs:
   parent-gate:
@@ -518,8 +518,7 @@ jobs:
       INPUT_TARGET_DOMAIN_BASE: ${{ fromJSON(inputs.payload_json || '{}').target_domain_base }}
       INPUT_DNS_MODE: ${{ fromJSON(inputs.payload_json || '{}').dns_mode }}
       INPUT_DEPLOY_TAG: ${{ fromJSON(inputs.payload_json || '{}').deploy_tag }}
-      INPUT_AGENT_CONTROLLER_URL: ${{ fromJSON(inputs.payload_json || '{}').agent_controller_url }}
-      INPUT_AKAMAI_ACCOUNT: ${{ fromJSON(inputs.payload_json || '{}').akamai_account || 'manbuzhe2026' }}
+      INPUT_AKAMAI_ACCOUNT: ${{ fromJSON(inputs.payload_json || '{}').cloud_account || fromJSON(inputs.payload_json || '{}').akamai_account || 'manbuzhe2026' }}
       INPUT_INCLUDE_EXTERNAL_AGENT_PROXY: ${{ fromJSON(inputs.payload_json || '{}').include_external_agent_proxy != false && fromJSON(inputs.payload_json || '{}').include_external_agent_proxy != 'false' && 'true' || 'false' }}
       INPUT_EXISTING_TARGET_HOST: ${{ fromJSON(inputs.payload_json || '{}').existing_target_host }}
     outputs:
