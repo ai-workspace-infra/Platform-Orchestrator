@@ -311,7 +311,12 @@ jobs:
   migrate:
     name: "[4/5] Migrate & Configure"
     needs: [resolve, infrastructure, deploy]
-    if: ${{ needs.deploy.result == 'success' }}
+    if: >-
+      ${{ needs.deploy.result == 'success' &&
+      fromJSON(needs.resolve.outputs.payload_json || '{}').operation != 'plan' &&
+      !(fromJSON(needs.resolve.outputs.payload_json || '{}').operation == 'deploy' &&
+      fromJSON(needs.resolve.outputs.payload_json || '{}').dns_mode == 'none' &&
+      fromJSON(needs.resolve.outputs.payload_json || '{}').skip_stripe_catalog == true) }}
     runs-on: ubuntu-latest
     timeout-minutes: 359
     outputs:
@@ -343,7 +348,14 @@ jobs:
   verify:
     name: "[5/5] Verify & Report"
     needs: [resolve, infrastructure, deploy, migrate]
-    if: ${{ needs.migrate.result == 'success' }}
+    if: >-
+      ${{ always() && !cancelled() && needs.deploy.result == 'success' &&
+      (needs.migrate.result == 'success' ||
+      (needs.migrate.result == 'skipped' &&
+      (fromJSON(needs.resolve.outputs.payload_json || '{}').operation == 'plan' ||
+      (fromJSON(needs.resolve.outputs.payload_json || '{}').operation == 'deploy' &&
+      fromJSON(needs.resolve.outputs.payload_json || '{}').dns_mode == 'none' &&
+      fromJSON(needs.resolve.outputs.payload_json || '{}').skip_stripe_catalog == true))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 359
     steps:

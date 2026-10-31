@@ -17,13 +17,13 @@ on:
       deploy_context:
         {required: true, type: string}
       migration_context:
-        {required: true, type: string}
+        {required: false, type: string}
       infra_run_id:
         {required: true, type: string}
       deploy_run_id:
         {required: true, type: string}
       migration_run_id:
-        {required: true, type: string}
+        {required: false, type: string}
 
 permissions:
   contents: read
@@ -102,7 +102,7 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && needs.stage-context.result == 'success' &&
       fromJSON(inputs.provision_context).result == 'success' &&
-      fromJSON(inputs.migration_context).switch_dns.result == 'success' &&
+      fromJSON(inputs.migration_context || '{}').switch_dns.result == 'success' &&
       contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), fromJSON(inputs.provision_context || '{}').outputs.target_domains) &&
       fromJSON(inputs.provision_context).outputs.hosts_web_saas != '[]' &&
       fromJSON(inputs.provision_context).outputs.hosts_web_saas != '' }}
@@ -191,7 +191,7 @@ jobs:
     if: >-
       ${{ always() && !cancelled() && needs.stage-context.result == 'success' &&
       fromJSON(inputs.provision_context).result == 'success' &&
-      fromJSON(inputs.migration_context).switch_dns.result == 'success' &&
+      fromJSON(inputs.migration_context || '{}').switch_dns.result == 'success' &&
       contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), fromJSON(inputs.provision_context || '{}').outputs.target_domains) &&
       fromJSON(inputs.provision_context).outputs.hosts_agent_proxy_iac != '[]' &&
       fromJSON(inputs.provision_context).outputs.hosts_agent_proxy_iac != '' }}
