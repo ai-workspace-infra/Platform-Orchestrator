@@ -5,6 +5,8 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 import os
 import re
+import json
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -26,6 +28,25 @@ def load_workflow(path: Path):
 
 
 class SelfhostStageDispatchContractTest(unittest.TestCase):
+    def test_deploy_requires_resolved_owner_commits_and_cmdb_digest(self):
+        workflow = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')
+        jobs = workflow['jobs']
+        check = next(step for step in jobs['provision']['steps'] if step.get('name') == 'Validate prior stage output')
+        outputs = {'run_application_deploy': 'true', 'gitops_sha': 'a' * 40,
+                   'playbooks_ref': 'b' * 40, 'cmdb_sha256': 'c' * 64}
+        def check_context(fields):
+            return subprocess.run(['bash', '-c', check['run']],
+                env={**os.environ, 'PROVISION_CONTEXT': json.dumps({'outputs': fields})},
+                capture_output=True).returncode
+        self.assertEqual(check_context(outputs), 0)
+        for field in ('gitops_sha', 'playbooks_ref', 'cmdb_sha256'):
+            self.assertNotEqual(check_context({**outputs, field: 'main'}), 0)
+        self.assertEqual(check_context({'run_application_deploy': 'false'}), 0)
+        checkout = next(step for step in jobs['deploy_base']['steps'] if step.get('name') == 'Checkout repository')
+        self.assertEqual(checkout['with']['ref'], '${{ github.sha }}')
+        gitops = next(step for step in jobs['deploy_base']['steps'] if step.get('name') == 'Checkout GitOps Agent Proxy resources')
+        self.assertEqual(gitops['with']['ref'], '${{ needs.provision.outputs.gitops_sha }}')
+
     def test_k3s_target_selection_requires_exactly_one_contained_manifest(self):
         spec = spec_from_file_location('k3s_target', ROOT / 'scripts/ci/select_k3s_manifest.py')
         selector = module_from_spec(spec)

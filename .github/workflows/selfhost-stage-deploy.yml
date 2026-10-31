@@ -131,7 +131,12 @@ jobs:
       - name: Validate prior stage output
         env:
           PROVISION_CONTEXT: ${{ inputs.provision_context }}
-        run: python3 -c 'import json,os; value=json.loads(os.environ["PROVISION_CONTEXT"] or "{}"); assert isinstance(value,dict)'
+        run: >-
+          jq -e 'type == "object" and (.outputs | type == "object" and
+          (.run_application_deploy != "true" or
+          ((.gitops_sha | strings | test("^[0-9a-f]{40}$")) and
+          (.playbooks_ref | strings | test("^[0-9a-f]{40}$")) and
+          (.cmdb_sha256 | strings | test("^[0-9a-f]{64}$")))))' <<< "$PROVISION_CONTEXT" > /dev/null
   prod_availability:
     name: "[3] PROD | containers + HTTPS + API + DB availability"
     needs: [provision, deploy_web_saas]
@@ -268,7 +273,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
-        ref: ${{ needs.provision.outputs.toolkit_ref }}
+        ref: ${{ github.sha }}
 
     - name: Checkout playbooks
       uses: actions/checkout@v7
@@ -284,7 +289,7 @@ jobs:
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/gitops
-        ref: ${{ needs.provision.outputs.gitops_sha || needs.provision.outputs.gitops_ref }}
+        ref: ${{ needs.provision.outputs.gitops_sha }}
         path: gitops
 
     - name: Validate GitOps SMTP Vault contract
