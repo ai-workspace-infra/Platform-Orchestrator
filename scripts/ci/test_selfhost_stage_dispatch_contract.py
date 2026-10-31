@@ -132,6 +132,9 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
         self.assertIn("operation != 'plan'", jobs["migrate"]["if"])
         self.assertIn("dns_mode == 'none'", jobs["migrate"]["if"])
         self.assertIn("skip_stripe_catalog == true", jobs["migrate"]["if"])
+        self.assertIn("needs.resolve.result == 'success'", jobs["verify"]["if"])
+        self.assertIn("needs.infrastructure.result == 'success'", jobs["verify"]["if"])
+        self.assertIn("needs.deploy.result == 'success'", jobs["verify"]["if"])
         self.assertIn("needs.migrate.result == 'skipped'", jobs["verify"]["if"])
         verify_stage = load_workflow(ROOT / ".github/workflows/selfhost-stage-verify.yml")
         verify_inputs = verify_stage["on"]["workflow_dispatch"]["inputs"]
