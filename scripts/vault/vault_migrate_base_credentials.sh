@@ -18,7 +18,7 @@ set -euo pipefail
 #     独立凭据之后, 重跑本脚本不会把它清回共享的那一份。要强制覆盖用 --force。
 #   * 只新增/复制, 不删除根路径的任何东西 (删除是迁移第 7 步, 另有脚本)
 #
-# 前置: 请先跑 scripts/backup/vault_backup_to_keychain.sh 做全量备份。
+# 前置: 请通过 Playbooks vault_backup role 完成受控备份并验证恢复能力。
 # =============================================================================
 
 ADDR="${VAULT_ADDR:-https://vault.svc.plus}"
