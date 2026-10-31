@@ -9,10 +9,6 @@
       "max_stages": 9,
       "reason": "Existing deploy child graph; consolidate owner handoff matrices in follow-up."
     },
-    "selfhost-stage-migrate.yml": {
-      "max_stages": 6,
-      "reason": "Existing migration child graph; consolidate configure gates in follow-up."
-    },
     "vault-server.yml": {
       "max_stages": 8,
       "reason": "Existing Vault lifecycle; consolidate readiness and evidence gates in follow-up."
