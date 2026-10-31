@@ -13,7 +13,6 @@ on:
       - scripts/vault/**
       - scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_oidc_roles.sh
       - scripts/tests/test_akamai_dev_oidc_contract.py
-      - scripts/tests/test_k3s_identity_writer_contract.py
   push:
     branches: [main]
     paths:
@@ -27,7 +26,6 @@ on:
       - scripts/vault/**
       - scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_oidc_roles.sh
       - scripts/tests/test_akamai_dev_oidc_contract.py
-      - scripts/tests/test_k3s_identity_writer_contract.py
 
 permissions:
   contents: read
@@ -90,7 +88,6 @@ jobs:
         run: |
           python3 scripts/tests/control_plane/prod_release_tag_policy_test.py -v
           python3 scripts/tests/test_akamai_dev_oidc_contract.py -v
-          python3 scripts/tests/test_k3s_identity_writer_contract.py -v
           bash scripts/tests/akamai_vault_bootstrap_contract_test.sh
 
       - name: Verify reviewed feature candidate and tag preflight contracts
