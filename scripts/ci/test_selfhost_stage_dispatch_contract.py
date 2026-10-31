@@ -136,6 +136,15 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
         self.assertIn("needs.infrastructure.result == 'success'", jobs["verify"]["if"])
         self.assertIn("needs.deploy.result == 'success'", jobs["verify"]["if"])
         self.assertIn("needs.migrate.result == 'skipped'", jobs["verify"]["if"])
+        expression = jobs["verify"]["if"].removeprefix("${{").removesuffix("}}")
+        depth = 0
+        for character in expression:
+            if character == "(":
+                depth += 1
+            elif character == ")":
+                depth -= 1
+                self.assertGreaterEqual(depth, 0, "Verify condition has an unmatched closing parenthesis")
+        self.assertEqual(depth, 0, "Verify condition has an unmatched opening parenthesis")
         verify_stage = load_workflow(ROOT / ".github/workflows/selfhost-stage-verify.yml")
         verify_inputs = verify_stage["on"]["workflow_dispatch"]["inputs"]
         self.assertEqual(verify_inputs["migration_context"]["required"], "false")
