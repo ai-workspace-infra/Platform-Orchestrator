@@ -56,6 +56,23 @@ class NestedOwnerCheckout(unittest.TestCase):
         del checkout['with']['ref']
         self.assertTrue(any('no explicit ref' in v for v in self.check(checkout)))
 
+    def test_direct_playbooks_action_requires_file_in_owner_checkout(self):
+        owner = self.root / 'playbooks-owner'
+        owner.mkdir()
+        steps = [
+            {'uses': 'actions/checkout@v4', 'with': {
+                'repository': 'ai-workspace-infra/playbooks', 'path': 'playbooks', 'ref': 'main'}},
+            {'uses': './playbooks/.github/actions/k3s-bootstrap'},
+        ]
+        refs.walk_steps('caller', steps, {'playbooks': owner})
+        self.assertTrue(any('has no action.yml' in v for v in refs.violations))
+        refs.violations.clear()
+        action = owner / '.github/actions/k3s-bootstrap'
+        action.mkdir(parents=True)
+        (action / 'action.yml').write_text('name: fixture\n')
+        refs.walk_steps('caller', steps, {'playbooks': owner})
+        self.assertEqual(refs.violations, [])
+
 
 if __name__ == '__main__':
     unittest.main()
