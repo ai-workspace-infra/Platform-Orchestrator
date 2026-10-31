@@ -59,9 +59,12 @@ env:
   AKAMAI_ACCOUNT: ${{ fromJSON(inputs.payload_json || '{}').akamai_account || 'manbuzhe2026' }}
 
 jobs:
-  parent-gate:
-    name: Verify authorized parent run
+  stage-context:
+    name: "Load prior stage contracts"
     runs-on: ubuntu-latest
+    outputs:
+      provision_context: ${{ inputs.provision_context }}
+      deploy_context: ${{ inputs.deploy_context }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -77,14 +80,6 @@ jobs:
           SELFHOST_CONTEXTS_JSON: ${{ toJSON(inputs) }}
         run: python3 .github/scripts/platform-ops/stage-dispatch.py verify-parent
 
-  stage-context:
-    name: "Load prior stage contracts"
-    needs: parent-gate
-    runs-on: ubuntu-latest
-    outputs:
-      provision_context: ${{ inputs.provision_context }}
-      deploy_context: ${{ inputs.deploy_context }}
-    steps:
       - name: Validate prior stage contracts
         env:
           PROVISION_CONTEXT: ${{ inputs.provision_context }}
@@ -100,6 +95,7 @@ jobs:
     needs: [stage-context]
     if: >-
       ${{ always() && !cancelled() &&
+      needs.stage-context.result == 'success' &&
       fromJSON(needs.stage-context.outputs.provision_context).result == 'success' &&
       ((fromJSON(needs.stage-context.outputs.provision_context).outputs.toolkit_action == 'migrate' &&
       fromJSON(needs.stage-context.outputs.deploy_context).deploy_web_saas.result == 'skipped' &&
@@ -131,6 +127,7 @@ jobs:
     needs: [stage-context, trigger_data_migration]
     if: >-
       ${{ always() && !cancelled() &&
+      needs.stage-context.result == 'success' &&
       fromJSON(needs.stage-context.outputs.provision_context).result == 'success' &&
       (needs.trigger_data_migration.result == 'success' ||
       (needs.trigger_data_migration.result == 'skipped' &&
@@ -312,6 +309,7 @@ jobs:
     needs: [stage-context, switch_dns]
     if: >-
       ${{ always() && !cancelled() &&
+      needs.stage-context.result == 'success' &&
       fromJSON(needs.stage-context.outputs.provision_context).result == 'success' &&
       needs.switch_dns.result == 'success' &&
       fromJSON(inputs.payload_json || '{}').skip_stripe_catalog != true &&

@@ -28,6 +28,16 @@ def load_workflow(path: Path):
 
 
 class SelfhostStageDispatchContractTest(unittest.TestCase):
+    def test_migrate_context_verifies_parent_before_reading_context(self):
+        jobs = load_workflow(ROOT / '.github/workflows/selfhost-stage-migrate.yml')['jobs']
+        self.assertNotIn('parent-gate', jobs)
+        steps = jobs['stage-context']['steps']
+        gate = next(i for i, step in enumerate(steps) if 'verify-parent' in step.get('run', ''))
+        parse = next(i for i, step in enumerate(steps) if step.get('name') == 'Validate prior stage contracts')
+        self.assertLess(gate, parse)
+        for job in ('trigger_data_migration', 'switch_dns', 'bootstrap_stripe_catalog'):
+            self.assertIn("needs.stage-context.result == 'success'", jobs[job]['if'])
+
     def test_deploy_requires_resolved_owner_commits_and_cmdb_digest(self):
         workflow = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')
         jobs = workflow['jobs']
@@ -219,7 +229,7 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
             self.assertLessEqual(input_refs, set(dispatch_inputs), (stage, sorted(input_refs - set(dispatch_inputs))))
             for field in ("payload_json", "parent_run_id", "parent_run_attempt", "correlation_id"):
                 self.assertEqual(dispatch_inputs[field]["required"], "true", (stage, field))
-            gate_id = "provision" if stage == "deploy" else "parent-gate"
+            gate_id = {"deploy": "provision", "migrate": "stage-context"}.get(stage, "parent-gate")
             self.assertIn(gate_id, workflow["jobs"])
             gate = workflow["jobs"][gate_id]
             self.assertTrue(any("verify-parent" in step.get("run", "") for step in gate["steps"]))
