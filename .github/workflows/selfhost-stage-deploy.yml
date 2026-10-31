@@ -736,7 +736,7 @@ jobs:
         CLOUDFLARE_DNS_API_TOKEN:          ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
       run: ${{ github.workspace }}/playbooks/scripts/pipeline/bootstrap-node.sh
 
-    - name: Publish K3s bootstrap and Flux readiness receipts
+    - name: Publish K3s bootstrap diagnostic receipts
       if: ${{ always() && !cancelled() && steps.k3s_target.outputs.manifest != '' }}
       uses: actions/upload-artifact@v7
       with:
