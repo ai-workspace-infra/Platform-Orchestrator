@@ -198,13 +198,14 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
             self.assertLessEqual(input_refs, set(dispatch_inputs), (stage, sorted(input_refs - set(dispatch_inputs))))
             for field in ("payload_json", "parent_run_id", "parent_run_attempt", "correlation_id"):
                 self.assertEqual(dispatch_inputs[field]["required"], "true", (stage, field))
-            self.assertIn("parent-gate", workflow["jobs"])
-            gate = workflow["jobs"]["parent-gate"]
-            self.assertIn("verify-parent", gate["steps"][-1]["run"])
+            gate_id = "provision" if stage == "deploy" else "parent-gate"
+            self.assertIn(gate_id, workflow["jobs"])
+            gate = workflow["jobs"][gate_id]
+            self.assertTrue(any("verify-parent" in step.get("run", "") for step in gate["steps"]))
 
             def depends_on_gate(job_id, seen=None):
                 seen = set() if seen is None else seen
-                if job_id == "parent-gate":
+                if job_id == gate_id:
                     return True
                 if job_id in seen:
                     return False

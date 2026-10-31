@@ -59,27 +59,8 @@ env:
   AKAMAI_ACCOUNT: ${{ fromJSON(inputs.payload_json || '{}').cloud_provider == 'akamai-cloud' && (fromJSON(inputs.payload_json || '{}').cloud_account || fromJSON(inputs.payload_json || '{}').akamai_account) || fromJSON(inputs.payload_json || '{}').akamai_account || 'manbuzhe2026' }}
 
 jobs:
-  parent-gate:
-    name: Verify authorized parent run
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-      - name: Validate request and prior stage evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SELFHOST_STAGE: deploy
-          PARENT_RUN_ID: ${{ inputs.parent_run_id }}
-          PARENT_RUN_ATTEMPT: ${{ inputs.parent_run_attempt }}
-          CORRELATION_ID: ${{ inputs.correlation_id }}
-          SELFHOST_REQUEST_JSON: ${{ inputs.payload_json }}
-          SELFHOST_CONTEXTS_JSON: ${{ toJSON(inputs) }}
-        run: python3 .github/scripts/platform-ops/stage-dispatch.py verify-parent
-
   provision:
     name: "[2/5] Provision context from caller"
-    needs: parent-gate
     runs-on: ubuntu-latest
     outputs:
       deployment_env: ${{ fromJSON(inputs.provision_context || '{}').outputs.deployment_env || '' }}
@@ -133,6 +114,20 @@ jobs:
       hosts_ai_workspace: ${{ fromJSON(inputs.provision_context || '{}').outputs.hosts_ai_workspace || '' }}
       count: ${{ fromJSON(inputs.provision_context || '{}').outputs.count || '' }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Validate request and prior stage evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELFHOST_STAGE: deploy
+          PARENT_RUN_ID: ${{ inputs.parent_run_id }}
+          PARENT_RUN_ATTEMPT: ${{ inputs.parent_run_attempt }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
+          SELFHOST_REQUEST_JSON: ${{ inputs.payload_json }}
+          SELFHOST_CONTEXTS_JSON: ${{ toJSON(inputs) }}
+        run: python3 .github/scripts/platform-ops/stage-dispatch.py verify-parent
+
       - name: Validate prior stage output
         env:
           PROVISION_CONTEXT: ${{ inputs.provision_context }}

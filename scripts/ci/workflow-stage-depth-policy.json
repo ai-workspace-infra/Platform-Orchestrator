@@ -6,7 +6,7 @@
       "reason": "Existing service lifecycle; merge sequential control checks in follow-up."
     },
     "selfhost-stage-deploy.yml": {
-      "max_stages": 10,
+      "max_stages": 9,
       "reason": "Existing deploy child graph; consolidate owner handoff matrices in follow-up."
     },
     "selfhost-stage-migrate.yml": {
