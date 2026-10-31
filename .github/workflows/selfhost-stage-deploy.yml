@@ -255,6 +255,7 @@ jobs:
       needs.provision.outputs.bootstrap_hosts != '[]' &&
       needs.provision.outputs.bootstrap_hosts != '' }}
     runs-on: ${{ fromJSON(inputs.payload_json || '{}').runner_type || 'ubuntu-latest' }}
+    environment: ${{ startsWith(needs.provision.outputs.deployment_env, 'prod-v') && 'prod' || needs.provision.outputs.deployment_env }}
     strategy:
       fail-fast: false
       matrix:
@@ -433,6 +434,22 @@ jobs:
         set -euo pipefail
         manifest="$(python3 scripts/ci/select_k3s_manifest.py gitops "$TARGET_MANIFEST" cmdb/cmdb.json "$MATRIX_HOST")"
         printf 'manifest=%s\n' "$manifest" >> "$GITHUB_OUTPUT"
+        if [ -n "$manifest" ]; then
+          role="$(python3 scripts/ci/select_k3s_manifest.py --writer-role gitops "$manifest" "$MATRIX_HOST")"
+          printf 'writer_role=%s\n' "$role" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Obtain scoped Vault writer for Kubernetes identities
+      if: ${{ steps.k3s_target.outputs.manifest != '' }}
+      env:
+        K3S_WRITER_ROLE: ${{ steps.k3s_target.outputs.writer_role }}
+      run: |
+        set -euo pipefail
+        oidc="$(curl -fsS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=vault" | jq -er '.value')"
+        writer="$(jq -n --arg role "$K3S_WRITER_ROLE" --arg jwt "$oidc" '{role:$role,jwt:$jwt}' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "${VAULT_ADDR%/}/v1/auth/jwt/login" | jq -er '.auth.client_token')"
+        echo "::add-mask::$writer"
+        printf 'K3S_IDENTITY_VAULT_TOKEN=%s\n' "$writer" >> "$GITHUB_ENV"
+        unset oidc writer
 
 
     # 证书持久化。主机重建会把 caddy_data 卷一起丢掉, 于是每次重建都重新签发,

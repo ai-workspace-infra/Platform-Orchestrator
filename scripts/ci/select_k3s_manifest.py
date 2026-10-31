@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Select a K3s resource declaration using the reviewed IaC target and CMDB host."""
 import json
+import re
 from pathlib import Path
 import sys
 
@@ -32,6 +33,23 @@ def select(checkout, target_path, cmdb_path, host):
     return candidates[0]
 
 
+def writer_role(checkout, resource_path, host):
+    root = Path(checkout).resolve()
+    path = (root / resource_path).resolve()
+    if not path.is_relative_to(root) or not path.is_file():
+        raise ValueError('resource declaration must be inside the GitOps checkout')
+    document = yaml.safe_load(path.read_text())
+    matches = [item for item in document.get('hosts', []) if item.get('name') == host]
+    if len(matches) != 1:
+        raise ValueError('expected exactly one host')
+    role = matches[0].get('host_vars', {}).get('k3s_identity_vault_writer_role', '')
+    if not isinstance(role, str) or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]+', role):
+        raise ValueError('a valid declared Vault writer role is required')
+    return role
+
+
 if __name__ == '__main__':
-    result = select(*sys.argv[1:])
-    print(result or '')
+    if len(sys.argv) > 1 and sys.argv[1] == '--writer-role':
+        print(writer_role(*sys.argv[2:]))
+    else:
+        print(select(*sys.argv[1:]) or '')

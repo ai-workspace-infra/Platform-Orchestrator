@@ -36,6 +36,10 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
             (root / 'resource.yaml').write_text('hosts:\n- name: node\n  host_vars:\n    deployment_mode: kubernetes\n')
             (root / 'target.yaml').write_text('targets:\n- stages:\n    resources:\n      manifest: resource.yaml\n')
             self.assertEqual('resource.yaml', selector.select(root, 'target.yaml', root / 'cmdb.json', 'node'))
+            with self.assertRaises(ValueError):
+                selector.writer_role(root, 'resource.yaml', 'node')
+            (root / 'resource.yaml').write_text('hosts:\n- name: node\n  host_vars:\n    deployment_mode: kubernetes\n    k3s_identity_vault_writer_role: scoped-writer\n')
+            self.assertEqual('scoped-writer', selector.writer_role(root, 'resource.yaml', 'node'))
             (root / 'target.yaml').write_text('targets:\n- stages:\n    resources:\n      manifest: ../outside.yaml\n')
             with self.assertRaises(ValueError):
                 selector.select(root, 'target.yaml', root / 'cmdb.json', 'node')
@@ -44,6 +48,10 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
         workflow = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')
         steps = workflow['jobs']['deploy_base']['steps']
         bootstrap = next(step for step in steps if step.get('name') == 'Bootstrap node according to CMDB role')
+        writer = next(step for step in steps if step.get('name') == 'Obtain scoped Vault writer for Kubernetes identities')
+        self.assertLess(steps.index(writer), steps.index(bootstrap))
+        self.assertIn('K3S_IDENTITY_VAULT_TOKEN', writer['run'])
+        self.assertIn('::add-mask::', writer['run'])
         for key in ('K3S_GITOPS_CHECKOUT', 'K3S_GITOPS_SHA', 'K3S_RESOURCE_MANIFEST', 'K3S_CMDB_SHA256', 'K3S_BOOTSTRAP_RECEIPT'):
             self.assertIn(key, bootstrap['env'])
         for name in ('Read domain TLS record through the authorized Vault session', 'Read the brand-domain certificate from its Vault KV path'):
