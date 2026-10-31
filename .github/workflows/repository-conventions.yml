@@ -93,6 +93,7 @@ jobs:
         run: |
           python3 scripts/ci/workflow_stage_depth_verify.py
           python3 scripts/ci/tests/test_workflow_stage_depth.py -v
+          bash scripts/ci/tests/test_handover_receipts.sh
 
       - name: Verify repository conventions
         run: >-
