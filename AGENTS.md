@@ -13,7 +13,7 @@ Platform-Orchestrator 只负责跨仓调度：输入选择、审批与授权、D
 
 已有 workflow 依赖不是执行实现或资源声明留在本仓的理由。清理时追踪间接调用，把实现或声明移入对应 owner，切换并验证调用后删除旧副本。本仓只保留调度所需胶水、输入与回执契约及其测试。
 
-本文件是仓库根级强制规则。四边界完整判定见
+本文件是仓库根级强制规则。五仓职责完整判定见
 [`execution-ownership-migration`](https://github.com/ai-workspace-lab/xworkspace-core-skills/blob/main/skills/engineering-standards/execution-ownership-migration/SKILL.md)。
 
 ## 必须归 Toolkit 的内容
@@ -63,3 +63,15 @@ IaC 专属 targets/self-check/stage/auth/lifecycle/receipt/summary actions 统�
 子 workflow 也适用此规则。`scripts/ci/workflow_stage_depth_verify.py` 在 CI 强制检查。
 `workflow-stage-depth-policy.json` 仅记录五项现存超长链路技术债，禁止新增例外或提高上限；
 改短后必须同步降低上限，达到 5 时删除例外。
+
+## 声明消费、候选与交接
+
+- 四个基础仓库通过 dispatch 选择 ref，默认 `main`；运行开始时解析并记录一次 commit，子阶段消费同一候选。不能以基础仓库必须额外打 tag 作为默认发布条件；业务制品仍按不可变版本/digest 选择。
+- GitOps reader 负责按 schema 校验并解析本次声明；不得按节点、批次、根名称、云账号或目录后缀推断特殊流程，也不得维护第二份 provider/环境配置表。
+- CMDB 及云事实由 IaC 产出。控制面校验来源、实例/卷、目标、operation、commit、run ID/attempt 和校验和；不生成或篡改事实，不直接查询云 API 替代 owner。
+- OIDC 登录、身份选择和授权参数归控制面；Vault auth mount/role/policy 配置应用归 Playbooks，非敏感声明归 GitOps。不得以授权入口为名执行 Vault 管理写入。
+- 制品存在性和 checksum/digest 可以只读核验，制品构建/发布由 Artifacts 执行；服务/数据库健康检查由 Playbooks 或受管理的集群检查执行，控制面消费其回执。
+- owner 回执缺失、跳过或只完成 IaC/Flux 接管时，只汇总实际范围；不能生成服务、身份或数据验收 PASS。
+- 迁移先完成 owner、切换 caller 并验证，再删除旧实现及过期测试；不得新建版本专用兼容分支、静默 fallback 或双重执行路径。
+
+详细交接与硬编码判定见：[declaration-and-handoff](https://github.com/ai-workspace-lab/xworkspace-core-skills/blob/main/skills/engineering-standards/execution-ownership-migration/references/declaration-and-handoff.md)。
