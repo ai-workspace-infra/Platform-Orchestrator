@@ -44,6 +44,24 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 selector.select(root, 'target.yaml', root / 'cmdb.json', 'node')
 
+    def test_k3s_catalog_selects_exact_scope_and_refuses_ambiguity(self):
+        spec = spec_from_file_location('k3s_catalog', ROOT / 'scripts/ci/select_k3s_manifest.py')
+        selector = module_from_spec(spec)
+        spec.loader.exec_module(selector)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'cmdb.json').write_text('{"node":{"deployment_mode":"kubernetes"}}')
+            (root / 'resource.yaml').write_text('hosts:\n- name: node\n  host_vars: {deployment_mode: kubernetes}\n')
+            entry = {'environment': 'prod', 'provider': 'cloud', 'account': 'account', 'workspace': 'cluster', 'stages': {'resources': {'manifest': 'resource.yaml'}}}
+            (root / 'target.yaml').write_text(yaml.safe_dump({'targets': [entry]}))
+            (root / 'catalog.yaml').write_text(yaml.safe_dump({'kind': 'IaCTargetCatalog', 'target_manifests': ['target.yaml']}))
+            self.assertEqual('resource.yaml', selector.select(root, 'catalog.yaml', root / 'cmdb.json', 'node', 'prod', 'cloud', 'account', 'cluster'))
+            with self.assertRaises(ValueError):
+                selector.select(root, 'catalog.yaml', root / 'cmdb.json', 'node', 'prod', 'cloud', 'wrong-account', 'cluster')
+            (root / 'target.yaml').write_text(yaml.safe_dump({'targets': [entry, entry]}))
+            with self.assertRaises(ValueError):
+                selector.select(root, 'catalog.yaml', root / 'cmdb.json', 'node', 'prod', 'cloud', 'account', 'cluster')
+
     def test_k3s_owner_inputs_and_tls_ownership_are_wired(self):
         workflow = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')
         steps = workflow['jobs']['deploy_base']['steps']
