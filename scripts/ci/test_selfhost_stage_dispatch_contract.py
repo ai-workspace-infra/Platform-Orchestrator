@@ -28,6 +28,25 @@ def load_workflow(path: Path):
 
 
 class SelfhostStageDispatchContractTest(unittest.TestCase):
+    def test_k3s_receipts_are_uploaded_and_verified_per_child_run(self):
+        jobs = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')['jobs']
+        steps = jobs['deploy_base']['steps']
+        bootstrap = next(i for i, step in enumerate(steps) if step.get('name') == 'Bootstrap declared K3s node through Playbooks owner')
+        assembly = next(i for i, step in enumerate(steps) if step.get('name') == 'Assemble verified target handover receipt')
+        upload = next(i for i, step in enumerate(steps) if step.get('name') == 'Publish verified target handover receipt')
+        self.assertLess(bootstrap, assembly)
+        self.assertLess(assembly, upload)
+        self.assertEqual(steps[assembly]['uses'], './playbooks/.github/actions/k3s-handover-receipt')
+        self.assertEqual(steps[upload]['with']['if-no-files-found'], 'error')
+        summary = jobs['stage-output']
+        self.assertIn('provision', summary['needs'])
+        download = next(step for step in summary['steps'] if step.get('name') == 'Download target handover receipts')
+        self.assertNotIn('run-id', download['with'])
+        self.assertIn('github.run_attempt', download['with']['pattern'])
+        verify = next(step for step in summary['steps'] if step.get('name') == 'Verify target handover coverage')
+        for field in ('EXPECTED_TARGETS', 'GITOPS_SHA', 'PLAYBOOKS_SHA', 'CMDB_SHA256'):
+            self.assertIn(field, verify['env'])
+
     def test_deploy_requires_resolved_owner_commits_and_cmdb_digest(self):
         workflow = load_workflow(ROOT / '.github/workflows/selfhost-stage-deploy.yml')
         jobs = workflow['jobs']
