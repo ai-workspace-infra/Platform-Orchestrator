@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 # Reconcile shared GCP bootstrap/runtime and Vault node service JWT roles for
 # both the source open-platform-prod project and target open-platform-shared.
 # Default is read-only --check; use --apply to write the declared roles/policies.
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-repo_root="$(cd -- "${script_dir}/../.." && pwd -P)"
-role_dir="${repo_root}/scripts/vault/roles"
-policy_dir="${repo_root}/scripts/vault/policies"
+source "${script_dir}/source_gitops.sh"
+declaration_reader="${script_dir}/vault_declarations.py"
 vault_addr="${VAULT_ADDR:-https://vault.svc.plus}"
 mode=check
 
@@ -25,6 +25,14 @@ while (($#)); do
   esac
   shift
 done
+
+trap 'vault_gitops_source_cleanup' EXIT
+vault_gitops_source_init
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "${tmp_dir}"; vault_gitops_source_cleanup' EXIT
+role_dir="${tmp_dir}/roles"
+policy_dir="${tmp_dir}/policies"
+mkdir -p "${role_dir}" "${policy_dir}"
 
 export VAULT_ADDR="${vault_addr}"
 for command_name in vault jq; do
@@ -57,6 +65,8 @@ names=(
 for name in "${names[@]}"; do
   role_file="${role_dir}/${name}.json"
   policy_file="${policy_dir}/${name}.hcl"
+  python3 "${declaration_reader}" role "${name}" >"${role_file}"
+  python3 "${declaration_reader}" policy "${name}" >"${policy_file}"
   test -f "${role_file}" && test -f "${policy_file}" || {
     echo "Missing shared Vault declaration for ${name}" >&2
     exit 1

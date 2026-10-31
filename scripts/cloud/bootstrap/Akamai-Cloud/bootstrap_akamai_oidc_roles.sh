@@ -7,7 +7,9 @@ set -Eeuo pipefail
 umask 077
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-TEMPLATE_DIR="${SCRIPT_DIR}/../../../vault/templates"
+VAULT_SCRIPT_DIR="$(cd -- "${SCRIPT_DIR}/../../../vault" && pwd -P)"
+DECLARATION_READER="${VAULT_SCRIPT_DIR}/vault_declarations.py"
+source "${VAULT_SCRIPT_DIR}/source_gitops.sh"
 
 usage() {
   cat <<'EOF'
@@ -60,6 +62,9 @@ case "$target_env" in
   dev|uat|prod|all) ;;
   *) echo "invalid environment: ${target_env}" >&2; exit 2 ;;
 esac
+
+trap 'vault_gitops_source_cleanup' EXIT
+vault_gitops_source_init
 
 command -v vault >/dev/null 2>&1 || { echo "vault CLI is required" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
@@ -139,10 +144,8 @@ publish_env() {
   policy_file="${tmp_dir}/${env_name}-${account}.hcl"
   role_file="${tmp_dir}/${env_name}-${account}.json"
 
-  sed -e "s/__ENV__/${env_name}/g" -e "s/__ACCOUNT__/${account}/g" \
-    "${TEMPLATE_DIR}/akamai-oidc-policy.hcl.tmpl" >"${policy_file}"
-  sed -e "s/__ACCOUNT__/${account}/g" -e "s/__POLICY__/${policy_name}/g" \
-    "${TEMPLATE_DIR}/akamai-oidc-role-${env_name}.json.tmpl" >"${role_file}"
+  python3 "${DECLARATION_READER}" template-policy --environment "${env_name}" --account "${account}" >"${policy_file}"
+  python3 "${DECLARATION_READER}" template-role --environment "${env_name}" --account "${account}" --policy "${policy_name}" >"${role_file}"
 
   if [[ "$mode" == check ]]; then
     vault policy read "$policy_name" >/dev/null
@@ -238,7 +241,7 @@ verify_role_claims() {
 }
 
 tmp_dir="$(mktemp -d)"
-trap 'rm -rf "${tmp_dir}"' EXIT
+trap 'rm -rf "${tmp_dir}"; vault_gitops_source_cleanup' EXIT
 
 environments=(uat prod)
 if [[ "$target_env" != all ]]; then

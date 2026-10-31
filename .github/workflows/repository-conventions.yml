@@ -11,6 +11,8 @@ on:
       - "scripts/ci/**"
       - "scripts/node_deploy/**"
       - "scripts/tests/**"
+      - "scripts/vault/**"
+      - "scripts/create_vault_service_repo_roles.sh"
       - "scripts/cloud/bootstrap/gcp/bootstrap_prod_selfhost.sh"
   push:
     branches: [main]
@@ -23,6 +25,8 @@ on:
       - "scripts/ci/**"
       - "scripts/node_deploy/**"
       - "scripts/tests/**"
+      - "scripts/vault/**"
+      - "scripts/create_vault_service_repo_roles.sh"
       - "scripts/cloud/bootstrap/gcp/bootstrap_prod_selfhost.sh"
 
 permissions:
@@ -32,6 +36,8 @@ jobs:
   verify:
     name: Verify cross-repository ownership contracts
     runs-on: ubuntu-latest
+    env:
+      GITOPS_ROOT: ${{ github.workspace }}/contract/gitops-vault
     steps:
       - name: Checkout platform toolkit
         uses: actions/checkout@v4
@@ -58,9 +64,17 @@ jobs:
           ref: 4e052f34675a218df0179677088266c6e7f57f6c
           path: contract/gitops
 
+      - name: Checkout Vault authorization declarations
+        uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/gitops
+          ref: main
+          path: contract/gitops-vault
+
       - name: Verify unified IaC delivery and evidence contracts
         run: |
           python3 -m pip install PyYAML==6.0.2
+          GITOPS_ROOT="$GITHUB_WORKSPACE/contract/gitops-vault" python3 scripts/vault/vault_declarations.py materialize-test-fixtures
           python3 scripts/ci/unified_iac_contract_test.py -v
           python3 scripts/ci/test_versioned_prod_profiles.py -v
           python3 scripts/ci/tests/test_delivery_workflow_handoff.py -v

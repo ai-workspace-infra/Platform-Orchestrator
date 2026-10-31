@@ -22,18 +22,12 @@ bash scripts/vault/bootstrap_shared_gcp_roles.sh --apply
 bash scripts/vault/bootstrap_shared_gcp_roles.sh --check
 ```
 
-The declarations are stored separately by role name:
-
-- `scripts/vault/roles/github-actions-platform-ops-toolkit-shared-gcp-bootstrap-open-platform-prod.json`
-- `scripts/vault/policies/github-actions-platform-ops-toolkit-shared-gcp-bootstrap-open-platform-prod.hcl`
-- `scripts/vault/roles/github-actions-platform-ops-toolkit-shared-gcp-oidc-open-platform-prod.json`
-- `scripts/vault/policies/github-actions-platform-ops-toolkit-shared-gcp-oidc-open-platform-prod.hcl`
-- `scripts/vault/roles/github-actions-platform-ops-toolkit-shared-vault-node-oidc-open-platform-prod.json`
-- `scripts/vault/policies/github-actions-platform-ops-toolkit-shared-vault-node-oidc-open-platform-prod.hcl`
-- `scripts/vault/roles/github-actions-platform-ops-toolkit-shared-vault-monitoring.json`
-- `scripts/vault/policies/github-actions-platform-ops-toolkit-shared-vault-monitoring.hcl`
-- `scripts/vault/roles/github-actions-platform-ops-toolkit-shared-vault-xconnect.json`
-- `scripts/vault/policies/github-actions-platform-ops-toolkit-shared-vault-xconnect.hcl`
+The source declarations live in GitOps under `security/vault/policies/` and
+`security/vault/roles/`. Toolkit reads GitOps `main` by default and prints its
+resolved commit SHA. It renders the Vault API's HCL/JSON payloads only in
+temporary runtime files; no authorization declarations are stored in Toolkit.
+Set `GITOPS_REF` to use a reviewed branch, tag, or commit, or set `GITOPS_ROOT`
+to an existing GitOps checkout.
 
 The node, monitoring, and XConnect JWT roles bind to
 `.github/workflows/vault-server.yml@refs/heads/main`. After changing the

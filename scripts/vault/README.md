@@ -1,22 +1,28 @@
-# Vault authorization declarations
+# Vault authorization consumer
 
-This directory is the source of truth for the Vault JWT policies and roles
-provisioned by `../create_vault_service_repo_roles.sh`.
+The source of truth is the GitOps repository's `security/vault/` YAML tree.
+Toolkit reads it at runtime; this directory contains only the reader and
+Vault administration entrypoints. The default source is GitOps `main`.
+Set `GITOPS_REF` to inspect another branch, tag, or commit, or set `GITOPS_ROOT`
+to an already checked out GitOps tree. The source resolver prints the resolved
+commit SHA before any Vault operation.
 
 ## Layout
 
-- `policies/<policy-name>.hcl` contains the Vault KV capabilities.
-- `roles/<role-name>.json` contains one concrete JWT role, including its
-  `description`, GitHub OIDC trust claims, token settings, and policy names.
-- `workload-identities/<role-name>.json` records a Kubernetes workload JWT
-  contract for a dedicated auth mount. These are configured by the reviewed
-  Playbooks identity owner and are not provisioned by the shared `auth/jwt`
-  role installer.
-- `roles/README.md` documents the per-role declaration contract.
+- GitOps `security/vault/policies/` contains YAML ACL declarations.
+- GitOps `security/vault/roles/` contains YAML JWT role declarations.
+- GitOps `security/vault/workload-identities/` contains workload role
+  contracts owned and applied by Playbooks, not this shared-role installer.
+- GitOps `security/vault/templates/` contains the account-scoped Akamai
+  templates.
 
-The parent script only validates and applies these files. It does not contain
-role-specific authorization rules. The role `description` and `role_name`
-metadata are removed before the JSON payload is sent to Vault.
+Vault's API still accepts HCL/JSON. `vault_declarations.py` compiles the
+structured YAML into temporary HCL/JSON at runtime, and the installer sends
+that output to Vault. No generated declaration is committed. The workload
+identity reader can be inspected with `python3 scripts/vault/vault_declarations.py
+workload-identity <name>`; it is never passed to the shared JWT installer.
+Install the runtime reader dependency with
+`python3 -m pip install -r scripts/vault/requirements.txt`; Git is also required.
 
 ## Adding a GCP account
 
@@ -149,8 +155,8 @@ export AKAMAI_ACCOUNT_PROD='actual-account'
 bash scripts/create_vault_service_repo_roles.sh --apply --env prod
 ```
 
-Use `--check` to verify static declarations and the dynamic Akamai role without
-writing Vault:
+The entrypoint defaults to `--check`. Use `--apply` only after review to write
+Vault:
 
 ```bash
 export AKAMAI_ACCOUNT_PROD='actual-account'

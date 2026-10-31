@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 # Vault Authentication & Policy Split Initialization.
 #
-# This is intentionally an orchestration entrypoint. The authorization rules
-# live in scripts/vault/policies/*.hcl and scripts/vault/roles/*.json.
+# This is intentionally an orchestration entrypoint. Authorization rules are
+# read from the reviewed GitOps security/vault YAML declarations.
 #
 # Requirements:
 #   VAULT_ADDR   Vault address (default: https://vault.svc.plus)
@@ -12,13 +13,12 @@ set -euo pipefail
 #
 # A role declaration contains a human-readable "description" and "role_name".
 # Those metadata fields are stripped before the remaining JSON is sent to Vault.
-# Environment-specific bootstrap roles are declared under scripts/vault/roles
-# and are therefore handled by the same validation and targeted --role path as
-# every other service-repository role.
+# Environment-specific bootstrap roles use the same validation and targeted
+# --role path as every other GitOps-declared service-repository role.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-POLICY_DIR="${VAULT_POLICY_DEFINITION_DIR:-${SCRIPT_DIR}/vault/policies}"
-ROLE_DIR="${VAULT_ROLE_DEFINITION_DIR:-${SCRIPT_DIR}/vault/roles}"
+DECLARATION_READER="${SCRIPT_DIR}/vault/vault_declarations.py"
+source "${SCRIPT_DIR}/vault/source_gitops.sh"
 VAULT_JWT_AUTH_MOUNT="${VAULT_JWT_AUTH_MOUNT:-auth/jwt}"
 VAULT_JWT_AUTH_MOUNT="${VAULT_JWT_AUTH_MOUNT#/}"
 VAULT_JWT_AUTH_MOUNT="${VAULT_JWT_AUTH_MOUNT%/}"
@@ -26,7 +26,7 @@ export VAULT_JWT_AUTH_MOUNT
 
 export VAULT_ADDR="${VAULT_ADDR:-https://vault.svc.plus}"
 
-mode=apply
+mode=check
 akamai_env="${AKAMAI_OIDC_ENV:-all}"
 role_filter=""
 env_was_set=false
@@ -52,7 +52,7 @@ Usage:
   scripts/create_vault_service_repo_roles.sh [--apply|--check] [--env uat|prod|all]
   scripts/create_vault_service_repo_roles.sh [--apply|--check] --role <declared-role-name>
 
-The default remains --apply. All checked-in role/policy declarations are
+The default is --check. GitOps YAML role/policy declarations are
 validated and managed in normal mode, including the dedicated UAT and PROD
 AWS OIDC bootstrap roles. When AKAMAI_ACCOUNT_UAT and/or
 AKAMAI_ACCOUNT_PROD is provided, the matching dynamic Akamai Cloud/Linode
@@ -71,6 +71,22 @@ case "$akamai_env" in
   uat|prod|all) ;;
   *) echo "invalid Akamai environment: ${akamai_env}" >&2; exit 2 ;;
 esac
+
+trap 'vault_gitops_source_cleanup' EXIT
+vault_gitops_source_init
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "${tmp_dir}"; vault_gitops_source_cleanup' EXIT
+POLICY_DIR="${tmp_dir}/policies"
+ROLE_DIR="${tmp_dir}/roles"
+mkdir -p "${POLICY_DIR}" "${ROLE_DIR}"
+while IFS= read -r policy_name; do
+  [[ -n "${policy_name}" ]] || continue
+  python3 "${DECLARATION_READER}" policy "${policy_name}" >"${POLICY_DIR}/${policy_name}.hcl"
+done < <(python3 "${DECLARATION_READER}" list policies)
+while IFS= read -r role_name; do
+  [[ -n "${role_name}" ]] || continue
+  python3 "${DECLARATION_READER}" role "${role_name}" >"${ROLE_DIR}/${role_name}.json"
+done < <(python3 "${DECLARATION_READER}" list roles)
 
 if [ -z "${VAULT_TOKEN:-}" ] && ! vault token lookup >/dev/null 2>&1; then
   echo "Error: no authenticated Vault CLI session is available." >&2
