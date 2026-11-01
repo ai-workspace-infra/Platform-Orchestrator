@@ -169,7 +169,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         repository: ai-workspace-infra/iac_modules
-        ref: 6098059cbac2ad45a7e08ca8c7edb3f793ec058d
+        ref: main
         path: iac_modules
         persist-credentials: false
     - id: iac_target
