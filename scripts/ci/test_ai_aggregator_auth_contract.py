@@ -35,6 +35,32 @@ class AuthContractTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.check(yaml.safe_load(path.read_text()), True)
 
+    def test_persistent_akamai_is_iac_managed_and_cannot_auto_destroy(self):
+        data = copy.deepcopy(self.base)
+        infra = data['spec']['infrastructure']
+        infra.update(provider='akamai-cloud', provisioner='terraform', lifecycle='persistent',
+                     terraform_manage_lifecycle=True, destroy_policy='never')
+        infra['resource_contract']['manifests'] = [
+            {'node': node['id'], 'workspace': 'fixture-' + node['id'],
+             'path': 'resources/fixture/prod/akamai/' + node['id'] + '.yaml'}
+            for node in data['spec']['nodes']]
+        for node in data['spec']['nodes']:
+            node.update(provider='akamai-cloud', lifecycle='persistent')
+        self.check(data, True)
+        for changes in ({'destroy_policy': 'always_after_pipeline'},
+                        {'terraform_manage_lifecycle': False}, {'provisioner': 'ansible'}):
+            changed = copy.deepcopy(data)
+            changed['spec']['infrastructure'].update(changes)
+            self.check(changed, False)
+
+    def test_existing_resources_stay_outside_terraform(self):
+        data = copy.deepcopy(self.base)
+        data['spec']['infrastructure'].update(provider='existing', provisioner='ansible',
+            lifecycle='persistent', destroy_policy='never', terraform_manage_lifecycle=True)
+        for node in data['spec']['nodes']:
+            node.update(provider='existing', lifecycle='persistent')
+        self.check(data, False)
+
     def test_explicit_public_and_network_sources_are_valid(self):
         data = copy.deepcopy(self.base)
         data['spec']['enabled'] = True

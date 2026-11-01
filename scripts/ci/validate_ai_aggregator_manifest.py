@@ -159,10 +159,14 @@ def main() -> None:
         if infrastructure.get("destroy_policy") != "always_after_pipeline":
             fail("ephemeral infrastructure must always be destroyed after the pipeline")
     elif lifecycle == "persistent":
-        if infrastructure.get("provider") != "existing" or infrastructure.get("provisioner") != "ansible":
-            fail("persistent infrastructure must use existing nodes and Ansible")
-        if infrastructure.get("lifecycle") != "persistent" or infrastructure.get("terraform_manage_lifecycle"):
-            fail("persistent infrastructure must remain persistent and outside Terraform lifecycle management")
+        if infrastructure.get("provider") == "existing":
+            if infrastructure.get("provisioner") != "ansible" or infrastructure.get("terraform_manage_lifecycle"):
+                fail("existing infrastructure must remain outside Terraform lifecycle management")
+        elif infrastructure.get("provider") == "akamai-cloud":
+            if infrastructure.get("provisioner") != "terraform" or infrastructure.get("terraform_manage_lifecycle") is not True:
+                fail("persistent Akamai infrastructure must be managed by Terraform")
+        else:
+            fail("unsupported persistent infrastructure provider")
         if infrastructure.get("destroy_policy") != "never":
             fail("persistent infrastructure destroy policy must be never")
     else:
@@ -172,7 +176,7 @@ def main() -> None:
     if infrastructure.get("provider") == "akamai-cloud":
         manifests = contract.get("manifests", [])
         if not isinstance(manifests, list) or not manifests:
-            fail("Akamai ephemeral must declare one resource manifest per isolated state namespace")
+            fail("Akamai must declare one resource manifest per isolated state namespace")
         declared_nodes = {node.get("id") for node in spec.get("nodes", [])}
         declared_manifest_nodes = {item.get("node") for item in manifests}
         if declared_manifest_nodes != declared_nodes:
@@ -354,8 +358,8 @@ def main() -> None:
                 fail("AWS/GCP/VPS ephemeral nodes must use Spot lifecycle")
     elif lifecycle == "persistent":
         for node in node_records:
-            if node.get("lifecycle") != "persistent" or node.get("provider") != "existing":
-                fail("persistent aggregator nodes must be existing persistent nodes")
+            if node.get("lifecycle") != "persistent" or node.get("provider") != infrastructure.get("provider"):
+                fail("persistent aggregator nodes must match the selected infrastructure provider")
 
     enabled = bool(spec.get("enabled"))
     cidrs = entrypoint.get("source_cidrs", [])

@@ -73,9 +73,9 @@ on:
         type: choice
         options: [gcp, aws, vps, akamai-cloud, existing]
       destroy:
-        description: "Destroy declared ephemeral resources when this dispatch finishes"
+        description: "Explicitly destroy declared ephemeral resources when this dispatch finishes"
         required: true
-        default: true
+        default: false
         type: boolean
 
 permissions:
@@ -990,7 +990,7 @@ jobs:
             -e ai_aggregator_operation=${{ inputs.operation }} \
             -e ai_aggregator_manifest_file=${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
       - name: Destroy selected Akamai resource
-        if: ${{ always() && inputs.destroy }}
+        if: ${{ always() && inputs.destroy && needs.resolve-provider.outputs.lifecycle == 'ephemeral' }}
         run: terraform -chdir="$TF_ROOT" destroy -input=false -auto-approve
 
   existing-deploy:
