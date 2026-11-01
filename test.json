@@ -1,5 +1,0 @@
-{
-  "host1": {"groups": ["web_saas", "db"]},
-  "host2": {"groups": ["ai_workspace"]},
-  "host3": {"groups": []}
-}
