@@ -32,11 +32,10 @@ class AcceptanceTests(unittest.TestCase):
         self.assertFalse(doc['release_accepted'])
         self.assertEqual('2', doc['run_attempt'])
 
-    def test_all_mutations_blocked_in_both_environments(self):
+    def test_admission_contract_only_validates_inputs(self):
         for env in ('uat', 'prod'):
-            for op in gate.OPERATIONS[1:]:
-                with self.subTest(env=env, op=op), self.assertRaisesRegex(ValueError, 'owner execution'):
-                    gate.admit(env, op, 'none')
+            for op in gate.OPERATIONS:
+                gate.admit(env, op, 'none')
 
     def test_successful_placeholders_never_accept_release(self):
         for op in gate.OPERATIONS[1:]:
@@ -71,10 +70,13 @@ class AcceptanceTests(unittest.TestCase):
             doc = json.loads(Path(tmp, 'serverless-delivery-receipt.json').read_text())
             self.assertEqual('BLOCKED', doc['overall_status'])
 
-    def test_admission_precedes_resolve_and_vault(self):
+    def test_orchestrator_delegates_execution_to_owner_stages(self):
         workflow = (ROOT / '.github/workflows/serverless-orchestrator.yml').read_text()
-        self.assertLess(workflow.index('acceptance_gate.py admit'), workflow.index('id: resolve'))
-        self.assertLess(workflow.index('acceptance_gate.py admit'), workflow.index('hashicorp/vault-action'))
+        self.assertNotIn('acceptance_gate.py admit', workflow)
+        for stage in ('serverless-stage-resolve.yml', 'serverless-stage-infra.yml',
+                      'serverless-stage-deploy.yml', 'serverless-stage-migrate.yml',
+                      'serverless-stage-verify.yml'):
+            self.assertIn(stage, workflow)
         self.assertNotIn('receipt["overall_status"] = "FAILED" if failed_stages else "PASSED"', workflow)
 
     def test_dispatch_uses_current_inputs_and_rejects_sit(self):
