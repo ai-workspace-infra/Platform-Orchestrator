@@ -1,0 +1,369 @@
+name: Selfhost | Deploy (container candidate)
+run-name: Selfhost Stage ${{ inputs.correlation_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      payload_json:
+        {required: true, type: string}
+      parent_run_id:
+        {required: true, type: string}
+      parent_run_attempt:
+        {required: true, type: string}
+      correlation_id:
+        {required: true, type: string}
+      provision_context:
+        {required: true, type: string}
+      infra_run_id:
+        {required: true, type: string}
+      resolve_run_id:
+        {required: true, type: string}
+      resolve_run_attempt:
+        {required: true, type: string}
+
+permissions:
+  contents: read
+  actions: write
+  id-token: write
+
+env:
+  VAULT_ADDR: https://vault.svc.plus
+
+jobs:
+  provision:
+    name: "[2/5] Provision context from caller"
+    runs-on: ubuntu-latest
+    outputs:
+      deployment_env: ${{ fromJSON(inputs.provision_context || '{}').outputs.deployment_env || '' }}
+      resource_file: ${{ fromJSON(inputs.provision_context || '{}').outputs.resource_file || '' }}
+      target_manifest: ${{ fromJSON(inputs.provision_context || '{}').outputs.target_manifest || '' }}
+      gitops_sha: ${{ fromJSON(inputs.provision_context || '{}').outputs.gitops_sha || '' }}
+      cmdb_sha256: ${{ fromJSON(inputs.provision_context || '{}').outputs.cmdb_sha256 || '' }}
+      terraform_workspace: ${{ fromJSON(inputs.provision_context || '{}').outputs.terraform_workspace || '' }}
+      state_key: ${{ fromJSON(inputs.provision_context || '{}').outputs.state_key || '' }}
+      terraform_namespace: ${{ fromJSON(inputs.provision_context || '{}').outputs.terraform_namespace || '' }}
+      terraform_workdir: ${{ fromJSON(inputs.provision_context || '{}').outputs.terraform_workdir || '' }}
+      run_infrastructure: ${{ fromJSON(inputs.provision_context || '{}').outputs.run_infrastructure || '' }}
+      run_application_deploy: ${{ fromJSON(inputs.provision_context || '{}').outputs.run_application_deploy || '' }}
+      target_domains: ${{ fromJSON(inputs.provision_context || '{}').outputs.target_domains || '' }}
+      deploy_tag: ${{ fromJSON(inputs.provision_context || '{}').outputs.deploy_tag || '' }}
+      terraform_action: ${{ fromJSON(inputs.provision_context || '{}').outputs.terraform_action || '' }}
+      toolkit_action: ${{ fromJSON(inputs.provision_context || '{}').outputs.toolkit_action || '' }}
+      toolkit_ref: ${{ fromJSON(inputs.provision_context || '{}').outputs.toolkit_ref || '' }}
+      infra_ref: ${{ fromJSON(inputs.provision_context || '{}').outputs.infra_ref || '' }}
+      playbooks_ref: ${{ fromJSON(inputs.provision_context || '{}').outputs.playbooks_ref || '' }}
+      gitops_ref: ${{ fromJSON(inputs.provision_context || '{}').outputs.gitops_ref || '' }}
+      console_ref: ${{ fromJSON(inputs.provision_context || '{}').outputs.console_ref || '' }}
+      offline_mode: ${{ fromJSON(inputs.provision_context || '{}').outputs.offline_mode || '' }}
+      source_host: ${{ fromJSON(inputs.provision_context || '{}').outputs.source_host || '' }}
+      source_domain_base: ${{ fromJSON(inputs.provision_context || '{}').outputs.source_domain_base || '' }}
+      target_domain_base: ${{ fromJSON(inputs.provision_context || '{}').outputs.target_domain_base || '' }}
+      env_suffix: ${{ fromJSON(inputs.provision_context || '{}').outputs.env_suffix || '' }}
+      dns_mode: ${{ fromJSON(inputs.provision_context || '{}').outputs.dns_mode || '' }}
+      vault_env_path: ${{ fromJSON(inputs.provision_context || '{}').outputs.vault_env_path || '' }}
+      agent_controller_url: ${{ fromJSON(inputs.provision_context || '{}').outputs.agent_controller_url || '' }}
+      agent_accounts_base_url: ${{ fromJSON(inputs.provision_context || '{}').outputs.agent_accounts_base_url || '' }}
+      billing_service_base_url: ${{ fromJSON(inputs.provision_context || '{}').outputs.billing_service_base_url || '' }}
+      cloud_provider: ${{ fromJSON(inputs.provision_context || '{}').outputs.cloud_provider || '' }}
+      provider_gitops_dir: ${{ fromJSON(inputs.provision_context || '{}').outputs.provider_gitops_dir || '' }}
+      account: ${{ fromJSON(inputs.provision_context || '{}').outputs.account || '' }}
+      migration_target_host: ${{ fromJSON(inputs.provision_context || '{}').outputs.migration_target_host || '' }}
+      hosts_infra_platform: ${{ fromJSON(inputs.provision_context || '{}').outputs.hosts_infra_platform || '' }}
+      hosts_agent_proxy: ${{ fromJSON(inputs.provision_context || '{}').outputs.hosts_agent_proxy || '' }}
+      hosts_agent_proxy_iac: ${{ fromJSON(inputs.provision_context || '{}').outputs.hosts_agent_proxy_iac || '' }}
+      hosts_agent_proxy_non_iac: ${{ fromJSON(inputs.provision_context || '{}').outputs.hosts_agent_proxy_non_iac || '' }}
+      agent_proxy_region_count: ${{ fromJSON(inputs.provision_context || '{}').outputs.agent_proxy_region_count || '' }}
+      include_external_agent_proxy: ${{ fromJSON(inputs.provision_context || '{}').outputs.include_external_agent_proxy || '' }}
+      reuse_existing_host: ${{ fromJSON(inputs.provision_context || '{}').outputs.reuse_existing_host || '' }}
+      existing_target_host: ${{ fromJSON(inputs.provision_context || '{}').outputs.existing_target_host || '' }}
+      existing_target_user: ${{ fromJSON(inputs.provision_context || '{}').outputs.existing_target_user || '' }}
+      hosts: ${{ fromJSON(inputs.provision_context || '{}').outputs.hosts || '' }}
+      bootstrap_hosts: ${{ fromJSON(inputs.provision_context || '{}').outputs.bootstrap_hosts || '' }}
+      hosts_web_saas: ${{ fromJSON(inputs.provision_context || '{}').outputs.hosts_web_saas || '' }}
+      hosts_web_saas_native: ${{ fromJSON(inputs.provision_context || '{}').outputs.hosts_web_saas_native || '[]' }}
+      hosts_kubernetes: ${{ fromJSON(inputs.provision_context || '{}').outputs.hosts_kubernetes || '[]' }}
+      hosts_ai_workspace: ${{ fromJSON(inputs.provision_context || '{}').outputs.hosts_ai_workspace || '' }}
+      count: ${{ fromJSON(inputs.provision_context || '{}').outputs.count || '' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Validate request and prior stage evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELFHOST_STAGE: deploy
+          PARENT_RUN_ID: ${{ inputs.parent_run_id }}
+          PARENT_RUN_ATTEMPT: ${{ inputs.parent_run_attempt }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
+          SELFHOST_REQUEST_JSON: ${{ inputs.payload_json }}
+          SELFHOST_CONTEXTS_JSON: ${{ toJSON(inputs) }}
+        run: python3 .github/scripts/platform-ops/stage-dispatch.py verify-parent
+
+      - name: Validate prior stage output
+        env:
+          PROVISION_CONTEXT: ${{ inputs.provision_context }}
+        run: >-
+          jq -e 'type == "object" and (.outputs | type == "object" and
+          (.run_application_deploy != "true" or
+          ((.gitops_sha | strings | test("^[0-9a-f]{40}$")) and
+          (.playbooks_ref | strings | test("^[0-9a-f]{40}$")) and
+          (.cmdb_sha256 | strings | test("^[0-9a-f]{64}$")))))' <<< "$PROVISION_CONTEXT" > /dev/null
+      - name: Require only declared Kubernetes targets
+        env:
+          PROVISION_CONTEXT: ${{ inputs.provision_context }}
+        run: |
+          set -euo pipefail
+          jq -e '.outputs | .run_application_deploy == "true" and
+            (.hosts_kubernetes | fromjson | type == "array" and length > 0) and
+            ((.hosts_kubernetes | fromjson | sort) == (.bootstrap_hosts | fromjson | sort)) and
+            ((.hosts_kubernetes | fromjson | unique | length) == (.hosts_kubernetes | fromjson | length))' <<< "$PROVISION_CONTEXT" >/dev/null
+  deploy_base:
+    name: "[3/5] Deploy | bootstrap ${{ matrix.host }}"
+    # 只初始化节点；服务安装由后续 deploy_* jobs 负责。
+    needs: provision
+    if: >-
+      ${{ !cancelled() &&
+      needs.provision.result == 'success' &&
+      needs.provision.outputs.run_application_deploy == 'true' &&
+      (needs.provision.outputs.terraform_action == 'apply' ||
+      needs.provision.outputs.reuse_existing_host == 'true') &&
+      needs.provision.outputs.count != '0' &&
+      needs.provision.outputs.hosts_kubernetes != '[]' &&
+      needs.provision.outputs.hosts_kubernetes != '' }}
+    runs-on: ${{ fromJSON(inputs.payload_json || '{}').runner_type || 'ubuntu-latest' }}
+    environment: ${{ startsWith(needs.provision.outputs.deployment_env, 'prod-v') && 'prod' || needs.provision.outputs.deployment_env }}
+    strategy:
+      fail-fast: false
+      matrix:
+        host: ${{ fromJSON(needs.provision.outputs.hosts_kubernetes) }}
+    env:
+      MATRIX_HOST:              ${{ matrix.host }}
+      ANSIBLE_HOST_KEY_CHECKING: "False"
+      ANSIBLE_PIPELINING:       "True"
+      ANSIBLE_SSH_ARGS:         "-o ControlMaster=auto -o ControlPersist=60s -o IdentityFile=~/.ssh/id_deploy -o StrictHostKeyChecking=no"
+      TARGET_DOMAIN_BASE:       ${{ needs.provision.outputs.target_domain_base }}
+      TARGET_DOMAINS:            ${{ needs.provision.outputs.target_domains }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ github.sha }}
+
+    - name: Checkout playbooks
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/playbooks
+        ref: ${{ needs.provision.outputs.playbooks_ref }}
+        path: playbooks
+
+    - name: Checkout GitOps declarations
+      uses: actions/checkout@v7
+      with:
+        repository: ai-workspace-infra/gitops
+        ref: ${{ needs.provision.outputs.gitops_sha }}
+        path: gitops
+
+    - name: Download CMDB
+      uses: actions/download-artifact@v8
+      with:
+        name: platform-ops-toolkit-cmdb
+        run-id: ${{ inputs.infra_run_id }}
+        github-token: ${{ github.token }}
+        repository: ${{ github.repository }}
+        path: cmdb
+
+    - name: Select declared K3s resource for this CMDB host
+      id: k3s_target
+      if: ${{ needs.provision.outputs.target_manifest != '' }}
+      env:
+        TARGET_MANIFEST: ${{ needs.provision.outputs.target_manifest }}
+        TARGET_ENVIRONMENT: ${{ needs.provision.outputs.vault_env_path }}
+        TARGET_PROVIDER: ${{ needs.provision.outputs.cloud_provider }}
+        TARGET_ACCOUNT: ${{ needs.provision.outputs.account }}
+        TARGET_WORKSPACE: ${{ needs.provision.outputs.terraform_namespace }}
+      run: |
+        set -euo pipefail
+        python3 -c 'import yaml' || python3 -m pip install --user PyYAML==6.0.2
+        manifest="$(python3 scripts/ci/select_k3s_manifest.py gitops "$TARGET_MANIFEST" cmdb/cmdb.json "$MATRIX_HOST" "$TARGET_ENVIRONMENT" "$TARGET_PROVIDER" "$TARGET_ACCOUNT" "$TARGET_WORKSPACE")"
+        printf 'manifest=%s\n' "$manifest" >> "$GITHUB_OUTPUT"
+        if [ -n "$manifest" ]; then
+          role="$(python3 scripts/ci/select_k3s_manifest.py --writer-role gitops "$manifest" "$MATRIX_HOST")"
+          printf 'writer_role=%s\n' "$role" >> "$GITHUB_OUTPUT"
+          reader="$(python3 scripts/ci/select_k3s_manifest.py --bootstrap-reader gitops "$manifest" "$MATRIX_HOST")"
+          printf 'bootstrap_role=%s\nssh_path=%s\nssh_field=%s\n' "$(jq -r .role <<<"$reader")" "$(jq -r .path <<<"$reader")" "$(jq -r .field <<<"$reader")" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Require a declared Kubernetes target
+      if: ${{ steps.k3s_target.outputs.manifest == '' }}
+      run: |
+        echo '::error::Selected host has no matching K3s declaration.'
+        exit 1
+
+    - name: Load scoped K3s bootstrap SSH identity
+      id: k3s_vault
+      if: ${{ steps.k3s_target.outputs.manifest != '' }}
+      uses: hashicorp/vault-action@v4
+      with:
+        url: ${{ env.VAULT_ADDR }}
+        method: jwt
+        role: ${{ steps.k3s_target.outputs.bootstrap_role }}
+        jwtGithubAudience: vault
+        exportToken: true
+        exportEnv: false
+        secrets: |
+          ${{ steps.k3s_target.outputs.ssh_path }} ${{ steps.k3s_target.outputs.ssh_field }} | K3S_SSH_PRIVATE_KEY
+
+    - name: Encode the scoped SSH key for the runner owner
+      id: k3s_ssh
+      if: ${{ steps.k3s_target.outputs.manifest != '' }}
+      env:
+        K3S_SSH_KEY: ${{ steps.k3s_vault.outputs.K3S_SSH_PRIVATE_KEY }}
+      run: |
+        set -euo pipefail
+        test -n "$K3S_SSH_KEY"
+        encoded="$(printf '%s\n' "$K3S_SSH_KEY" | base64 | tr -d '\n')"
+        echo "::add-mask::$encoded"
+        printf 'key_b64=%s\n' "$encoded" >> "$GITHUB_OUTPUT"
+        unset encoded K3S_SSH_KEY
+
+    # OAUTH_* / INTERNAL_SERVICE_TOKEN 是真正可选的(不影响是否能起服务),
+    # 但 vault-action 的 ignoreNotFound 只在整个 KV 路径 404 时生效 —— 路径
+    # 存在而某个键缺失照样硬失败。放到独立脚本里自己读、缺则空。
+    # 脚本自己走 GitHub OIDC -> Vault JWT role 认证(与 vault-action 内部
+    # 做的事一样), 不依赖上一步导出的静态 token —— 那只是别处场景下的可选
+    # fallback, 不该在这里造出一条"依赖前一步是否恰好导出了 token"的隐式
+    # 耦合。ACTIONS_ID_TOKEN_REQUEST_URL/TOKEN 由 id-token: write 权限
+    # (workflow 顶层已声明)自动注入, 无需在此显式传递。
+    - name: Cache pip packages
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-ansible-v1
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Setup deployment runner
+      id: runner
+      uses: ./playbooks/.github/actions/setup-deployment-runner
+      with:
+        ssh_key_b64: ${{ steps.k3s_ssh.outputs.key_b64 }}
+        matrix_host: ${{ matrix.host }}
+        wait_for_ssh: 'true'
+        wait_for_package_init: 'true'
+        install_ansible: 'true'
+
+    - name: Obtain scoped Vault writer for Kubernetes identities
+      if: ${{ steps.k3s_target.outputs.manifest != '' }}
+      env:
+        K3S_WRITER_ROLE: ${{ steps.k3s_target.outputs.writer_role }}
+      run: |
+        set -euo pipefail
+        oidc="$(curl -fsS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=vault" | jq -er '.value')"
+        writer="$(jq -n --arg role "$K3S_WRITER_ROLE" --arg jwt "$oidc" '{role:$role,jwt:$jwt}' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "${VAULT_ADDR%/}/v1/auth/jwt/login" | jq -er '.auth.client_token')"
+        echo "::add-mask::$writer"
+        printf 'K3S_IDENTITY_VAULT_TOKEN=%s\n' "$writer" >> "$GITHUB_ENV"
+        unset oidc writer
+
+
+    # 证书持久化。主机重建会把 caddy_data 卷一起丢掉, 于是每次重建都重新签发,
+    # 撞上 Let's Encrypt "同一组域名 5 次/周" 的限流 —— 2026-07-28 console-uat
+    # 就是这么挂的(HTTP 429, retry after 20:38 UTC), 而且没有任何代码能修, 只能等。
+    #
+    # 顺序: 先恢复(bootstrap 之后、Doco-CD 把 caddy 拉起来之前), 让 caddy 一起来
+    # 就发现证书已在, 根本不调 ACME; 部署末尾再备份, 把这一轮可能新签的证书存回去。
+    - name: Bootstrap declared K3s node through Playbooks owner
+      if: ${{ steps.k3s_target.outputs.manifest != '' }}
+      uses: ./playbooks/.github/actions/k3s-bootstrap
+      with:
+        host: ${{ matrix.host }}
+        cmdb: ${{ github.workspace }}/cmdb/cmdb.json
+        cmdb-sha256: ${{ needs.provision.outputs.cmdb_sha256 }}
+        gitops-checkout: ${{ github.workspace }}/gitops
+        gitops-sha: ${{ needs.provision.outputs.gitops_sha }}
+        resource-manifest: ${{ steps.k3s_target.outputs.manifest }}
+        receipt: ${{ runner.temp }}/k3s-bootstrap-${{ matrix.host }}.json
+
+    - name: Assemble verified target handover receipt
+      if: ${{ steps.k3s_target.outputs.manifest != '' }}
+      uses: ./playbooks/.github/actions/k3s-handover-receipt
+      with:
+        host: ${{ matrix.host }}
+        environment: ${{ needs.provision.outputs.deployment_env }}
+        cmdb: ${{ github.workspace }}/cmdb/cmdb.json
+        cmdb-sha256: ${{ needs.provision.outputs.cmdb_sha256 }}
+        gitops-checkout: ${{ github.workspace }}/gitops
+        gitops-sha: ${{ needs.provision.outputs.gitops_sha }}
+        bootstrap-receipt: ${{ runner.temp }}/k3s-bootstrap-${{ matrix.host }}.json
+        output: ${{ runner.temp }}/k3s-handover-${{ matrix.host }}.json
+
+    - name: Publish verified target handover receipt
+      if: ${{ steps.k3s_target.outputs.manifest != '' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: k3s-handover-${{ matrix.host }}-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/k3s-handover-${{ matrix.host }}.json
+        if-no-files-found: error
+
+    - name: Publish K3s bootstrap diagnostic receipts
+      if: ${{ always() && !cancelled() && steps.k3s_target.outputs.manifest != '' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: k3s-bootstrap-${{ matrix.host }}-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/k3s-bootstrap-${{ matrix.host }}.json*
+        if-no-files-found: warn
+
+  stage-output:
+    name: "Export deployment results"
+    if: ${{ always() && !cancelled() && needs.provision.result == 'success' && needs.deploy_base.result != '' }}
+    needs: [provision, deploy_base]
+    runs-on: ubuntu-latest
+    outputs:
+      context: ${{ toJSON(needs) }}
+    steps:
+      - name: Checkout receipt verifier
+        if: ${{ needs.deploy_base.result == 'success' }}
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download target handover receipts
+        if: ${{ needs.deploy_base.result == 'success' }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: k3s-handover-*-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/k3s-handover-receipts
+      - name: Verify target handover coverage
+        if: ${{ needs.deploy_base.result == 'success' }}
+        env:
+          HANDOVER_DIRECTORY: ${{ runner.temp }}/k3s-handover-receipts
+          EXPECTED_TARGETS: ${{ needs.provision.outputs.hosts_kubernetes }}
+          DEPLOYMENT_ENVIRONMENT: ${{ needs.provision.outputs.deployment_env }}
+          GITOPS_SHA: ${{ needs.provision.outputs.gitops_sha }}
+          PLAYBOOKS_SHA: ${{ needs.provision.outputs.playbooks_ref }}
+          CMDB_SHA256: ${{ needs.provision.outputs.cmdb_sha256 }}
+        run: .github/scripts/platform-ops/evidence/aggregate-k3s-handover.sh
+      - name: Write correlated stage context
+        env:
+          STAGE_NAME: deploy
+          STAGE_CONTEXT: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          context = json.loads(os.environ["STAGE_CONTEXT"])
+          result = {"schema": 1, "stage": os.environ["STAGE_NAME"],
+                    "run_id": os.environ["GITHUB_RUN_ID"],
+                    "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                    "context": context}
+          target = Path(os.environ["RUNNER_TEMP"]) / "stage-context.json"
+          target.write_text(json.dumps(result, separators=(",", ":")) + "\n", encoding="utf-8")
+          PY
+      - name: Publish stage context for the parent run
+        uses: actions/upload-artifact@v7
+        with:
+          name: selfhost-stage-context-deploy
+          path: ${{ runner.temp }}/stage-context.json
+          if-no-files-found: error
+      - name: Fail when target delivery did not complete
+        if: ${{ needs.deploy_base.result != 'success' }}
+        run: exit 1
