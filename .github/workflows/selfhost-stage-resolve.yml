@@ -513,17 +513,16 @@ jobs:
       INPUT_VAULT_ENV_PATH: ${{ fromJSON(inputs.payload_json || '{}').vault_env_path }}
       INPUT_DELIVERY_SCOPE: ${{ fromJSON(inputs.payload_json || '{}').delivery_scope }}
       INPUT_INSTANCE_PLAN: ${{ fromJSON(inputs.payload_json || '{}').instance_plan || '4C8G' }}
-      INPUT_AGENT_PROXY_PLAN: ${{ fromJSON(inputs.payload_json || '{}').agent_proxy_plan || '1C2G' }}
       INPUT_OPERATION: ${{ fromJSON(inputs.payload_json || '{}').operation }}
       INPUT_SOURCE_REF: ${{ fromJSON(inputs.payload_json || '{}').source_ref }}
-      INPUT_OFFLINE_MODE: ${{ fromJSON(inputs.payload_json || '{}').offline_mode }}
+      INPUT_OFFLINE_MODE: off
       INPUT_SOURCE_HOST: ${{ fromJSON(inputs.payload_json || '{}').source_host }}
       INPUT_SOURCE_DOMAIN_BASE: ${{ fromJSON(inputs.payload_json || '{}').source_domain_base }}
       INPUT_TARGET_DOMAIN_BASE: ${{ fromJSON(inputs.payload_json || '{}').target_domain_base }}
       INPUT_DNS_MODE: ${{ fromJSON(inputs.payload_json || '{}').dns_mode }}
       INPUT_DEPLOY_TAG: ${{ fromJSON(inputs.payload_json || '{}').deploy_tag }}
       INPUT_AKAMAI_ACCOUNT: ${{ fromJSON(inputs.payload_json || '{}').cloud_account || fromJSON(inputs.payload_json || '{}').akamai_account || 'manbuzhe2026' }}
-      INPUT_INCLUDE_EXTERNAL_AGENT_PROXY: ${{ fromJSON(inputs.payload_json || '{}').include_external_agent_proxy != false && fromJSON(inputs.payload_json || '{}').include_external_agent_proxy != 'false' && 'true' || 'false' }}
+      INPUT_INCLUDE_EXTERNAL_AGENT_PROXY: ${{ fromJSON(inputs.payload_json || '{}').include_external_agent_proxy == true || fromJSON(inputs.payload_json || '{}').include_external_agent_proxy == 'true' }}
       INPUT_EXISTING_TARGET_HOST: ${{ fromJSON(inputs.payload_json || '{}').existing_target_host }}
     outputs:
       deployment_env: ${{ steps.route.outputs.deployment_env }}
@@ -557,7 +556,7 @@ jobs:
       provider_gitops_dir: ${{ steps.route.outputs.provider_gitops_dir }}
       account: ${{ steps.route.outputs.account }}
       migration_target_host: ${{ steps.resolve_migration_target.outputs.target_host }}
-      include_external_agent_proxy: ${{ steps.route.outputs.include_external_agent_proxy || 'true' }}
+      include_external_agent_proxy: ${{ steps.route.outputs.include_external_agent_proxy || 'false' }}
       reuse_existing_host: ${{ steps.route.outputs.reuse_existing_host || 'false' }}
       existing_target_host: ${{ steps.route.outputs.existing_target_host || '' }}
       existing_target_user: ${{ steps.route.outputs.existing_target_user || '' }}

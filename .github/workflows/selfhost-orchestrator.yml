@@ -44,16 +44,10 @@ on:
         required: false
         default: ""
         type: string
-      offline_mode:
-        description: "on-host 离线包模式: off=在线拉最新(默认); auto=离线加速; force=强制离线"
-        required: false
-        default: "off"
-        type: choice
-        options: ["off", "auto", "force"]
       source_host:
-        description: "源环境 IP 或域名 (用于导出数据)"
-        required: true
-        default: "install.svc.plus"
+        description: "可选源环境 IP 或域名；仅数据导出/迁移时需要，普通部署可留空"
+        required: false
+        default: ""
         type: string
       source_domain_base:
         description: "源环境域名后缀 (例如 svc.plus)"
@@ -121,9 +115,9 @@ on:
         default: ""
         type: string
       include_external_agent_proxy:
-        description: "是否部署 GitOps 声明的 Ulighthost existing Agent Proxy 节点"
+        description: "可选：是否部署 GitOps 声明的 Ulighthost existing Agent Proxy 节点"
         required: false
-        default: true
+        default: false
         type: boolean
       instance_plan:
         description: "选择默认业务规格（UAT Hybrid 的 provider、创建或复用方式及规格以 GitOps namespace 声明为准）"
@@ -136,16 +130,6 @@ on:
         - 2C8G
         - 2C2G
         - 1C2G
-      agent_proxy_plan:
-        description: "Agent Proxy 运行时规格（UAT/PROD 默认 1C2G；不默认创建 AWS Spot）"
-        required: true
-        default: "1C2G"
-        type: choice
-        options:
-        - 1C1G
-        - 1C2G
-        - 2C1G
-        - 2C2G
       dns_mode:
         description: "DNS 行为：none 不发布；uat-records 更新 SIT all-in-one 或 UAT 固定记录；prod-cutover 接管生产流量；destroy 操作始终忽略 DNS 输入"
         required: true
@@ -163,9 +147,9 @@ on:
         default: false
         type: boolean
       xconnect_gateway_ref:
-        description: "UAT XConnect Gateway DNS/Vault record key; other XConnect settings use the target workflow defaults"
+        description: "可选 UAT XConnect Gateway DNS/Vault record key；不部署 XConnect 时留空"
         required: false
-        default: "tw-xconnect.svc.plus"
+        default: ""
         type: string
       existing_target_host:
         description: "Existing host deployment target. Only ai-workspace UAT accepts this; no Terraform state or destroy is performed."
