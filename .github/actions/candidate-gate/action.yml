@@ -1,0 +1,32 @@
+name: Gate immutable Daily candidate
+description: Verify every required component receipt and emit one immutable candidate manifest and fingerprint.
+inputs:
+  receipts-directory: {required: true, description: Downloaded component receipts}
+  component-matrix: {required: true, description: Validated component matrix JSON}
+  candidate-id: {required: true, description: Immutable candidate ID}
+  delivery-scope: {required: true, description: Candidate delivery scope}
+  gitops-sha: {required: true, description: Pinned GitOps SHA}
+  artifacts-sha: {required: true, description: Pinned Artifacts SHA}
+  iac-sha: {required: true, description: Pinned IaC SHA}
+  playbooks-sha: {required: true, description: Pinned Playbooks SHA}
+outputs:
+  manifest_path:
+    value: ${{ steps.gate.outputs.manifest_path }}
+  fingerprint:
+    value: ${{ steps.gate.outputs.fingerprint }}
+runs:
+  using: composite
+  steps:
+    - id: gate
+      shell: bash
+      env:
+        RECEIPTS_DIRECTORY: ${{ inputs.receipts-directory }}
+        COMPONENT_MATRIX_JSON: ${{ inputs.component-matrix }}
+        CANDIDATE_ID: ${{ inputs.candidate-id }}
+        DELIVERY_SCOPE: ${{ inputs.delivery-scope }}
+        GITOPS_SHA: ${{ inputs.gitops-sha }}
+        ARTIFACTS_SHA: ${{ inputs.artifacts-sha }}
+        IAC_SHA: ${{ inputs.iac-sha }}
+        PLAYBOOKS_SHA: ${{ inputs.playbooks-sha }}
+      run: python3 "$GITHUB_ACTION_PATH/gate.py"
+

@@ -36,6 +36,12 @@ flowchart TD
 - 每个 workflow 的静态 needs 最长链最多 5 个 job，通常 3–5 个；同阶段目标按矩阵并行。保留真实权限、审批、数据和失败依赖。
 - workflow YAML 负责 inputs、permissions、environment、concurrency、matrix、needs、uses 和 outputs。复杂逻辑封装到所属 owner；不得新增内嵌 shell/Python 执行器。
 
+### 2.1 Daily 固定候选主链
+
+`daily-main-snapshot.yaml` 固定为五层：声明和 SHA 解析 → 组件 owner 构建矩阵 → 候选门禁 → 可选 UAT owner 派发 → 回执汇总。组件矩阵、制品合同和 UAT 目标来自固定 GitOps 声明；构建和发布由 Artifacts owner 接口触发并返回逐组件回执。
+
+Daily 只生成 `daily-build-*` 的不可变 UAT 候选。默认仅构建，显式选择 UAT 时才允许派发；UAT owner 声明未就绪、目标不匹配或回执缺失时必须失败关闭。PROD 不在该主链创建或部署，必须由独立发布授权消费已经验收的同一 digest/候选事实。
+
 ## 3. 声明、版本与调用契约
 
 1. GitOps 是期望配置来源，IaC CMDB 是资源事实来源。禁止按节点、批次、云账号或目录后缀推断专用流程，禁止维护第二套环境配置。
