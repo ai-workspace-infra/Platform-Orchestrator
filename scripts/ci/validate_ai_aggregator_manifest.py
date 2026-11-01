@@ -361,9 +361,10 @@ def main() -> None:
     cidrs = entrypoint.get("source_cidrs", [])
     if enabled and cidrs:
         for cidr in cidrs:
-            network = ipaddress.ip_network(cidr, strict=False)
-            if network.prefixlen not in {32, 128}:
-                fail("v1 only accepts fixed /32 or /128 source addresses")
+            try:
+                ipaddress.ip_network(cidr, strict=True)
+            except ValueError:
+                fail(f"invalid source CIDR: {cidr}")
     # enabled is a non-secret GitOps declaration. An empty allowlist keeps the
     # service intentionally unreachable while artifacts and Vault material are
     # being prepared; stage/activate enforce the allowlist separately.

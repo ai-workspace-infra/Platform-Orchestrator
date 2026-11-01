@@ -35,6 +35,21 @@ class AuthContractTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.check(yaml.safe_load(path.read_text()), True)
 
+    def test_explicit_public_and_network_sources_are_valid(self):
+        data = copy.deepcopy(self.base)
+        data['spec']['enabled'] = True
+        for name in ('new_api', 'cliproxyapi'):
+            data['spec']['artifacts'][name]['revision'] = 'fixture'
+            data['spec']['artifacts'][name]['sha256'] = 'a' * 64
+        for cidr in ('0.0.0.0/0', '::/0', '192.0.2.0/24', '192.0.2.1/32'):
+            with self.subTest(cidr=cidr):
+                data['spec']['entrypoint']['source_cidrs'] = [cidr]
+                self.check(data, True)
+        for cidr in ('192.0.2.1/24', 'invalid'):
+            with self.subTest(cidr=cidr):
+                data['spec']['entrypoint']['source_cidrs'] = [cidr]
+                self.check(data, False)
+
     def test_direct_mode_can_retain_dormant_adapter_for_rollback(self):
         data = copy.deepcopy(self.base)
         data['spec']['gateway']['entry_mode'] = 'direct-new-api'
