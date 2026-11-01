@@ -28,7 +28,7 @@ def prepare(checkout, operation_path, commit, output_root, verify=evidence.verif
     return {'directory':str(destination),'operation_path':operation_path,'gitops_sha':commit,
             'bootstrap_sha256':checked['bootstrap_sha256'],'summary_sha256':checked['summary_sha256'],
             'bootstrap_gitops_sha':spec['evidence']['bootstrap']['gitopsSha'],
-            'iac_sha':spec['evidence']['iac']['iacSha'],'iac_target_manifest':spec['target']['iacTargetManifest'],
+            'iac_sha':spec['evidence']['iac']['iacSha'],'iac_target_manifest':checked['iac_catalog_manifest'],
             'iac_run_id':str(spec['evidence']['iac']['runId']),'iac_attempt':str(spec['evidence']['iac']['attempt']),
             'iac_correlation_id':spec['evidence']['iac']['correlationId'],
             'environment':spec['environment'],'provider':spec['target']['provider'],'account':spec['target']['account'],

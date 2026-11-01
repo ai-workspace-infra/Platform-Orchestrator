@@ -21,7 +21,7 @@ class Prepare(unittest.TestCase):
         subprocess.run(['git','-C',str(self.root),'add','candidate.yaml'],check=True)
         subprocess.run(['git','-C',str(self.root),'commit','-qm','candidate'],check=True)
         self.sha=subprocess.check_output(['git','-C',str(self.root),'rev-parse','HEAD'],text=True).strip()
-        self.data={'bootstrap':b'b','summary':b's','inventory':b'i','bootstrap_sha256':hashlib.sha256(b'b').hexdigest(),'summary_sha256':hashlib.sha256(b's').hexdigest()}
+        self.data={'bootstrap':b'b','summary':b's','inventory':b'i','iac_catalog_manifest':'iac/catalog.yaml','bootstrap_sha256':hashlib.sha256(b'b').hexdigest(),'summary_sha256':hashlib.sha256(b's').hexdigest()}
         self.config={'environment':'uat','target':{'provider':'provider','account':'account','node':'node','iacTargetManifest':'iac/x.yaml'},
              'vault':{'address':'https://vault.example','accessRole':'access','adminRole':'admin','sshKeyPath':'kv/data/ssh','sshKeyField':'SSH_PRIVATE_KEY','providerTokenPath':'kv/data/cloud','providerTokenField':'TOKEN'},
              'evidence':{'bootstrap':{'gitopsSha':'a'*40},'iac':{'iacSha':'b'*40,'runId':1,'attempt':1,'correlationId':'1:1:node'}}}

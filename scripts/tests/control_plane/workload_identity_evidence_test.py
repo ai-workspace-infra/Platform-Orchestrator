@@ -14,14 +14,14 @@ m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 
 class EvidenceTests(unittest.TestCase):
     def setUp(self):
-        self.decl={'environment':'uat','target':{'node':'candidate','kubernetesVersion':'v1.33.4','iacTargetManifest':'iac/test.yaml'},
+        self.decl={'environment':'uat','target':{'node':'candidate','kubernetesVersion':'v1.33.4','iacTargetManifest':'iac/test.yaml','provider':'test-cloud','account':'test-account','declaration':'resources/test.yaml'},
           'evidence':{'bootstrap':{'repository':'example/repo','ref':'v1','commit':'a'*40,'gitopsSha':'b'*40},
                       'iac':{'repository':'example/repo','ref':'v1','commit':'a'*40,'iacSha':'c'*40,'runId':1,'attempt':1,'correlationId':'1:1:candidate','inventorySha256':'d'*64}}}
         common={'runId':1,'attempt':1,'workflow':'workflow','event':'workflow_dispatch','artifactId':1,'artifactName':'artifact','artifactDigest':'sha256:'+'e'*64,'filename':'receipt','fileSha256':'f'*64}
         for row in self.decl['evidence'].values():row.update(common)
         self.boot={'result':'FLUX_HANDOVER_VERIFIED','node':'candidate','version':'v1.33.4','gitops_sha':'b'*40,
                    'common':{'result':'COMMON_NODE_VERIFIED','node':'candidate','cmdb_instance_id':'123','os_identities':'OS_IDENTITY_CHECKS_PASSED'}}
-        self.summary={'result':'applied_verified','context':{'action':'apply','environment':'uat','gitops_sha':'b'*40,'iac_sha':'c'*40,'run_id':'1','run_attempt':'1','correlation_id':'1:1:candidate','manifest_path':'iac/test.yaml'}}
+        self.summary={'result':'applied_verified','context':{'action':'apply','environment':'uat','gitops_sha':'b'*40,'iac_sha':'c'*40,'run_id':'1','run_attempt':'1','correlation_id':'1:1:candidate','manifest_path':'iac/catalog.yaml','declaration_files':{'iac/test.yaml':'hash'},'targets':[{'environment':'uat','provider':'test-cloud','account':'test-account','stages':{'resources':{'manifest':'resources/test.yaml'}}}]}}
         self.inventory={'target':{'candidate':{'instance_id':'123'}}}
     def fake(self,api,fetch,contract):
         if contract['filename']=='inventory.json':return json.dumps(self.inventory).encode()
@@ -39,6 +39,13 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.run_verify()
         self.inventory['target']['candidate']['instance_id']='123';self.summary['context']['environment']='prod'
         with self.assertRaises(ValueError):self.run_verify()
+    def test_rejects_missing_or_wrong_selected_target(self):
+        self.summary['context']['declaration_files'] = {}
+        with self.assertRaises(ValueError): self.run_verify()
+        self.summary['context']['declaration_files'] = {'iac/test.yaml': 'hash'}
+        self.summary['context']['targets'][0]['stages']['resources']['manifest'] = 'resources/other.yaml'
+        with self.assertRaises(ValueError): self.run_verify()
+
     def test_rejects_old_bootstrap_or_missing_os_identity_evidence(self):
         self.boot['result']='PAUSED_BOOTSTRAP_VERIFIED'
         with self.assertRaises(ValueError): self.run_verify()
