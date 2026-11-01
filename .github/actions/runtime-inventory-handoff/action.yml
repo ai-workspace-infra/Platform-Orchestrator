@@ -1,4 +1,4 @@
-name: Select verified Dev bootstrap inventory
+name: Select verified runtime inventory
 description: Control-plane projection of an owner-verified current-run runtime bundle.
 inputs:
   bundle-dir: {required: true, description: Owner-verified summary bundle directory}

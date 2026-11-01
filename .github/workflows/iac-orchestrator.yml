@@ -88,8 +88,8 @@ run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action
         required: false
   workflow_call:
     inputs:
-      dev_bootstrap_handoff:
-        description: Internal caller binding for the single Dev create handoff
+      runtime_inventory_handoff:
+        description: Select a verified single-host runtime inventory after a resources apply
         type: boolean
         required: false
         default: false
@@ -150,15 +150,15 @@ run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action
         default: '{}'
         required: false
     outputs:
-      bootstrap_cmdb_artifact:
-        description: Owner-verified selected Dev inventory artifact
-        value: ${{ jobs.summary.outputs.bootstrap_cmdb_artifact }}
-      bootstrap_cmdb_sha256:
-        description: Selected owner CMDB digest
-        value: ${{ jobs.summary.outputs.bootstrap_cmdb_sha256 }}
-      bootstrap_instance_id:
-        description: Selected runtime instance ID
-        value: ${{ jobs.summary.outputs.bootstrap_instance_id }}
+      runtime_inventory_artifact:
+        description: Verified selected runtime CMDB artifact
+        value: ${{ jobs.summary.outputs.runtime_inventory_artifact }}
+      runtime_inventory_sha256:
+        description: Digest of the verified selected runtime CMDB
+        value: ${{ jobs.summary.outputs.runtime_inventory_sha256 }}
+      runtime_instance_id:
+        description: Verified runtime instance ID
+        value: ${{ jobs.summary.outputs.runtime_instance_id }}
       result:
         description: result
         value: ${{ jobs.summary.outputs.result }}
@@ -414,9 +414,9 @@ jobs:
       - destroy-bootstrap
     runs-on: ubuntu-latest
     outputs:
-      bootstrap_cmdb_artifact: ${{ steps.bootstrap-artifact.outputs.artifact-id && format('dev-bootstrap-cmdb-{0}-{1}', github.run_id, github.run_attempt) || '' }}
-      bootstrap_cmdb_sha256: ${{ steps.select.outputs.cmdb-sha256 }}
-      bootstrap_instance_id: ${{ steps.select.outputs.instance-id }}
+      runtime_inventory_artifact: ${{ steps.runtime-artifact.outputs.artifact-id && format('runtime-inventory-{0}-{1}', github.run_id, github.run_attempt) || '' }}
+      runtime_inventory_sha256: ${{ steps.select.outputs.cmdb-sha256 }}
+      runtime_instance_id: ${{ steps.select.outputs.instance-id }}
       result: ${{ steps.summary.outputs.result }}
       gitops_sha: ${{ steps.summary.outputs.gitops_sha }}
       iac_sha: ${{ steps.summary.outputs.iac_sha }}
@@ -471,10 +471,10 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # Keep verification inside this existing summary stage: the expanded
-      # Dev create graph remains gate/prepare/resources/summary/bootstrap (5).
-      - name: Verify Dev runtime receipt before bootstrap handoff
-        if: inputs.dev_bootstrap_handoff
+      # The optional projection is generic: the action binds the selected
+      # single-host CMDB to the current IaC receipt, target, state and matrix.
+      - name: Verify current runtime receipt before inventory handoff
+        if: inputs.runtime_inventory_handoff
         uses: ./iac_modules/.github/actions/iac-receipt-verify
         with:
           summary-file: ${{ runner.temp }}/iac-summary/summary.json
@@ -487,19 +487,19 @@ jobs:
           action: apply
           correlation-id: ${{ inputs.correlation_id }}
       - id: select
-        if: inputs.dev_bootstrap_handoff
-        uses: ./.github/actions/dev-bootstrap-handoff
+        if: inputs.runtime_inventory_handoff
+        uses: ./.github/actions/runtime-inventory-handoff
         with:
           bundle-dir: ${{ runner.temp }}/iac-summary
           receipt-artifact-id: ${{ steps.receipt.outputs.artifact-id }}
           inventory-artifact-id: ${{ steps.receipt.outputs.artifact-id }}
           deploy-matrix: ${{ steps.summary.outputs.deploy_matrix }}
-          destination: ${{ runner.temp }}/dev-bootstrap-cmdb
-      - id: bootstrap-artifact
-        if: inputs.dev_bootstrap_handoff
+          destination: ${{ runner.temp }}/runtime-inventory
+      - id: runtime-artifact
+        if: inputs.runtime_inventory_handoff
         uses: actions/upload-artifact@v4
         with:
-          name: dev-bootstrap-cmdb-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/dev-bootstrap-cmdb/cmdb.json
+          name: runtime-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runtime-inventory/cmdb.json
           if-no-files-found: error
           retention-days: 7

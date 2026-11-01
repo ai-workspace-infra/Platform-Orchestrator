@@ -99,7 +99,7 @@ def foundation(reader,run_id,summary_id,bootstrap_id):
  require(reader.api(f'repos/{GITOPS}/compare/{platform}...{main}').get('status') in ('ahead','identical'),'platform commit is not on protected main')
  require(context.get('run_id')==str(run_id) and context.get('run_attempt')=='1' and context.get('workflow_sha')==source and context.get('gitops_sha')==platform and context.get('iac_sha')==iac and context.get('workflow_ref')=='ai-workspace-infra/platform-ops-toolkit/.github/workflows/dev-host-lifecycle.yml@refs/heads/main','original owner document provenance mismatch')
  require(all(r.get('run_attempt')=='1' and r.get('run_id')==str(run_id) and r.get('workflow_sha')==source and r.get('iac_sha')==iac and r.get('result')=='applied_verified' for r in summary.get('receipts',[])),'resource receipt identity mismatch')
- handoff=load('existing_dev_handoff',Path(__file__).parents[1]/'dev-bootstrap-handoff/handoff.py')
+ handoff=load('runtime_inventory_handoff',Path(__file__).parents[1]/'runtime-inventory-handoff/handoff.py')
  raw,instance=handoff.select(summary,inventories,summary['deploy_matrix'])
  bootstrap=payload(bootstrap_id,f'dev-k3s-bootstrap-{run_id}-2','receipt.json')
  digest=hashlib.sha256(raw.encode()).hexdigest()

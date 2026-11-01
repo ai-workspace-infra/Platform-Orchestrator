@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
-"""Select an already owner-verified runtime inventory; no cloud/host execution."""
+"""Select a receipt-bound single-host runtime inventory; no cloud/host execution."""
 import hashlib
 import json
 import os
 from pathlib import Path
-
-TARGET_ID = "dev-akamai-dev-k3s-v5"
-HOST = "dev-k3s-v5"
-STATE = "terraform/dev/svc.plus/akamai-cloud/manbuzhe2026/dev-k3s-v5/terraform.tfstate"
-
 
 def require(condition, message):
     if not condition:
@@ -16,24 +11,27 @@ def require(condition, message):
 
 
 def select(summary, inventories, matrix):
-    require(summary.get("result") == "applied_verified", "bootstrap requires applied_verified")
+    require(summary.get("result") == "applied_verified", "runtime handoff requires applied_verified")
     context = summary["context"]
-    require(context.get("environment") == "dev" and context.get("action") == "apply" and context.get("stages") == ["resources"], "wrong action/environment/stages")
+    require(context.get("action") == "apply" and context.get("stages") == ["resources"], "runtime handoff requires a resources-only apply")
     targets = context.get("targets", [])
-    require(len(targets) == 1 and targets[0].get("id") == TARGET_ID, "not the unique Dev target")
+    require(len(targets) == 1 and isinstance(targets[0].get("id"), str), "runtime handoff requires exactly one declared target")
     target = targets[0]
-    for key, expected in {"environment": "dev", "project": "svc.plus", "provider": "akamai-cloud", "account": "manbuzhe2026", "namespace": HOST}.items():
-        require(target.get(key) == expected, "target identity mismatch: " + key)
-    require(target.get("stages", {}).get("resources", {}).get("state", {}).get("key") == STATE, "canonical Dev state mismatch")
-    require(set(inventories) == {TARGET_ID}, "unexpected inventory target")
-    cmdb = inventories[TARGET_ID]
-    require(isinstance(cmdb, dict) and set(cmdb) == {HOST}, "runtime CMDB must contain exactly one Dev host")
-    facts = cmdb[HOST]
-    require(facts.get("name") == HOST and facts.get("label") == HOST, "runtime host identity mismatch")
+    target_id = target["id"]
+    require(target.get("environment") == context.get("environment"), "target/environment identity mismatch")
+    require(all(isinstance(target.get(key), str) and target[key] for key in ("project", "provider", "account", "namespace")), "target identity is incomplete")
+    state_key = target.get("stages", {}).get("resources", {}).get("state", {}).get("key")
+    require(isinstance(state_key, str) and state_key, "target resources state identity is missing")
+    require(set(inventories) == {target_id}, "unexpected inventory target")
+    cmdb = inventories[target_id]
+    require(isinstance(cmdb, dict) and len(cmdb) == 1, "runtime CMDB must contain exactly one host")
+    host, facts = next(iter(cmdb.items()))
+    require(isinstance(host, str) and isinstance(facts, dict), "runtime host facts are malformed")
+    require(facts.get("name") == host and facts.get("label") == host, "runtime host identity mismatch")
     require(str(facts.get("instance_id", "")).isdecimal() and int(facts["instance_id"]) > 0 and facts.get("ip"), "missing runtime instance identity")
-    require(summary.get("deploy_matrix") == matrix == [{"target_id": TARGET_ID, "host": HOST, **facts}], "deploy matrix does not match verified runtime inventory")
+    require(summary.get("deploy_matrix") == matrix == [{"target_id": target_id, "host": host, **facts}], "deploy matrix does not match verified runtime inventory")
     receipts = summary.get("receipts", [])
-    require(len(receipts) == 1 and receipts[0].get("target_id") == TARGET_ID and receipts[0].get("stage") == "resources", "missing resource receipt")
+    require(len(receipts) == 1 and receipts[0].get("target_id") == target_id and receipts[0].get("stage") == "resources", "missing resource receipt")
     raw = json.dumps(cmdb, sort_keys=True, indent=2) + "\n"
     require(hashlib.sha256(raw.encode()).hexdigest() == receipts[0].get("inventory_sha256"), "selected inventory digest differs from owner receipt")
     # This is a byte-equivalent selection of the owner's public target mapping,
