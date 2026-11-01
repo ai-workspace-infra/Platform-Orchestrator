@@ -41,8 +41,12 @@ def verify(spec, api=matrix.api, artifact_file=matrix.artifact_file):
         if (summary['result']!='applied_verified' or c['action']!='apply' or c['environment']!=spec['environment']
                 or c['gitops_sha']!=boot['gitopsSha'] or c['iac_sha']!=iac['iacSha']
                 or str(c['run_id'])!=str(iac['runId']) or str(c['run_attempt'])!=str(iac['attempt'])
-                or c['correlation_id']!=iac['correlationId'] or c['manifest_path']!=target['iacTargetManifest']):
+                or c['correlation_id']!=iac['correlationId']
+                or target['iacTargetManifest'] not in c['declaration_files']):
             raise ValueError('IaC summary does not match target and bootstrap')
+        matches=[t for t in c['targets'] if t['environment']==spec['environment'] and t['provider']==target['provider'] and t['account']==target['account'] and t['stages']['resources']['manifest']==target['declaration']]
+        if len(matches)!=1:
+            raise ValueError('IaC selected target does not match identity declaration')
         data=json.loads(inventory)
         matching=[v[target['node']] for v in data.values() if isinstance(v,dict) and target['node'] in v]
         if len(matching)!=1 or str(matching[0]['instance_id'])!=str(b['common']['cmdb_instance_id']):
@@ -50,4 +54,5 @@ def verify(spec, api=matrix.api, artifact_file=matrix.artifact_file):
     except (KeyError,TypeError,json.JSONDecodeError):
         raise ValueError('invalid identity evidence') from None
     return {'bootstrap':raw_boot,'summary':raw_iac,'inventory':inventory,
-            'bootstrap_sha256':hashlib.sha256(raw_boot).hexdigest(),'summary_sha256':hashlib.sha256(raw_iac).hexdigest()}
+            'bootstrap_sha256':hashlib.sha256(raw_boot).hexdigest(),'summary_sha256':hashlib.sha256(raw_iac).hexdigest(),
+            'iac_catalog_manifest': c['manifest_path']}
