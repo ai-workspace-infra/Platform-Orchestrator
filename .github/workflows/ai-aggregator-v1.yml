@@ -162,8 +162,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install manifest parser
-        run: pip install --quiet pyyaml
+      - name: Install dispatch validation dependencies
+        run: pip install --quiet ansible-core pyyaml
       - name: Pin the checked-out GitOps declaration
         id: gitops_revision
         run: echo "ref=$(git -C gitops rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -192,60 +192,18 @@ jobs:
             --ssh-user "$SSH_USER" \
             --resource-mode "$RESOURCE_MODE" \
             --output "$GITHUB_OUTPUT"
-
-  plan:
-    needs: [validate, resolve-provider]
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: ai-workspace-infra/playbooks
-          ref: ${{ needs.resolve-provider.outputs.playbooks_sha }}
-          path: playbooks
-      - uses: actions/checkout@v4
-        with:
-          repository: ai-workspace-infra/gitops
-          ref: ${{ needs.resolve-provider.outputs.gitops_ref }}
-          path: gitops
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install Ansible
-        run: pip install --quiet ansible-core pyyaml
-      - name: Render input-selected deployment declaration
+      - name: Validate selected declaration and Playbooks syntax
         env:
-          REQUESTED_PROVIDER: ${{ inputs.provider }}
-          REQUESTED_ENVIRONMENT: ${{ inputs.environment }}
-          DEPLOYMENT_PROFILE: ${{ inputs.deployment_profile }}
-          OPERATION: ${{ inputs.operation }}
-          TARGET_HOSTNAME: ${{ inputs.target_hostname }}
-          TARGET_DOMAIN: ${{ inputs.target_domain }}
-          SSH_USER: ${{ inputs.ssh_user }}
-          RESOURCE_MODE: ${{ inputs.resource_mode }}
+          MANIFEST_PATH: ${{ steps.provider.outputs.manifest_path }}
         run: |
-          python3 scripts/ci/resolve_ai_aggregator_deployment.py \
-            --environment "$REQUESTED_ENVIRONMENT" \
-            --profile "$DEPLOYMENT_PROFILE" \
-            --provider "$REQUESTED_PROVIDER" \
-            --operation "$OPERATION" \
-            --target-hostname "$TARGET_HOSTNAME" \
-            --target-domain "$TARGET_DOMAIN" \
-            --ssh-user "$SSH_USER" \
-            --resource-mode "$RESOURCE_MODE" \
-            --output "$RUNNER_TEMP/ai-aggregator-deployment-output"
-          python3 scripts/ci/validate_ai_aggregator_manifest.py \
-            "${{ needs.resolve-provider.outputs.manifest_path }}"
-      - name: Check deployment syntax
-        working-directory: playbooks
-        run: |
-          ansible-playbook --syntax-check -i localhost, deploy-ai-aggregator-v1.yml \
-            -e ai_aggregator_manifest_file=${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
-          ansible-playbook --syntax-check -i localhost, deploy_ai_aggregator.yaml
+          set -euo pipefail
+          python3 scripts/ci/validate_ai_aggregator_manifest.py "$MANIFEST_PATH"
+          ansible-playbook -C --syntax-check -i localhost, playbooks/deploy-ai-aggregator-v1.yml \
+            -e "ai_aggregator_manifest_file=${GITHUB_WORKSPACE}/${MANIFEST_PATH}"
+          ansible-playbook -C --syntax-check -i localhost, playbooks/deploy_ai_aggregator.yaml
 
   aws-deploy:
-    needs: [validate, resolve-provider, plan]
+    needs: [validate, resolve-provider]
     if: >-
       ${{ github.event_name == 'workflow_dispatch' &&
       needs.resolve-provider.outputs.provider == 'aws' &&
@@ -400,7 +358,7 @@ jobs:
         run: terraform -chdir="${{ steps.contract.outputs.workdir }}" destroy -auto-approve
 
   gcp-deploy:
-    needs: [validate, resolve-provider, plan]
+    needs: [validate, resolve-provider]
     if: >-
       ${{ github.event_name == 'workflow_dispatch' &&
       needs.resolve-provider.outputs.provider == 'gcp' &&
@@ -696,7 +654,7 @@ jobs:
           fi
 
   vps-deploy:
-    needs: [validate, resolve-provider, plan]
+    needs: [validate, resolve-provider]
     if: >-
       ${{ github.event_name == 'workflow_dispatch' &&
       needs.resolve-provider.outputs.provider == 'vps' &&
@@ -822,7 +780,7 @@ jobs:
         run: terraform -chdir="${{ steps.contract.outputs.workdir }}" destroy -auto-approve
 
   iac-resources:
-    needs: [validate, resolve-provider, plan]
+    needs: [validate, resolve-provider]
     if: >-
       ${{ github.event_name == 'workflow_dispatch' &&
       needs.resolve-provider.outputs.provider == 'akamai-cloud' &&
@@ -843,7 +801,7 @@ jobs:
     secrets: inherit
 
   akamai-deploy:
-    needs: [validate, resolve-provider, plan, iac-resources]
+    needs: [validate, resolve-provider, iac-resources]
     if: >-
       ${{ github.event_name == 'workflow_dispatch' &&
       needs.resolve-provider.outputs.provider == 'akamai-cloud' &&
