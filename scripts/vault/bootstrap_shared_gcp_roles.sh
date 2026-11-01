@@ -140,6 +140,24 @@ if [[ "${runtime_mode}" == enabled ]]; then
     echo "--runtime-environment must be uat, prod, or shared" >&2
     exit 2
   }
+  if [[ -z "${GCP_WORKLOAD_IDENTITY_PROVIDER:-}" ]]; then
+    : "${PROJECT_ID:?PROJECT_ID is required when GCP_WORKLOAD_IDENTITY_PROVIDER is omitted}"
+    : "${POOL_ID:?POOL_ID is required when GCP_WORKLOAD_IDENTITY_PROVIDER is omitted}"
+    : "${PROVIDER_ID:?PROVIDER_ID is required when GCP_WORKLOAD_IDENTITY_PROVIDER is omitted}"
+    command -v gcloud >/dev/null 2>&1 || {
+      echo "gcloud is required to resolve GCP_WORKLOAD_IDENTITY_PROVIDER" >&2
+      exit 2
+    }
+    project_number="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')" || {
+      echo "cannot resolve project number for ${PROJECT_ID}" >&2
+      exit 1
+    }
+    export GCP_WORKLOAD_IDENTITY_PROVIDER="projects/${project_number}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"
+  fi
+  if [[ -z "${GCP_SERVICE_ACCOUNT_EMAIL:-}" ]]; then
+    : "${PROJECT_ID:?PROJECT_ID is required when GCP_SERVICE_ACCOUNT_EMAIL is omitted}"
+    export GCP_SERVICE_ACCOUNT_EMAIL="github-actions-${runtime_environment}@${PROJECT_ID}.iam.gserviceaccount.com"
+  fi
   [[ "${GCP_WORKLOAD_IDENTITY_PROVIDER:-}" =~ ^projects/[0-9]+/locations/global/workloadIdentityPools/[a-z][a-z0-9-]{0,31}/providers/[a-z][a-z0-9-]{0,31}$ ]] || {
     echo "GCP_WORKLOAD_IDENTITY_PROVIDER must be a full active provider resource name" >&2
     exit 2
