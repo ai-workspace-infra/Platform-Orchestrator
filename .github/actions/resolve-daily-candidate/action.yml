@@ -1,0 +1,50 @@
+name: Resolve Daily candidate declaration
+description: Parse the pinned GitOps policy, resolve owner SHAs, and allocate one unused UAT candidate ID.
+inputs:
+  gitops-root: {required: true, description: Pinned GitOps checkout}
+  artifacts-root: {required: true, description: Pinned Artifacts checkout}
+  iac-root: {required: true, description: Pinned IaC checkout}
+  playbooks-root: {required: true, description: Pinned Playbooks checkout}
+  policy-path: {required: true, description: Policy path relative to the GitOps checkout}
+  source-ref: {required: true, description: Selected base source ref}
+  delivery-scope: {required: true, description: Selected delivery scope}
+  snapshot-tag: {required: false, default: "", description: Optional unused UAT candidate ID}
+  deploy-after-build: {required: true, description: Whether an explicit UAT dispatch was requested}
+  target-ref: {required: false, default: "", description: Explicit GitOps UAT target identifier}
+  github-app-client-id: {required: true, description: Runtime GitHub App client ID}
+  github-app-private-key: {required: true, description: Runtime GitHub App private key}
+outputs:
+  candidate_id:
+    value: ${{ steps.resolve.outputs.candidate_id }}
+  component_matrix:
+    value: ${{ steps.resolve.outputs.component_matrix }}
+  gitops_sha:
+    value: ${{ steps.resolve.outputs.gitops_sha }}
+  artifacts_sha:
+    value: ${{ steps.resolve.outputs.artifacts_sha }}
+  iac_sha:
+    value: ${{ steps.resolve.outputs.iac_sha }}
+  playbooks_sha:
+    value: ${{ steps.resolve.outputs.playbooks_sha }}
+  uat_dispatch:
+    value: ${{ steps.resolve.outputs.uat_dispatch }}
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        GITOPS_ROOT: ${{ inputs.gitops-root }}
+        ARTIFACTS_ROOT: ${{ inputs.artifacts-root }}
+        IAC_ROOT: ${{ inputs.iac-root }}
+        PLAYBOOKS_ROOT: ${{ inputs.playbooks-root }}
+        CANDIDATE_POLICY_PATH: ${{ inputs.policy-path }}
+        SELECTED_SOURCE_REF: ${{ inputs.source-ref }}
+        SELECTED_DELIVERY_SCOPE: ${{ inputs.delivery-scope }}
+        REQUESTED_SNAPSHOT_TAG: ${{ inputs.snapshot-tag }}
+        DEPLOY_AFTER_BUILD: ${{ inputs.deploy-after-build }}
+        SELECTED_TARGET_REF: ${{ inputs.target-ref }}
+        GITHUB_APP_CLIENT_ID: ${{ inputs.github-app-client-id }}
+        GITHUB_APP_PRIVATE_KEY: ${{ inputs.github-app-private-key }}
+      run: ruby "$GITHUB_ACTION_PATH/resolve.rb"
+

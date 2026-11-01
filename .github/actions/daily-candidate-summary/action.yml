@@ -1,0 +1,38 @@
+name: Summarize Daily candidate run
+description: Publish an auditable final summary and fail on missing or unsuccessful required evidence.
+inputs:
+  candidate-id: {required: false, default: "", description: Resolved candidate ID}
+  candidate-fingerprint: {required: false, default: "", description: Candidate manifest fingerprint}
+  deploy-requested: {required: true, description: Whether UAT dispatch was requested}
+  prepare-result: {required: true, description: Prepare job result}
+  build-result: {required: true, description: Build matrix result}
+  gate-result: {required: true, description: Candidate gate result}
+  dispatch-result: {required: true, description: UAT dispatch job result}
+outputs:
+  accepted:
+    value: ${{ steps.write.outputs.accepted }}
+runs:
+  using: composite
+  steps:
+    - id: write
+      shell: bash
+      env:
+        CANDIDATE_ID: ${{ inputs.candidate-id }}
+        CANDIDATE_FINGERPRINT: ${{ inputs.candidate-fingerprint }}
+        DEPLOY_REQUESTED: ${{ inputs.deploy-requested }}
+        PREPARE_RESULT: ${{ inputs.prepare-result }}
+        BUILD_RESULT: ${{ inputs.build-result }}
+        GATE_RESULT: ${{ inputs.gate-result }}
+        DISPATCH_RESULT: ${{ inputs.dispatch-result }}
+      run: ruby "$GITHUB_ACTION_PATH/summary.rb" write
+    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: daily-candidate-summary-${{ github.run_id }}-${{ github.run_attempt }}
+        path: ${{ steps.write.outputs.summary_path }}
+        if-no-files-found: error
+        retention-days: 30
+    - shell: bash
+      env:
+        ACCEPTED: ${{ steps.write.outputs.accepted }}
+      run: ruby "$GITHUB_ACTION_PATH/summary.rb" enforce
+

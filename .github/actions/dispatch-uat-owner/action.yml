@@ -1,0 +1,30 @@
+name: Dispatch declared UAT owner
+description: Dispatch one GitOps-declared UAT owner workflow, wait for its exact run, and validate its receipt.
+inputs:
+  dispatch-json: {required: true, description: Validated GitOps UAT dispatch declaration}
+  candidate-manifest: {required: true, description: Candidate manifest path}
+  candidate-fingerprint: {required: true, description: Candidate manifest fingerprint}
+  github-app-client-id: {required: true, description: Runtime GitHub App client ID}
+  github-app-private-key: {required: true, description: Runtime GitHub App private key}
+  timeout-seconds: {required: false, default: "3600", description: Owner run timeout}
+outputs:
+  receipt_path:
+    value: ${{ steps.dispatch.outputs.receipt_path }}
+  run_id:
+    value: ${{ steps.dispatch.outputs.run_id }}
+  run_attempt:
+    value: ${{ steps.dispatch.outputs.run_attempt }}
+runs:
+  using: composite
+  steps:
+    - id: dispatch
+      shell: bash
+      env:
+        UAT_DISPATCH_JSON: ${{ inputs.dispatch-json }}
+        CANDIDATE_MANIFEST: ${{ inputs.candidate-manifest }}
+        CANDIDATE_FINGERPRINT: ${{ inputs.candidate-fingerprint }}
+        GITHUB_APP_CLIENT_ID: ${{ inputs.github-app-client-id }}
+        GITHUB_APP_PRIVATE_KEY: ${{ inputs.github-app-private-key }}
+        UAT_OWNER_TIMEOUT_SECONDS: ${{ inputs.timeout-seconds }}
+      run: node "$GITHUB_ACTION_PATH/dispatch.mjs"
+
