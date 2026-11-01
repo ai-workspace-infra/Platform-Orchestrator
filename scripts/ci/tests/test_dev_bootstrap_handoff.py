@@ -19,7 +19,7 @@ def load(name, path):
     return module
 
 
-HANDOFF = load("dev_handoff", ROOT / ".github/actions/dev-bootstrap-handoff/handoff.py")
+HANDOFF = load("runtime_handoff", ROOT / ".github/actions/runtime-inventory-handoff/handoff.py")
 
 
 class Workflow(unittest.TestCase):
@@ -28,7 +28,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("inputs.operation == 'create'", jobs["bootstrap"]["if"])
         self.assertIn("needs.iac.result == 'success'", jobs["bootstrap"]["if"])
         self.assertIn("needs.gate.result == 'success'", jobs["bootstrap"]["if"])
-        self.assertEqual(jobs["iac"]["with"]["dev_bootstrap_handoff"], "${{ inputs.operation == 'create' }}")
+        self.assertEqual(jobs["iac"]["with"]["runtime_inventory_handoff"], "${{ inputs.operation == 'create' }}")
         self.assertRegex(jobs["bootstrap"]["uses"], r"dev-k3s-bootstrap.yml@[0-9a-f]{40}$")
         self.assertEqual(set(jobs), {"gate", "iac", "bootstrap"})
         owner = yaml.safe_load((ROOT / ".github/workflows/iac-orchestrator.yml").read_text())
@@ -37,7 +37,7 @@ class Workflow(unittest.TestCase):
         select_index = next(i for i,s in enumerate(summary) if s.get("id") == "select")
         self.assertLess(verify_index, select_index)
         for step in summary[verify_index:]:
-            self.assertEqual(step["if"], "inputs.dev_bootstrap_handoff")
+            self.assertEqual(step["if"], "inputs.runtime_inventory_handoff")
         depth = load("stage_depth", ROOT / "scripts/ci/workflow_stage_depth_verify.py")
         # This caller fixes scope=resources: bootstrap/account/destroy jobs
         # are existing unselected branches, never executed create stages.
@@ -71,16 +71,17 @@ class ActualProducerBundle(unittest.TestCase):
         self.fixture = self.catalog_tests.CatalogTests()
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
-        target = self.fixture.dev_target(HANDOFF.HOST)
-        target.update(id=HANDOFF.TARGET_ID, project="svc.plus", account="manbuzhe2026")
-        target["stages"]["resources"]["state"]["key"] = HANDOFF.STATE
+        target = self.fixture.dev_target("dev-k3s-v5")
+        target.update(id="dev-akamai-dev-k3s-v5", project="svc.plus", account="manbuzhe2026")
+        target["namespace"] = "dev-k3s-v5"
+        target["stages"]["resources"]["state"]["key"] = "terraform/dev/svc.plus/akamai-cloud/manbuzhe2026/dev-k3s-v5/terraform.tfstate"
         self.fixture.publish_dev(target)
         self.context = self.fixture.dev_context("apply")
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        raw = {HANDOFF.HOST: {"name": HANDOFF.HOST, "label": HANDOFF.HOST, "instance_id": 123, "ip": "198.51.100.10", "groups": ["dev", "k3s"], "host_vars": {
-            "cloud_provider": "akamai-cloud", "cloud_region": "jp-tyo-3", "k3s_platform_node_name": HANDOFF.HOST,
+        raw = {"dev-k3s-v5": {"name": "dev-k3s-v5", "label": "dev-k3s-v5", "instance_id": 123, "ip": "198.51.100.10", "groups": ["dev", "k3s"], "host_vars": {
+            "cloud_provider": "akamai-cloud", "cloud_region": "jp-tyo-3", "k3s_platform_node_name": "dev-k3s-v5",
             "k3s_platform_k3s_version": "v1.37.1+k3s1", "k3s_platform_write_kubeconfig_mode": "0600"}}}
         self.cmdb = self.api["sanitize"](raw)
         evidence = self.root / "stage"
@@ -110,7 +111,7 @@ class ActualProducerBundle(unittest.TestCase):
             with self.assertRaises(ValueError):
                 HANDOFF.select(self.summary, inventories, self.summary["deploy_matrix"])
         inventory = copy.deepcopy(self.inventories)
-        inventory[HANDOFF.TARGET_ID][HANDOFF.HOST].pop("instance_id")
+        inventory["dev-akamai-dev-k3s-v5"]["dev-k3s-v5"].pop("instance_id")
         with self.assertRaises(ValueError):
             HANDOFF.select(self.summary, inventory, self.summary["deploy_matrix"])
 

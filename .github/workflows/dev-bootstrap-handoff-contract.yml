@@ -8,7 +8,7 @@ on:
     paths:
       - '.github/workflows/dev-host-lifecycle.yml'
       - '.github/workflows/dev-bootstrap-handoff-contract.yml'
-      - '.github/actions/dev-bootstrap-handoff/**'
+      - '.github/actions/runtime-inventory-handoff/**'
       - 'scripts/ci/tests/test_dev_bootstrap_handoff.py'
 permissions:
   contents: read
