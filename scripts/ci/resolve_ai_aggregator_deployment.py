@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 from pathlib import Path
 import re
@@ -14,6 +15,8 @@ import yaml
 PROVIDERS = {"aws", "gcp", "vps", "akamai-cloud", "existing"}
 OPERATIONS = {"plan", "apply", "provision", "stage", "activate"}
 NAME = re.compile(r"[a-z][a-z0-9-]*\Z")
+HOSTNAME = re.compile(r"(?=.{1,253}\Z)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?))*\Z")
+SSH_USER = re.compile(r"[a-z_][a-z0-9_-]{0,31}\$?\Z")
 
 
 def resource_adapter(contract):
@@ -31,7 +34,17 @@ def resource_adapter(contract):
     raise ValueError(f"unsupported resource renderer: {renderer}")
 
 
-def resolve(root: Path, environment: str, profile: str, provider: str, operation: str):
+def resolve(
+    root: Path,
+    environment: str,
+    profile: str,
+    provider: str,
+    operation: str,
+    target_ip: str = "",
+    target_hostname: str = "",
+    target_domain: str = "",
+    ssh_user: str = "",
+):
     if not NAME.fullmatch(environment):
         raise ValueError("environment must be a lowercase name containing letters, digits or hyphens")
     if profile not in {"single-node", "distributed"}:
@@ -66,6 +79,34 @@ def resolve(root: Path, environment: str, profile: str, provider: str, operation
         raise ValueError(f"{operation} requires spec.enabled: true in {path}; no resources will be created")
     if selected == "existing" and operation in {"apply", "provision"}:
         raise ValueError("existing nodes support plan, stage and activate only")
+    if selected == "existing":
+        target_values = (target_ip, target_hostname, target_domain, ssh_user)
+        if operation in {"stage", "activate"} and not all(target_values):
+            raise ValueError("provider=existing requires target_ip, target_hostname, target_domain and ssh_user inputs")
+        if any(target_values):
+            if not all(target_values):
+                raise ValueError("existing-target inputs must be supplied together")
+            try:
+                parsed_ip = ipaddress.ip_address(target_ip)
+            except ValueError as error:
+                raise ValueError("target_ip must be a valid IP address") from error
+            if parsed_ip.version != 4 or not parsed_ip.is_global:
+                raise ValueError("target_ip must be a public IPv4 address")
+            if not HOSTNAME.fullmatch(target_hostname) or not HOSTNAME.fullmatch(target_domain):
+                raise ValueError("target_hostname and target_domain must be DNS hostnames")
+            if not SSH_USER.fullmatch(ssh_user):
+                raise ValueError("ssh_user contains unsupported characters")
+            nodes = spec.get("nodes", [])
+            matches = [node for node in nodes if node.get("inventory_host") == target_hostname]
+            if len(matches) != 1:
+                raise ValueError(f"target_hostname must match exactly one declared inventory_host: {target_hostname}")
+            if spec.get("entrypoint", {}).get("domain") != target_domain:
+                raise ValueError("target_domain must exactly match spec.entrypoint.domain")
+            declared_user = matches[0].get("ssh_user")
+            if not declared_user or declared_user != ssh_user:
+                raise ValueError("ssh_user must exactly match the selected GitOps node's ssh_user")
+    elif any((target_ip, target_hostname, target_domain, ssh_user)):
+        raise ValueError("target connection inputs are only valid when provider=existing")
     entries = []
     contract = infrastructure.get("resource_contract", {})
     for raw in contract.get("manifests", []) if selected == "akamai-cloud" else []:
@@ -99,6 +140,10 @@ def resolve(root: Path, environment: str, profile: str, provider: str, operation
         "lifecycle": infrastructure.get("lifecycle", ""),
         "domain_base": domain.partition(".")[2],
         "akamai_matrix": json.dumps({"include": entries}, separators=(",", ":")),
+        "target_ip": target_ip,
+        "target_hostname": target_hostname,
+        "target_domain": target_domain,
+        "ssh_user": ssh_user,
     }
 
 
@@ -124,10 +169,17 @@ def main():
     parser.add_argument("--profile", default="single-node")
     parser.add_argument("--provider", default="gcp")
     parser.add_argument("--operation", default="plan")
+    parser.add_argument("--target-ip", default="")
+    parser.add_argument("--target-hostname", default="")
+    parser.add_argument("--target-domain", default="")
+    parser.add_argument("--ssh-user", default="")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
-        outputs = resolve(args.gitops_root, args.environment, args.profile, args.provider, args.operation)
+        outputs = resolve(
+            args.gitops_root, args.environment, args.profile, args.provider,
+            args.operation, args.target_ip, args.target_hostname, args.target_domain, args.ssh_user,
+        )
     except (ValueError, KeyError) as error:
         parser.exit(1, f"deployment resolution failed: {error}\n")
     materialize(outputs)
