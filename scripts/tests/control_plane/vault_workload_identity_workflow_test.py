@@ -9,11 +9,19 @@ class Workflow(unittest.TestCase):
         self.steps=self.w['jobs']['identity']['steps']
     def test_reviewed_inputs_and_protected_ref(self):
         trigger=self.w.get('on',self.w.get(True))['workflow_dispatch']['inputs']
-        self.assertEqual(set(trigger),{'mode','gitops_tag','operation_path','environment','playbooks_sha'})
+        self.assertEqual(set(trigger),{'mode','gitops_ref','operation_path','environment','playbooks_sha'})
         self.assertEqual(self.w['jobs']['identity']['needs'],'validate')
         self.assertEqual(self.w['jobs']['identity']['environment'],'${{ inputs.environment }}')
         guard=self.w['jobs']['validate']['steps'][0]['run']
         self.assertIn('"$REF_PROTECTED" == true',guard)
+    def test_main_source_is_resolved_without_a_gitops_tag(self):
+        trigger=self.w.get('on',self.w.get(True))['workflow_dispatch']['inputs']
+        self.assertEqual(trigger['gitops_ref']['default'], 'main')
+        self.assertEqual(trigger['mode']['options'], ['configure', 'verify'])
+        action=next(x for x in self.steps if x.get('uses')=='./playbooks/.github/actions/workload-identity-operation')
+        self.assertNotIn('gitops-tag', action['with'])
+        self.assertEqual(action['with']['gitops-sha'], '${{ steps.releases.outputs.gitops_sha }}')
+
     def test_evidence_and_owner_are_connected(self):
         names=[x.get('name','') for x in self.steps]
         self.assertLess(names.index('Verify declared operation and evidence'),names.index('Acquire host access identity'))
