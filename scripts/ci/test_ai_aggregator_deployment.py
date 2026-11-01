@@ -211,22 +211,35 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(environment["options"], ["uat", "prod"])
         self.assertNotIn("default", environment)
 
-    def test_mutations_require_plan_and_use_event_provider(self):
+    def test_mutations_require_validation_and_use_event_provider(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/ai-aggregator-v1.yml").read_text())
         for provider, job in (("aws", "aws-deploy"), ("gcp", "gcp-deploy"), ("vps", "vps-deploy"),
                               ("akamai-cloud", "akamai-deploy")):
             with self.subTest(job=job):
                 declaration = workflow["jobs"][job]
-                self.assertIn("plan", declaration["needs"])
+                self.assertIn("validate", declaration["needs"])
+                self.assertIn("resolve-provider", declaration["needs"])
                 self.assertIn("github.event_name == 'workflow_dispatch'", declaration["if"])
                 self.assertIn(f"outputs.provider == '{provider}'", declaration["if"])
                 self.assertNotIn("outputs.deployment_environment", declaration["if"])
+
+    def test_dispatch_preflight_is_folded_into_resolver_without_extra_job(self):
+        from workflow_stage_depth_verify import longest_chain
+
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ai-aggregator-v1.yml").read_text())
+        jobs = workflow["jobs"]
+        self.assertNotIn("plan", jobs)
+        self.assertIn("Validate selected declaration and Playbooks syntax", [
+            step.get("name") for step in jobs["resolve-provider"]["steps"]
+        ])
+        self.assertEqual(len(longest_chain(jobs)), 4)
 
     def test_akamai_resource_handoff_stays_with_iac_and_playbooks_owners(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/ai-aggregator-v1.yml").read_text())
         jobs = workflow["jobs"]
         self.assertEqual(jobs["iac-resources"]["uses"], "./.github/workflows/iac-orchestrator.yml")
         self.assertIn("resource_mode", jobs["iac-resources"]["with"])
+        self.assertEqual(jobs["iac-resources"]["with"]["action"], "${{ inputs.operation == 'plan' && 'plan' || 'apply' }}")
         deploy = jobs["akamai-deploy"]
         self.assertIn("needs.iac-resources.outputs.result == 'applied_verified'", deploy["if"])
         actions = [step.get("uses", "") for step in deploy["steps"]]
