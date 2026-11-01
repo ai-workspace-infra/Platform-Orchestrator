@@ -20,6 +20,8 @@ def prepare(checkout, operation_path, commit, output_root, parent_run_id, reposi
     if head!=commit or dirty:raise ValueError('GitOps checkout is not the clean selected commit')
     spec=resolver.load(root,operation_path)
     checked=verify(spec,parent_run_id=parent_run_id,repository=repository)
+    bootstrap=json.loads(checked['bootstrap'])
+    iac_context=json.loads(checked['summary'])['context']
     destination=Path(output_root)/'workload-identity-inputs'
     destination.mkdir(mode=0o700,parents=False,exist_ok=False)
     for name,key in (('bootstrap.json','bootstrap'),('summary.json','summary'),('inventory.json','inventory')):
@@ -28,10 +30,10 @@ def prepare(checkout, operation_path, commit, output_root, parent_run_id, reposi
     return {'directory':str(destination),'operation_path':operation_path,'gitops_sha':commit,
             'parent_run_id':str(parent_run_id),
             'bootstrap_sha256':checked['bootstrap_sha256'],'summary_sha256':checked['summary_sha256'],
-            'bootstrap_gitops_sha':spec['evidence']['bootstrap']['gitopsSha'],
-            'iac_sha':spec['evidence']['iac']['iacSha'],'iac_target_manifest':checked['iac_catalog_manifest'],
-            'iac_run_id':str(spec['evidence']['iac']['runId']),'iac_attempt':str(spec['evidence']['iac']['attempt']),
-            'iac_correlation_id':spec['evidence']['iac']['correlationId'],
+            'bootstrap_gitops_sha':bootstrap['gitops_sha'],
+            'iac_sha':iac_context['iac_sha'],'iac_target_manifest':checked['iac_catalog_manifest'],
+            'iac_run_id':str(iac_context['run_id']),'iac_attempt':str(iac_context['run_attempt']),
+            'iac_correlation_id':iac_context['correlation_id'],
             'environment':spec['environment'],'provider':spec['target']['provider'],'account':spec['target']['account'],
             'node':spec['target']['node'],'vault_address':spec['vault']['address'],
             'access_role':spec['vault']['accessRole'],'admin_role':spec['vault']['adminRole'],
