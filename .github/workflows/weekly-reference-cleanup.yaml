@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: maintenance
+#   execution-path: github-actions
+#   flux-reconciliation: no
 name: Weekly Git Reference Cleanup
 
 on:

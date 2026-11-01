@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: orchestrate
+#   execution-path: composite-actions
+#   flux-reconciliation: no
 name: Multi-cloud IaC Stages
 'on':
   workflow_call:

@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: deploy
+#   execution-path: composite-actions
+#   flux-reconciliation: no
 name: Serverless Deploy / Backend
 'on':
   workflow_call:

@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: observe
+#   execution-path: direct-ansible, direct-cli, composite-actions
+#   flux-reconciliation: no
 name: Observability server
 
 on:

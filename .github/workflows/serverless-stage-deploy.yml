@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: deploy
+#   execution-path: composite-actions, reusable-workflows
+#   flux-reconciliation: no
 name: Serverless Stage / Deploy
 'on':
   workflow_call:

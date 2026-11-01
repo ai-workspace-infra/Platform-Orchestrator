@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: operate
+#   execution-path: composite-actions, reusable-workflows
+#   flux-reconciliation: no
 name: Environment Data Orchestrator
 run-name: 'data:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.mode }} / ${{ inputs.environment }}'
 

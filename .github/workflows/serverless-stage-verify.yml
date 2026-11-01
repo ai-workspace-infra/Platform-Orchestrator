@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: validate
+#   execution-path: composite-actions
+#   flux-reconciliation: no
 name: Serverless Stage / Verify & Report
 'on':
   workflow_call:

@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: orchestrate
+#   execution-path: direct-cli, reusable-workflows
+#   flux-reconciliation: no
 name: Open Platform Orchestrator
 
 # Shared open-platform infrastructure has an independent lifecycle from the

@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: operate
+#   execution-path: direct-cli, composite-actions, reusable-workflows
+#   flux-reconciliation: no
 name: Vault server
 
 # Single entry point for a Vault server deployment. The cloud adapter selected

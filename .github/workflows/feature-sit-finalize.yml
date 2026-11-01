@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: deploy
+#   execution-path: reusable-workflows
+#   flux-reconciliation: yes
 name: Feature SIT initialize and verify
 on:
   workflow_call:

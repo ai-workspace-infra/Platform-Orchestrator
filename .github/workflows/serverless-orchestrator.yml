@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: orchestrate
+#   execution-path: direct-cli, composite-actions
+#   flux-reconciliation: no
 name: Serverless Orchestrator
 
 # ==============================================================================
