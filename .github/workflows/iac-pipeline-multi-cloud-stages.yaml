@@ -313,6 +313,9 @@ jobs:
           iac-root: ${{ github.workspace }}/iac_modules
           evidence-dir: ${{ runner.temp }}/iac-stage
           private-dir: ${{ runner.temp }}/iac-private
+      - name: Report selected OIDC claims after UAT GCP authentication failure
+        if: ${{ failure() && steps.execute.outcome == 'failure' && inputs.environment == 'uat' && inputs.provider == 'gcp-cloud' }}
+        uses: ./.github/actions/oidc-claims-diagnostic
       - id: receipt
         if: ${{ always() }}
         uses: ./iac_modules/.github/actions/iac-receipt
