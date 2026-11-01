@@ -16,6 +16,10 @@ Platform-Orchestrator 只负责跨仓调度：输入选择、审批与授权、D
 本文件是仓库根级强制规则。五仓职责完整判定见
 [`execution-ownership-migration`](https://github.com/ai-workspace-lab/xworkspace-core-skills/blob/main/skills/engineering-standards/execution-ownership-migration/SKILL.md)。
 
+## 流水线规范框架
+
+全部流水线必须遵循 [流水线职责与两级调用规范](docs/pipeline-framework.md)。该文档明确五仓 owner、最多两级 workflow 调用、最长 5 个 needs job、Action 接口、GitOps/CMDB 输入、Playbooks 目录与回执契约。现有实现与框架不一致的部分属于待迁移项，不构成新增例外。
+
 ## 必须归 Toolkit 的内容
 
 - GitHub Actions 入口和 `workflow_dispatch`/`workflow_call` 输入校验；
