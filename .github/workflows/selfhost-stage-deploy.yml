@@ -1,4 +1,4 @@
-name: Selfhost | Deploy
+name: Selfhost | Deploy (legacy mixed mode)
 run-name: Selfhost Stage ${{ inputs.correlation_id }}
 
 on:
