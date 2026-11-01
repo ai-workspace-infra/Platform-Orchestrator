@@ -76,6 +76,14 @@ run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action
         options:
           - verify
           - reconcile
+      resource_mode:
+        description: create or existing (existing is state-bound and no-change only)
+        type: choice
+        default: create
+        required: false
+        options:
+          - create
+          - existing
       correlation_id:
         description: Root caller correlation
         type: string
@@ -133,6 +141,11 @@ run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action
         description: verify/reconcile
         type: string
         default: verify
+        required: false
+      resource_mode:
+        description: create or existing (existing is state-bound and no-change only)
+        type: string
+        default: create
         required: false
       correlation_id:
         description: Root caller correlation
@@ -234,6 +247,7 @@ jobs:
           action: ${{ inputs.action }}
           stage-scope: ${{ inputs.stage_scope }}
           bootstrap-mode: ${{ inputs.bootstrap_mode }}
+          resource-mode: ${{ inputs.resource_mode }}
           gitops-ref: ${{ inputs.gitops_ref }}
           iac-ref: ${{ inputs.iac_ref }}
           correlation-id: ${{ inputs.correlation_id }}

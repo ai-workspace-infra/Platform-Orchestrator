@@ -4,19 +4,17 @@
 from __future__ import annotations
 
 import argparse
-import ipaddress
-import json
 from pathlib import Path
 import re
 
 import yaml
 
 
-PROVIDERS = {"aws", "gcp", "vps", "akamai-cloud", "existing"}
+PROVIDERS = {"aws", "gcp", "vps", "akamai-cloud"}
 OPERATIONS = {"plan", "apply", "provision", "stage", "activate"}
 NAME = re.compile(r"[a-z][a-z0-9-]*\Z")
 HOSTNAME = re.compile(r"(?=.{1,253}\Z)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?))*\Z")
-SSH_USER = re.compile(r"[a-z_][a-z0-9_-]{0,31}\$?\Z")
+SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 
 
 def resource_adapter(contract):
@@ -40,10 +38,10 @@ def resolve(
     profile: str,
     provider: str,
     operation: str,
-    target_ip: str = "",
     target_hostname: str = "",
     target_domain: str = "",
     ssh_user: str = "",
+    resource_mode: str = "create",
 ):
     if not NAME.fullmatch(environment):
         raise ValueError("environment must be a lowercase name containing letters, digits or hyphens")
@@ -51,6 +49,10 @@ def resolve(
         raise ValueError(f"unsupported deployment profile: {profile}")
     if provider not in PROVIDERS or operation not in OPERATIONS:
         raise ValueError("unsupported provider or operation")
+    if resource_mode not in {"create", "existing"}:
+        raise ValueError("resource_mode must be create or existing")
+    if provider != "akamai-cloud" and resource_mode != "create":
+        raise ValueError("resource_mode existing is available only for Akamai Cloud")
     candidates = []
     directory = root / "topology" / environment / "selfhost"
     for path in sorted(directory.glob("ai-aggregator*.yaml")):
@@ -77,36 +79,6 @@ def resolve(
         raise ValueError(f"spec.enabled must be a YAML boolean: {path}")
     if operation in {"stage", "activate"} and not enabled:
         raise ValueError(f"{operation} requires spec.enabled: true in {path}; no resources will be created")
-    if selected == "existing" and operation in {"apply", "provision"}:
-        raise ValueError("existing nodes support plan, stage and activate only")
-    if selected == "existing":
-        target_values = (target_ip, target_hostname, target_domain, ssh_user)
-        if operation in {"stage", "activate"} and not all(target_values):
-            raise ValueError("provider=existing requires target_ip, target_hostname, target_domain and ssh_user inputs")
-        if any(target_values):
-            if not all(target_values):
-                raise ValueError("existing-target inputs must be supplied together")
-            try:
-                parsed_ip = ipaddress.ip_address(target_ip)
-            except ValueError as error:
-                raise ValueError("target_ip must be a valid IP address") from error
-            if parsed_ip.version != 4 or not parsed_ip.is_global:
-                raise ValueError("target_ip must be a public IPv4 address")
-            if not HOSTNAME.fullmatch(target_hostname) or not HOSTNAME.fullmatch(target_domain):
-                raise ValueError("target_hostname and target_domain must be DNS hostnames")
-            if not SSH_USER.fullmatch(ssh_user):
-                raise ValueError("ssh_user contains unsupported characters")
-            nodes = spec.get("nodes", [])
-            matches = [node for node in nodes if node.get("inventory_host") == target_hostname]
-            if len(matches) != 1:
-                raise ValueError(f"target_hostname must match exactly one declared inventory_host: {target_hostname}")
-            if spec.get("entrypoint", {}).get("domain") != target_domain:
-                raise ValueError("target_domain must exactly match spec.entrypoint.domain")
-            declared_user = matches[0].get("ssh_user")
-            if not declared_user or declared_user != ssh_user:
-                raise ValueError("ssh_user must exactly match the selected GitOps node's ssh_user")
-    elif any((target_ip, target_hostname, target_domain, ssh_user)):
-        raise ValueError("target connection inputs are only valid when provider=existing")
     entries = []
     contract = infrastructure.get("resource_contract", {})
     for raw in contract.get("manifests", []) if selected == "akamai-cloud" else []:
@@ -117,19 +89,57 @@ def resolve(
                 or parts[0] != "resources" or parts[2:4] != (environment, "akamai")
                 or resource_path.suffix != ".yaml"):
             raise ValueError(f"Akamai resource path must belong to the selected environment: {resource_path}")
+        if not (root / resource_path).is_file():
+            raise ValueError(f"Akamai resource declaration is missing: {resource_path}")
         account = entry.get("account", contract.get("account", ""))
         workspace = entry.get("workspace", "")
         if not NAME.fullmatch(account) or not NAME.fullmatch(workspace):
             raise ValueError("Akamai account and workspace must be lowercase names")
-        workdir = Path(contract["workdir"]).parent / workspace
-        if workdir.is_absolute() or ".." in workdir.parts:
-            raise ValueError("Akamai workdir must be relative to iac_modules")
-        entry.update(account=account, workdir=str(workdir),
-                     state_key=f"terraform/{environment}/{parts[1]}/akamai-cloud/{account}/{workspace}/terraform.tfstate")
+        entry.update(account=account)
         entries.append(entry)
-    if selected == "akamai-cloud" and not entries:
-        raise ValueError("Akamai provider requires resource_contract.manifests")
+    if selected == "akamai-cloud" and len(entries) != 1:
+        raise ValueError("single-node Akamai deployment requires exactly one declared IaC resource manifest")
     domain = spec.get("entrypoint", {}).get("domain", "")
+    nodes = spec.get("nodes", [])
+    if selected == "akamai-cloud":
+        if len(nodes) != 1 or profile != "single-node":
+            raise ValueError("Akamai AI Aggregator handoff currently requires one single-node GitOps target")
+        node = nodes[0]
+        hostname = node.get("inventory_host", "")
+        if not HOSTNAME.fullmatch(hostname) or not HOSTNAME.fullmatch(domain):
+            raise ValueError("Akamai GitOps target must declare valid hostname and business domain")
+        if not target_hostname or target_hostname != hostname:
+            raise ValueError("target_hostname must exactly match the selected GitOps inventory_host")
+        if not target_domain or target_domain != domain:
+            raise ValueError("target_domain must exactly match the selected GitOps entrypoint domain")
+        if entries[0].get("node") != node.get("id") or entries[0].get("role") != node.get("role"):
+            raise ValueError("Akamai resource manifest must bind the selected GitOps node and role")
+        if ssh_user and ssh_user != node.get("ssh_user"):
+            raise ValueError("ssh_user must exactly match the selected GitOps node")
+        if resource_mode == "existing" and infrastructure.get("lifecycle") != "persistent":
+            raise ValueError("existing resource mode requires a persistent GitOps target")
+        if operation in {"stage", "activate"}:
+            artifacts = spec.get("artifacts", {})
+            for artifact_name in ("new_api", "cliproxyapi"):
+                artifact = artifacts.get(artifact_name, {})
+                if not artifact.get("revision") or not SHA256.fullmatch(str(artifact.get("sha256", ""))):
+                    raise ValueError(f"{operation} requires immutable version and SHA256 for {artifact_name}")
+        if operation == "activate" and spec.get("apisix", {}).get("activation_validated") is not True:
+            raise ValueError("activate requires reviewed APISIX and client-flow acceptance in GitOps")
+    elif any((target_hostname, target_domain, ssh_user)):
+        if not HOSTNAME.fullmatch(target_hostname) or not HOSTNAME.fullmatch(target_domain):
+            raise ValueError("target hostname and domain must be DNS hostnames")
+        matches = [node for node in nodes if node.get("inventory_host") == target_hostname]
+        if len(matches) != 1 or domain != target_domain:
+            raise ValueError("target hostname/domain must match the selected GitOps declaration")
+        if ssh_user and ssh_user != matches[0].get("ssh_user"):
+            raise ValueError("ssh_user must exactly match the selected GitOps node")
+    target_manifest = contract.get("target_manifest", "")
+    if selected == "akamai-cloud":
+        target_path = Path(target_manifest)
+        if (target_path.is_absolute() or ".." in target_path.parts or target_path.parts[:2] != ("iac", "targets")
+                or target_path.suffix != ".yaml" or not (root / target_path).is_file()):
+            raise ValueError("Akamai IaC target_manifest must be a reviewed GitOps iac/targets path")
     return {
         "provider": selected,
         "environment": environment,
@@ -139,11 +149,13 @@ def resolve(
         "deployment_enabled": str(enabled).lower(),
         "lifecycle": infrastructure.get("lifecycle", ""),
         "domain_base": domain.partition(".")[2],
-        "akamai_matrix": json.dumps({"include": entries}, separators=(",", ":")),
-        "target_ip": target_ip,
+        "service_manifest": str(path.relative_to(root)),
+        "iac_target_manifest": target_manifest,
+        "account": contract.get("account", entries[0].get("account", "") if entries else ""),
         "target_hostname": target_hostname,
         "target_domain": target_domain,
-        "ssh_user": ssh_user,
+        "ssh_user": ssh_user or (nodes[0].get("ssh_user", "") if selected == "akamai-cloud" else ""),
+        "resource_mode": resource_mode,
     }
 
 
@@ -169,16 +181,16 @@ def main():
     parser.add_argument("--profile", default="single-node")
     parser.add_argument("--provider", default="gcp")
     parser.add_argument("--operation", default="plan")
-    parser.add_argument("--target-ip", default="")
     parser.add_argument("--target-hostname", default="")
     parser.add_argument("--target-domain", default="")
     parser.add_argument("--ssh-user", default="")
+    parser.add_argument("--resource-mode", default="create")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
         outputs = resolve(
             args.gitops_root, args.environment, args.profile, args.provider,
-            args.operation, args.target_ip, args.target_hostname, args.target_domain, args.ssh_user,
+            args.operation, args.target_hostname, args.target_domain, args.ssh_user, args.resource_mode,
         )
     except (ValueError, KeyError) as error:
         parser.exit(1, f"deployment resolution failed: {error}\n")

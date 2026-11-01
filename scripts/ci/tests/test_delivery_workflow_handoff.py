@@ -49,10 +49,11 @@ class WorkflowHandoff(unittest.TestCase):
 
     def test_delivery_and_preflight_share_owner_and_preserve_normalized_constraints(self):
         preflight = self.load('iac-akamai-state-preflight.yaml')
-        owner = next(s['with']['ref'] for s in preflight['jobs']['inspect']['steps'] if s.get('with', {}).get('repository') == 'ai-workspace-infra/iac_modules')
         deploy = self.load('iac-orchestrator.yml')
         for trigger in ('workflow_call', 'workflow_dispatch'):
-            self.assertEqual(deploy['on'][trigger]['inputs']['iac_ref']['default'], owner)
+            # Callers select a moving branch by default; the workflow resolves
+            # it to a full SHA before invoking any owner action.
+            self.assertEqual(deploy['on'][trigger]['inputs']['iac_ref']['default'], 'main')
             self.assertEqual(deploy['on'][trigger]['inputs']['gitops_ref']['default'], 'main')
         step = next(s for s in deploy['jobs']['prepare']['steps'] if s.get('uses') == './iac_modules/.github/actions/iac-targets')
         self.assertIn('steps.normalize.outputs.selectors', step['with']['normalized-selectors'])
