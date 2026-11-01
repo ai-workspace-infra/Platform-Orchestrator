@@ -10,6 +10,7 @@ on:
     # Pushes validate declarations; deployments require explicit dispatch inputs.
     paths:
       - '.github/workflows/ai-aggregator-v1.yml'
+      - '.github/workflows/iac-orchestrator.yml'
       - 'scripts/ci/**'
       - 'scripts/verify_ai_aggregator_endpoints.sh'
       - 'scripts/vault/initialize_ai_aggregator_paths.sh'
@@ -17,12 +18,13 @@ on:
   pull_request:
     paths:
       - '.github/workflows/ai-aggregator-v1.yml'
+      - '.github/workflows/iac-orchestrator.yml'
       - 'scripts/ci/*ai_aggregator*.py'
       - 'scripts/verify_ai_aggregator_endpoints.sh'
   workflow_dispatch:
     inputs:
       operation:
-        description: "plan validates; apply/provision creates ephemeral nodes; stage injects Gateway secrets; activate starts services"
+        description: "plan validates; apply/provision creates declared resources; stage deploys; activate enables services"
         required: true
         default: plan
         type: choice
@@ -46,34 +48,39 @@ on:
         description: "Immutable Playbooks ref"
         required: true
         default: main
-      target_ip:
-        description: "Existing AWS host public IPv4; required for provider=existing"
-        required: false
-        default: ''
-        type: string
+      iac_ref:
+        description: IaC owner source ref, resolved to a full SHA before use
+        required: true
+        default: main
       target_hostname:
-        description: "Existing host inventory name/FQDN; required for provider=existing"
+        description: Exact hostname asserted against the selected GitOps declaration
         required: false
         default: ''
         type: string
       target_domain:
-        description: "Public service domain declared in GitOps; required for provider=existing"
+        description: Exact business domain asserted against the selected GitOps declaration
         required: false
         default: ''
         type: string
+      resource_mode:
+        description: create resources, or explicitly require an existing no-change Akamai state
+        required: true
+        default: create
+        type: choice
+        options: [create, existing]
       ssh_user:
-        description: "SSH user declared for the existing host; required for provider=existing"
+        description: "Optional SSH user assertion against the selected GitOps node"
         required: false
         default: ''
         type: string
       provider:
         description: "Cloud selected by this dispatch; GitOps provides the corresponding resource template"
         required: true
-        default: gcp
+        default: akamai-cloud
         type: choice
-        options: [gcp, aws, vps, akamai-cloud, existing]
+        options: [gcp, aws, vps, akamai-cloud]
       destroy:
-        description: "Explicitly destroy declared ephemeral resources when this dispatch finishes"
+        description: "Destroy only where an owner explicitly supports ephemeral cleanup; persistent Akamai resources are never auto-destroyed"
         required: true
         default: false
         type: boolean
@@ -130,15 +137,16 @@ jobs:
       environment: ${{ steps.provider.outputs.environment }}
       profile: ${{ steps.provider.outputs.profile }}
       manifest_path: ${{ steps.provider.outputs.manifest_path }}
-      akamai_matrix: ${{ steps.provider.outputs.akamai_matrix }}
-      lifecycle: ${{ steps.provider.outputs.lifecycle }}
       domain_base: ${{ steps.provider.outputs.domain_base }}
       gitops_ref: ${{ steps.gitops_revision.outputs.ref }}
-      deployment_enabled: ${{ steps.provider.outputs.deployment_enabled }}
-      target_ip: ${{ steps.provider.outputs.target_ip }}
       target_hostname: ${{ steps.provider.outputs.target_hostname }}
       target_domain: ${{ steps.provider.outputs.target_domain }}
       ssh_user: ${{ steps.provider.outputs.ssh_user }}
+      resource_mode: ${{ steps.provider.outputs.resource_mode }}
+      service_manifest: ${{ steps.provider.outputs.service_manifest }}
+      iac_target_manifest: ${{ steps.provider.outputs.iac_target_manifest }}
+      account: ${{ steps.provider.outputs.account }}
+      playbooks_sha: ${{ steps.playbooks_revision.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -146,6 +154,11 @@ jobs:
           repository: ai-workspace-infra/gitops
           ref: ${{ inputs.gitops_ref || 'main' }}
           path: gitops
+      - uses: actions/checkout@v4
+        with:
+          repository: ai-workspace-infra/playbooks
+          ref: ${{ inputs.playbooks_ref || 'main' }}
+          path: playbooks
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -154,6 +167,9 @@ jobs:
       - name: Pin the checked-out GitOps declaration
         id: gitops_revision
         run: echo "ref=$(git -C gitops rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Pin the checked-out Playbooks owner
+        id: playbooks_revision
+        run: echo "sha=$(git -C playbooks rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Resolve input-selected environment and provider
         id: provider
         env:
@@ -161,54 +177,21 @@ jobs:
           REQUESTED_ENVIRONMENT: ${{ inputs.environment }}
           DEPLOYMENT_PROFILE: ${{ inputs.deployment_profile }}
           OPERATION: ${{ inputs.operation }}
-          TARGET_IP: ${{ inputs.target_ip }}
           TARGET_HOSTNAME: ${{ inputs.target_hostname }}
           TARGET_DOMAIN: ${{ inputs.target_domain }}
           SSH_USER: ${{ inputs.ssh_user }}
+          RESOURCE_MODE: ${{ inputs.resource_mode }}
         run: |
           python3 scripts/ci/resolve_ai_aggregator_deployment.py \
             --environment "$REQUESTED_ENVIRONMENT" \
             --profile "$DEPLOYMENT_PROFILE" \
             --provider "$REQUESTED_PROVIDER" \
             --operation "$OPERATION" \
-            --target-ip "$TARGET_IP" \
             --target-hostname "$TARGET_HOSTNAME" \
             --target-domain "$TARGET_DOMAIN" \
             --ssh-user "$SSH_USER" \
+            --resource-mode "$RESOURCE_MODE" \
             --output "$GITHUB_OUTPUT"
-      - name: Configure AWS read access for existing-target verification
-        if: ${{ inputs.provider == 'existing' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_IAC_ROLE_ARN }}
-          aws-region: ap-northeast-1
-      - name: Resolve existing target from AWS facts and render CMDB
-        if: ${{ inputs.provider == 'existing' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
-        env:
-          TARGET_IP: ${{ steps.provider.outputs.target_ip }}
-          TARGET_HOSTNAME: ${{ steps.provider.outputs.target_hostname }}
-          TARGET_DOMAIN: ${{ steps.provider.outputs.target_domain }}
-          SSH_USER: ${{ steps.provider.outputs.ssh_user }}
-          GITOPS_MANIFEST: ${{ steps.provider.outputs.manifest_path }}
-        run: |
-          set -euo pipefail
-          facts="$RUNNER_TEMP/ai-aggregator-target-lightsail.json"
-          aws lightsail get-instances --region ap-northeast-1 --output json > "$facts"
-          python3 scripts/ci/render_ai_aggregator_existing_cmdb.py \
-            --manifest "$GITOPS_MANIFEST" \
-            --lightsail-facts "$facts" \
-            --ip "$TARGET_IP" \
-            --hostname "$TARGET_HOSTNAME" \
-            --domain "$TARGET_DOMAIN" \
-            --ssh-user "$SSH_USER" \
-            --output "$RUNNER_TEMP/ai-aggregator-existing-cmdb.json"
-      - name: Share run-local CMDB with the protected deployment job
-        if: ${{ inputs.provider == 'existing' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ai-aggregator-existing-cmdb-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/ai-aggregator-existing-cmdb.json
-          retention-days: 1
 
   plan:
     needs: [validate, resolve-provider]
@@ -219,7 +202,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/playbooks
-          ref: ${{ inputs.playbooks_ref || 'main' }}
+          ref: ${{ needs.resolve-provider.outputs.playbooks_sha }}
           path: playbooks
       - uses: actions/checkout@v4
         with:
@@ -237,12 +220,20 @@ jobs:
           REQUESTED_ENVIRONMENT: ${{ inputs.environment }}
           DEPLOYMENT_PROFILE: ${{ inputs.deployment_profile }}
           OPERATION: ${{ inputs.operation }}
+          TARGET_HOSTNAME: ${{ inputs.target_hostname }}
+          TARGET_DOMAIN: ${{ inputs.target_domain }}
+          SSH_USER: ${{ inputs.ssh_user }}
+          RESOURCE_MODE: ${{ inputs.resource_mode }}
         run: |
           python3 scripts/ci/resolve_ai_aggregator_deployment.py \
             --environment "$REQUESTED_ENVIRONMENT" \
             --profile "$DEPLOYMENT_PROFILE" \
             --provider "$REQUESTED_PROVIDER" \
             --operation "$OPERATION" \
+            --target-hostname "$TARGET_HOSTNAME" \
+            --target-domain "$TARGET_DOMAIN" \
+            --ssh-user "$SSH_USER" \
+            --resource-mode "$RESOURCE_MODE" \
             --output "$RUNNER_TEMP/ai-aggregator-deployment-output"
           python3 scripts/ci/validate_ai_aggregator_manifest.py \
             "${{ needs.resolve-provider.outputs.manifest_path }}"
@@ -274,7 +265,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/playbooks
-          ref: ${{ inputs.playbooks_ref || 'main' }}
+          ref: ${{ needs.resolve-provider.outputs.playbooks_sha }}
           path: playbooks
       - uses: actions/checkout@v4
         with:
@@ -426,7 +417,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/playbooks
-          ref: ${{ inputs.playbooks_ref || 'main' }}
+          ref: ${{ needs.resolve-provider.outputs.playbooks_sha }}
           path: playbooks
       - uses: actions/checkout@v4
         with:
@@ -722,7 +713,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/playbooks
-          ref: ${{ inputs.playbooks_ref || 'main' }}
+          ref: ${{ needs.resolve-provider.outputs.playbooks_sha }}
           path: playbooks
       - uses: actions/checkout@v4
         with:
@@ -830,25 +821,41 @@ jobs:
           VULTR_API_KEY: ${{ steps.vps_vault.outputs.VULTR_API_KEY }}
         run: terraform -chdir="${{ steps.contract.outputs.workdir }}" destroy -auto-approve
 
-  akamai-deploy:
+  iac-resources:
     needs: [validate, resolve-provider, plan]
     if: >-
       ${{ github.event_name == 'workflow_dispatch' &&
       needs.resolve-provider.outputs.provider == 'akamai-cloud' &&
-      contains(fromJSON('["apply","provision","stage","activate"]'), inputs.operation) }}
+      contains(fromJSON('["plan","apply","provision","stage","activate"]'), inputs.operation) }}
+    uses: ./.github/workflows/iac-orchestrator.yml
+    with:
+      action: ${{ inputs.operation == 'plan' && 'plan' || 'apply' }}
+      environment: ${{ needs.resolve-provider.outputs.environment }}
+      cloud_provider: akamai-cloud
+      target_manifest: ${{ needs.resolve-provider.outputs.iac_target_manifest }}
+      account: ${{ needs.resolve-provider.outputs.account }}
+      gitops_ref: ${{ needs.resolve-provider.outputs.gitops_ref }}
+      iac_ref: ${{ inputs.iac_ref || 'main' }}
+      stage_scope: resources
+      bootstrap_mode: verify
+      correlation_id: ai-aggregator-${{ github.run_id }}-${{ github.run_attempt }}
+      resource_mode: ${{ inputs.resource_mode }}
+    secrets: inherit
+
+  akamai-deploy:
+    needs: [validate, resolve-provider, plan, iac-resources]
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' &&
+      needs.resolve-provider.outputs.provider == 'akamai-cloud' &&
+      contains(fromJSON('["stage","activate"]'), inputs.operation) &&
+      needs.iac-resources.outputs.result == 'applied_verified' }}
     runs-on: ubuntu-latest
     environment: ${{ needs.resolve-provider.outputs.environment }}
     timeout-minutes: 75
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.resolve-provider.outputs.akamai_matrix) }}
-    env:
-      AKAMAI_ACCOUNT: ${{ matrix.account }}
-      AKAMAI_WORKSPACE: ${{ matrix.workspace }}
-      AKAMAI_MANIFEST: ${{ matrix.path }}
-      AKAMAI_STATE_KEY: ${{ matrix.state_key }}
-      DEPLOY_ENV: ${{ needs.resolve-provider.outputs.environment }}
-      TF_ROOT: ${{ github.workspace }}/iac_modules/${{ matrix.workdir }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -856,201 +863,77 @@ jobs:
           repository: ai-workspace-infra/gitops
           ref: ${{ needs.resolve-provider.outputs.gitops_ref }}
           path: gitops
+          persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/iac_modules
-          ref: main
+          ref: ${{ needs.iac-resources.outputs.iac_sha }}
           path: iac_modules
+          persist-credentials: false
           sparse-checkout: |
-            terraform-hcl-standard
+            .github/actions
+            scripts/pipeline
       - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/playbooks
-          ref: ${{ inputs.playbooks_ref || 'main' }}
+          ref: ${{ needs.resolve-provider.outputs.playbooks_sha }}
           path: playbooks
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - uses: hashicorp/setup-terraform@v3
+      - name: Install pinned deployment controller dependencies
+        run: python -m pip install --disable-pip-version-check PyYAML==6.0.2 Jinja2==3.1.6 ansible-core==2.17.13
+      - name: Download the exact same-run IaC summary artifact
+        uses: actions/download-artifact@v4
         with:
-          terraform_version: '1.10.5'
-      - name: Install Akamai render and Ansible dependencies
-        run: pip install --quiet pyyaml jinja2 ansible-core
-      - name: Render input-selected deployment declaration
+          artifact-ids: ${{ needs.iac-resources.outputs.inventory_artifact_id }}
+          path: ${{ runner.temp }}/ai-aggregator-iac-summary
+      - name: Verify IaC summary against the current run and selected target
+        uses: ./iac_modules/.github/actions/iac-receipt-verify
+        with:
+          summary-file: ${{ runner.temp }}/ai-aggregator-iac-summary/summary.json
+          receipt-sha256: ${{ needs.iac-resources.outputs.receipt_sha256 }}
+          run-id: ${{ github.run_id }}
+          run-attempt: ${{ github.run_attempt }}
+          gitops-sha: ${{ needs.iac-resources.outputs.gitops_sha }}
+          iac-sha: ${{ needs.iac-resources.outputs.iac_sha }}
+          target-manifest: ${{ needs.resolve-provider.outputs.iac_target_manifest }}
+          action: apply
+          correlation-id: ai-aggregator-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Render the caller CMDB from verified IaC facts
+        uses: ./iac_modules/.github/actions/iac-caller-inventory
+        with:
+          summary-file: ${{ runner.temp }}/ai-aggregator-iac-summary/summary.json
+          output-dir: ${{ runner.temp }}/ai-aggregator-cmdb
+      - name: Checksum the selected runtime CMDB
+        id: cmdb
         env:
-          REQUESTED_PROVIDER: ${{ inputs.provider }}
-          REQUESTED_ENVIRONMENT: ${{ inputs.environment }}
-          DEPLOYMENT_PROFILE: ${{ inputs.deployment_profile }}
-          OPERATION: ${{ inputs.operation }}
-        run: |
-          python3 scripts/ci/resolve_ai_aggregator_deployment.py \
-            --environment "$REQUESTED_ENVIRONMENT" \
-            --profile "$DEPLOYMENT_PROFILE" \
-            --provider "$REQUESTED_PROVIDER" \
-            --operation "$OPERATION" \
-            --output "$RUNNER_TEMP/ai-aggregator-deployment-output"
-          python3 scripts/ci/validate_ai_aggregator_manifest.py \
-            "${{ needs.resolve-provider.outputs.manifest_path }}"
-      - name: Login to Vault with GitHub OIDC
-        id: vault
+          CMDB_FILE: ${{ runner.temp }}/ai-aggregator-cmdb/cmdb.json
+        run: echo "sha256=$(sha256sum "$CMDB_FILE" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - name: Load Akamai read identity for provider-attested SSH host key
+        id: akamai_vault
         uses: hashicorp/vault-action@v4
         with:
           url: https://vault.svc.plus
           method: jwt
-          role: ${{ needs.resolve-provider.outputs.environment == 'prod' && 'prod-akamai-iac' || format('github-actions-platform-ops-toolkit-{0}-akamai-oidc-bootstrap-{1}', needs.resolve-provider.outputs.environment, env.AKAMAI_ACCOUNT) }}
+          role: ${{ needs.resolve-provider.outputs.environment == 'prod' && 'prod-akamai-iac' || format('github-actions-platform-ops-toolkit-{0}-akamai-oidc-bootstrap-{1}', needs.resolve-provider.outputs.environment, needs.resolve-provider.outputs.account) }}
           jwtGithubAudience: vault
           exportToken: false
           secrets: |
-            kv/data/CICD/${{ needs.resolve-provider.outputs.environment }}/akamai-cloud/${{ env.AKAMAI_ACCOUNT }} LINODE_TOKEN | LINODE_TOKEN ;
-            kv/data/CICD/${{ needs.resolve-provider.outputs.environment }}/iac_state TF_STATE_ENDPOINT | TF_STATE_ENDPOINT ;
-            kv/data/CICD/${{ needs.resolve-provider.outputs.environment }}/iac_state TF_STATE_BUCKET | TF_STATE_BUCKET ;
-            kv/data/CICD/${{ needs.resolve-provider.outputs.environment }}/iac_state TF_STATE_ACCESS_KEY | TF_STATE_ACCESS_KEY ;
-            kv/data/CICD/${{ needs.resolve-provider.outputs.environment }}/iac_state TF_STATE_SECRET_KEY | TF_STATE_SECRET_KEY ;
-            kv/data/CICD/${{ needs.resolve-provider.outputs.environment }}/iac_state TF_STATE_REGION | TF_STATE_REGION
-      - name: Validate Akamai provider token
-        env:
-          LINODE_TOKEN: ${{ steps.vault.outputs.LINODE_TOKEN }}
-        run: |
-          set -euo pipefail
-          token="$(printf '%s' "$LINODE_TOKEN" | tr -d '\r\n')"
-          test -n "$token"
-          echo "::add-mask::$token"
-          printf 'LINODE_TOKEN=%s\n' "$token" >> "$GITHUB_ENV"
-          printf 'TF_VAR_linode_token=%s\n' "$token" >> "$GITHUB_ENV"
-          curl --fail --silent --show-error --header "Authorization: Bearer $token" \
-            https://api.linode.com/v4/profile | jq -e '.username and .email' >/dev/null
-      - name: Resolve and validate Akamai manifest
-        run: |
-          set -euo pipefail
-          case "$AKAMAI_MANIFEST" in
-            resources/*/"$DEPLOY_ENV"/akamai/*.yaml) ;;
-            *) echo "invalid Akamai resource manifest path" >&2; exit 1 ;;
-          esac
-          test -f "gitops/$AKAMAI_MANIFEST"
-          mkdir -p "$TF_ROOT"
-      - name: Render Akamai Terraform root
-        env:
-          GITOPS_ROOT: ${{ github.workspace }}/gitops
-          TF_STATE_ENDPOINT: ${{ steps.vault.outputs.TF_STATE_ENDPOINT }}
-          TF_STATE_REGION: ${{ steps.vault.outputs.TF_STATE_REGION }}
-        run: |
-          python3 iac_modules/terraform-hcl-standard/akamai-cloud/scripts/generate.py render \
-            --resources "${GITHUB_WORKSPACE}/gitops/${AKAMAI_MANIFEST}" \
-            --workdir "$TF_ROOT" --namespace "$AKAMAI_WORKSPACE"
-      - name: Configure Akamai state backend
-        env:
-          TF_STATE_ENDPOINT: ${{ steps.vault.outputs.TF_STATE_ENDPOINT }}
-          TF_STATE_BUCKET: ${{ steps.vault.outputs.TF_STATE_BUCKET }}
-          TF_STATE_ACCESS_KEY: ${{ steps.vault.outputs.TF_STATE_ACCESS_KEY }}
-          TF_STATE_SECRET_KEY: ${{ steps.vault.outputs.TF_STATE_SECRET_KEY }}
-          TF_STATE_REGION: ${{ steps.vault.outputs.TF_STATE_REGION }}
-        run: |
-          set -euo pipefail
-          umask 077
-          backend="$RUNNER_TEMP/akamai-backend.hcl"
-          printf '%s\n' \
-            "bucket = \"$TF_STATE_BUCKET\"" \
-            "key = \"$AKAMAI_STATE_KEY\"" \
-            "region = \"$TF_STATE_REGION\"" \
-            "access_key = \"$TF_STATE_ACCESS_KEY\"" \
-            "secret_key = \"$TF_STATE_SECRET_KEY\"" \
-            'skip_credentials_validation = true' \
-            'skip_region_validation = true' \
-            'skip_requesting_account_id = true' \
-            'skip_metadata_api_check = true' \
-            'skip_s3_checksum = true' \
-            'use_path_style = true' \
-            'use_lockfile = true' > "$backend"
-          terraform -chdir="$TF_ROOT" init -input=false -reconfigure -backend-config="$backend"
-      - name: Provision selected Akamai resource
-        run: |
-          set -euo pipefail
-          terraform -chdir="$TF_ROOT" validate -no-color
-          terraform -chdir="$TF_ROOT" plan -input=false -no-color
-          terraform -chdir="$TF_ROOT" apply -input=false -auto-approve
-          python3 iac_modules/terraform-hcl-standard/akamai-cloud/scripts/generate.py inventory \
-            --resources "${GITHUB_WORKSPACE}/gitops/${AKAMAI_MANIFEST}" \
-            --workdir "$TF_ROOT" --namespace "$AKAMAI_WORKSPACE"
-      - name: Deploy AI Desktop CodeAgent role on CPA node
-        if: ${{ (inputs.operation == 'stage' || inputs.operation == 'activate') && matrix.role == 'cpa' }}
-        working-directory: playbooks
-        run: |
-          ansible-playbook -i "$TF_ROOT/inventory.ini" deploy_ai_desktop.yml \
-            --limit ai_aggregator_cpa \
-            -e ai_desktop_cpa_codeagent=true \
-            -e ai_desktop_remote_enabled=false \
-            -e ai_desktop_manage_user=false
-      - name: Stage or activate aggregator service on selected node
-        if: ${{ inputs.operation == 'stage' || inputs.operation == 'activate' }}
-        working-directory: playbooks
-        env:
-          VAULT_ADDR: https://vault.svc.plus
-        run: |
-          ansible-playbook -i "$TF_ROOT/inventory.ini" deploy-ai-aggregator-v1.yml \
-            -e ai_aggregator_operation=${{ inputs.operation }} \
-            -e ai_aggregator_manifest_file=${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
-      - name: Destroy selected Akamai resource
-        if: ${{ always() && inputs.destroy && needs.resolve-provider.outputs.lifecycle == 'ephemeral' }}
-        run: terraform -chdir="$TF_ROOT" destroy -input=false -auto-approve
-
-  existing-deploy:
-    needs: [validate, resolve-provider, plan]
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' &&
-      needs.resolve-provider.outputs.provider == 'existing' &&
-      contains(fromJSON('["stage","activate"]'), inputs.operation) }}
-    runs-on: ubuntu-latest
-    environment: ${{ needs.resolve-provider.outputs.environment }}
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+            kv/data/CICD/${{ needs.resolve-provider.outputs.environment }}/akamai-cloud/${{ needs.resolve-provider.outputs.account }} LINODE_TOKEN | LINODE_TOKEN
+      - name: Attest the host key against Akamai instance identity
+        uses: ./iac_modules/.github/actions/akamai-candidate-hostkey
         with:
-          repository: ai-workspace-infra/gitops
-          ref: ${{ needs.resolve-provider.outputs.gitops_ref }}
-          path: gitops
-      - uses: actions/checkout@v4
-        with:
-          repository: ai-workspace-infra/playbooks
-          ref: ${{ inputs.playbooks_ref || 'main' }}
-          path: playbooks
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install Ansible dependencies
-        run: pip install --quiet ansible-core pyyaml
-      - name: Render input-selected deployment declaration
+          cmdb-file: ${{ runner.temp }}/ai-aggregator-cmdb/cmdb.json
+          cmdb-sha256: ${{ steps.cmdb.outputs.sha256 }}
+          account: ${{ needs.resolve-provider.outputs.account }}
+          node: ${{ needs.resolve-provider.outputs.target_hostname }}
+          output-dir: ${{ runner.temp }}/ai-aggregator-hostkey
         env:
-          REQUESTED_PROVIDER: ${{ inputs.provider }}
-          REQUESTED_ENVIRONMENT: ${{ inputs.environment }}
-          DEPLOYMENT_PROFILE: ${{ inputs.deployment_profile }}
-          OPERATION: ${{ inputs.operation }}
-          TARGET_IP: ${{ inputs.target_ip }}
-          TARGET_HOSTNAME: ${{ inputs.target_hostname }}
-          TARGET_DOMAIN: ${{ inputs.target_domain }}
-          SSH_USER: ${{ inputs.ssh_user }}
-        run: |
-          python3 scripts/ci/resolve_ai_aggregator_deployment.py \
-            --environment "$REQUESTED_ENVIRONMENT" \
-            --profile "$DEPLOYMENT_PROFILE" \
-            --provider "$REQUESTED_PROVIDER" \
-            --operation "$OPERATION" \
-            --target-ip "$TARGET_IP" \
-            --target-hostname "$TARGET_HOSTNAME" \
-            --target-domain "$TARGET_DOMAIN" \
-            --ssh-user "$SSH_USER" \
-            --output "$RUNNER_TEMP/ai-aggregator-deployment-output"
-          python3 scripts/ci/validate_ai_aggregator_manifest.py \
-            "${{ needs.resolve-provider.outputs.manifest_path }}"
-      - name: Download the run-local CMDB verified against AWS facts
-        uses: actions/download-artifact@v4
-        with:
-          name: ai-aggregator-existing-cmdb-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/ai-aggregator-existing-cmdb
-      - name: Set the verified CMDB source for Ansible
-        run: echo "AI_WORKSPACE_CMDB_JSON=${RUNNER_TEMP}/ai-aggregator-existing-cmdb/ai-aggregator-existing-cmdb.json" >> "$GITHUB_ENV"
-      - name: Login to Vault with GitHub OIDC
-        id: vault_login
+          LINODE_TOKEN: ${{ steps.akamai_vault.outputs.LINODE_TOKEN }}
+      - name: Load environment deployment identity from Vault
+        id: deploy_vault
         uses: hashicorp/vault-action@v4
         with:
           url: https://vault.svc.plus
@@ -1059,44 +942,60 @@ jobs:
           jwtGithubAudience: vault
           exportToken: true
           secrets: |
-            kv/data/CICD/prod SSH_PRIVATE_DEPLOY_KEY_B64 | AI_AGGREGATOR_SSH_KEY_B64
-      - name: Prepare runner-local SSH key
+            kv/data/CICD/${{ needs.resolve-provider.outputs.environment }} SSH_PRIVATE_DEPLOY_KEY_B64 | AI_AGGREGATOR_SSH_KEY_B64
+      - name: Prepare the runner-local deployment key
         id: ssh_key
+        uses: ./playbooks/.github/actions/setup-deployment-runner
+        with:
+          ssh_key_b64: ${{ steps.deploy_vault.outputs.AI_AGGREGATOR_SSH_KEY_B64 }}
+          wait_for_ssh: 'false'
+          wait_for_package_init: 'false'
+          install_ansible: 'false'
+          assert_ansible_target: 'false'
+      - name: Build the owner handoff config
+        id: handoff
         env:
-          SSH_KEY_B64: ${{ steps.vault_login.outputs.AI_AGGREGATOR_SSH_KEY_B64 }}
+          OPERATION: ${{ inputs.operation }}
+          ENVIRONMENT: ${{ needs.resolve-provider.outputs.environment }}
+          HOSTNAME: ${{ needs.resolve-provider.outputs.target_hostname }}
+          DOMAIN: ${{ needs.resolve-provider.outputs.target_domain }}
+          GITOPS_SHA: ${{ needs.iac-resources.outputs.gitops_sha }}
+          IAC_SHA: ${{ needs.iac-resources.outputs.iac_sha }}
+          PLAYBOOKS_SHA: ${{ needs.resolve-provider.outputs.playbooks_sha }}
+          TARGET_MANIFEST: ${{ needs.resolve-provider.outputs.iac_target_manifest }}
+          CORRELATION_ID: ai-aggregator-${{ github.run_id }}-${{ github.run_attempt }}
+          SUMMARY_SHA256: ${{ needs.iac-resources.outputs.receipt_sha256 }}
+          SUMMARY_FILE: ${{ runner.temp }}/ai-aggregator-iac-summary/summary.json
+          CMDB_FILE: ${{ runner.temp }}/ai-aggregator-cmdb/cmdb.json
+          SSH_PRIVATE_KEY: ${{ steps.ssh_key.outputs.deploy_key_file }}
+          KNOWN_HOSTS: ${{ runner.temp }}/ai-aggregator-hostkey/known_hosts
+          GITOPS_ROOT: ${{ github.workspace }}/gitops
+          IAC_ROOT: ${{ github.workspace }}/iac_modules
+          SERVICE_MANIFEST: ${{ needs.resolve-provider.outputs.service_manifest }}
+          APISIX_BUNDLE_DIR: ${{ runner.temp }}/ai-aggregator-apisix-bundle
         run: |
           set -euo pipefail
-          key="$RUNNER_TEMP/ai-aggregator-ssh/id_deploy"
-          mkdir -m 700 -p "$(dirname "$key")"
-          printf '%s' "$SSH_KEY_B64" | base64 --decode > "$key"
-          chmod 600 "$key"
-          ssh-keygen -y -f "$key" >/dev/null
-          echo "path=$key" >> "$GITHUB_OUTPUT"
-      - name: Verify SSH reachability as the declared user
-        working-directory: playbooks
-        env:
-          TARGET_HOSTNAME: ${{ needs.resolve-provider.outputs.target_hostname }}
-        run: >-
-          ansible -i inventory/terraform_cmdb.py "$TARGET_HOSTNAME"
-          -m ansible.builtin.ping --private-key "${{ steps.ssh_key.outputs.path }}"
-      - name: Deploy to existing persistent nodes
-        working-directory: playbooks
-        env:
-          VAULT_ADDR: https://vault.svc.plus
-          TARGET_HOSTNAME: ${{ needs.resolve-provider.outputs.target_hostname }}
-        run: |
-          ansible-playbook -i inventory/terraform_cmdb.py --limit "$TARGET_HOSTNAME" \
-            --private-key "${{ steps.ssh_key.outputs.path }}" \
-            deploy-ai-aggregator-v1.yml \
-            -e ai_aggregator_operation=${{ inputs.operation }} \
-            -e ai_aggregator_manifest_file=${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
-      - name: Remove runner-local SSH key
+          config="$(jq -cn             --arg operation "$OPERATION" --arg environment "$ENVIRONMENT"             --arg hostname "$HOSTNAME" --arg domain "$DOMAIN"             --arg gitops_root "$GITOPS_ROOT" --arg gitops_sha "$GITOPS_SHA"             --arg service_manifest "$SERVICE_MANIFEST" --arg iac_root "$IAC_ROOT"             --arg iac_sha "$IAC_SHA" --arg playbooks_sha "$PLAYBOOKS_SHA"             --arg target_manifest "$TARGET_MANIFEST" --arg correlation_id "$CORRELATION_ID"             --arg summary_file "$SUMMARY_FILE" --arg summary_sha256 "$SUMMARY_SHA256"             --arg cmdb_file "$CMDB_FILE" --arg ssh_private_key "$SSH_PRIVATE_KEY"             --arg known_hosts "$KNOWN_HOSTS" --arg apisix_bundle_dir "$APISIX_BUNDLE_DIR"             '{operation:$operation,environment:$environment,hostname:$hostname,domain:$domain,
+              gitops_root:$gitops_root,gitops_sha:$gitops_sha,service_manifest:$service_manifest,
+              iac_root:$iac_root,iac_sha:$iac_sha,playbooks_sha:$playbooks_sha,
+              target_manifest:$target_manifest,correlation_id:$correlation_id,
+              summary_file:$summary_file,summary_sha256:$summary_sha256,cmdb_file:$cmdb_file,
+              ssh_private_key:$ssh_private_key,known_hosts:$known_hosts,apisix_bundle_dir:$apisix_bundle_dir}')"
+          echo "config=$config" >> "$GITHUB_OUTPUT"
+      - name: Deploy the selected GitOps AI Aggregator host through Playbooks owner
+        uses: ./playbooks/.github/actions/ai-aggregator-deploy
+        with:
+          config-json: ${{ steps.handoff.outputs.config }}
+          receipt-file: ${{ runner.temp }}/ai-aggregator-playbooks-receipt.json
+      - name: Upload Playbooks owner receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-aggregator-playbooks-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ai-aggregator-playbooks-receipt.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Remove runner-local deployment key
         if: ${{ always() }}
         env:
-          SSH_KEY_PATH: ${{ steps.ssh_key.outputs.path }}
-        run: test -z "$SSH_KEY_PATH" || rm -f -- "$SSH_KEY_PATH"
-      - name: Verify selected endpoints
-        if: ${{ inputs.operation == 'activate' }}
-        env:
-          AI_AGGREGATOR_MANIFEST: ${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
-        run: ./scripts/verify_ai_aggregator_endpoints.sh
+          DEPLOY_KEY: ${{ steps.ssh_key.outputs.deploy_key_file }}
+        run: test -z "$DEPLOY_KEY" || rm -f -- "$DEPLOY_KEY"

@@ -40,8 +40,14 @@ class DeploymentTests(unittest.TestCase):
         path.write_text(yaml.safe_dump(data))
         return path
 
-    def select(self, environment="preview", provider="gcp", operation="plan"):
-        return resolve(self.root, environment, "single-node", provider, operation)
+    def touch(self, relative):
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}\n")
+        return path
+
+    def select(self, environment="preview", provider="gcp", operation="plan", **kwargs):
+        return resolve(self.root, environment, "single-node", provider, operation, **kwargs)
 
     def test_event_input_selects_cloud_independently_of_legacy_provider(self):
         outputs = self.select()
@@ -59,7 +65,6 @@ class DeploymentTests(unittest.TestCase):
         for provider, renderer in (
             ("aws", "terraform-hcl-standard/aws-cloud/scripts/generate.py"),
             ("vps", "terraform-hcl-standard/vultr-cloud/scripts/generate.py"),
-            ("existing", "cmdb/inventory"),
         ):
             with self.subTest(provider=provider):
                 template = copy.deepcopy(self.template)
@@ -116,27 +121,85 @@ class DeploymentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "found 2"):
             self.select()
 
-    def test_existing_nodes_cannot_be_provisioned(self):
-        self.template["spec"]["infrastructure"]["resource_contract"]["renderer"] = "cmdb/inventory"
+    def test_existing_is_a_resource_mode_not_a_provider(self):
+        with self.assertRaisesRegex(ValueError, "unsupported provider"):
+            self.select(provider="existing", operation="plan")
+
+    def test_akamai_handoff_selects_target_and_checks_hostname_domain(self):
+        self.template["spec"].update(enabled=True, entrypoint={"domain": "ai-gateway.svc.plus"}, artifacts={
+            "new_api": {"revision": "v1.2.3", "sha256": "a" * 64},
+            "cliproxyapi": {"revision": "v4.5.6", "sha256": "b" * 64},
+        }, apisix={"activation_validated": False})
+        self.template["spec"]["infrastructure"].update(lifecycle="persistent")
+        self.template["spec"]["infrastructure"]["resource_contract"] = {
+            "renderer": "terraform-hcl-standard/akamai-cloud/scripts/generate.py",
+            "workdir": "terraform-hcl-standard/akamai-cloud/envs/preview/gateway",
+            "target_manifest": "iac/targets/preview-akamai.yaml",
+            "account": "lab-account",
+            "manifests": [{"path": "resources/example.net/preview/akamai/gateway.yaml", "workspace": "gateway",
+                           "node": "gateway-01", "role": "gateway"}],
+        }
+        self.template["spec"]["nodes"] = [{"id": "gateway-01", "inventory_host": "ai-gateway.svc.plus", "ssh_user": "root", "role": "gateway"}]
         self.write(self.template)
-        with self.assertRaisesRegex(ValueError, "existing nodes support"):
-            self.select(provider="existing", operation="apply")
+        self.touch("iac/targets/preview-akamai.yaml")
+        self.touch("resources/example.net/preview/akamai/gateway.yaml")
+        result = self.select(provider="akamai-cloud", operation="stage",
+                             target_hostname="ai-gateway.svc.plus", target_domain="ai-gateway.svc.plus",
+                             resource_mode="existing")
+        self.assertEqual(result["service_manifest"], "topology/preview/selfhost/ai-aggregator.yaml")
+        self.assertEqual(result["iac_target_manifest"], "iac/targets/preview-akamai.yaml")
+        self.assertEqual(result["resource_mode"], "existing")
+        for field, value in (("target_hostname", "other.svc.plus"), ("target_domain", "other.svc.plus")):
+            args = {"target_hostname": "ai-gateway.svc.plus", "target_domain": "ai-gateway.svc.plus"}
+            args[field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "exactly match"):
+                self.select(provider="akamai-cloud", operation="plan", **args)
+
+    def test_stage_and_activate_require_artifact_pins_and_acceptance(self):
+        self.template["spec"].update(enabled=True, entrypoint={"domain": "gateway.example.net"},
+            infrastructure={"provider": "akamai-cloud", "lifecycle": "persistent", "resource_contract": {
+                "renderer": "terraform-hcl-standard/akamai-cloud/scripts/generate.py",
+                "target_manifest": "iac/targets/preview-akamai.yaml", "account": "lab-account",
+                "manifests": [{"path": "resources/example.net/preview/akamai/gateway.yaml", "workspace": "gateway",
+                               "node": "gateway", "role": "gateway"}],
+            }}, nodes=[{"id": "gateway", "inventory_host": "gateway.example.net", "ssh_user": "root", "role": "gateway"}],
+            artifacts={}, apisix={"activation_validated": False})
+        self.write(self.template)
+        self.touch("iac/targets/preview-akamai.yaml")
+        self.touch("resources/example.net/preview/akamai/gateway.yaml")
+        with self.assertRaisesRegex(ValueError, "immutable version and SHA256"):
+            self.select(provider="akamai-cloud", operation="stage", target_hostname="gateway.example.net",
+                        target_domain="gateway.example.net")
+        self.template["spec"]["artifacts"] = {name: {"revision": "v1.0.0", "sha256": "a" * 64}
+                                                for name in ("new_api", "cliproxyapi")}
+        self.write(self.template)
+        with self.assertRaisesRegex(ValueError, "reviewed APISIX"):
+            self.select(provider="akamai-cloud", operation="activate", target_hostname="gateway.example.net",
+                        target_domain="gateway.example.net")
 
     def test_akamai_paths_and_state_follow_input_environment(self):
         infrastructure = self.template["spec"]["infrastructure"]
+        self.template["spec"]["entrypoint"] = {"domain": "gateway.example.net"}
+        self.template["spec"]["nodes"] = [{"id": "gateway", "inventory_host": "gateway.example.net", "ssh_user": "root", "role": "gateway"}]
+        infrastructure["lifecycle"] = "persistent"
         infrastructure["resource_contract"] = {
             "renderer": "terraform-hcl-standard/akamai-cloud/scripts/generate.py",
             "workdir": "terraform-hcl-standard/akamai-cloud/envs/preview/gateway",
+            "target_manifest": "iac/targets/preview-akamai.yaml",
             "account": "lab-account",
-            "manifests": [{"path": "resources/example.net/preview/akamai/gateway.yaml", "workspace": "gateway"}],
+            "manifests": [{"path": "resources/example.net/preview/akamai/gateway.yaml", "workspace": "gateway",
+                           "node": "gateway", "role": "gateway"}],
         }
         self.write(self.template)
-        outputs = self.select(provider="akamai-cloud")
-        self.assertIn("terraform/preview/example.net/akamai-cloud/lab-account/gateway/terraform.tfstate", outputs["akamai_matrix"])
+        self.touch("iac/targets/preview-akamai.yaml")
+        self.touch("resources/example.net/preview/akamai/gateway.yaml")
+        outputs = self.select(provider="akamai-cloud", target_hostname="gateway.example.net", target_domain="gateway.example.net")
+        self.assertEqual(outputs["account"], "lab-account")
+        self.assertEqual(outputs["iac_target_manifest"], "iac/targets/preview-akamai.yaml")
         infrastructure["resource_contract"]["manifests"][0]["path"] = "resources/example.net/other/akamai/gateway.yaml"
         self.write(self.template)
         with self.assertRaisesRegex(ValueError, "selected environment"):
-            self.select(provider="akamai-cloud")
+            self.select(provider="akamai-cloud", target_hostname="gateway.example.net", target_domain="gateway.example.net")
 
 
 class WorkflowTests(unittest.TestCase):
@@ -151,13 +214,30 @@ class WorkflowTests(unittest.TestCase):
     def test_mutations_require_plan_and_use_event_provider(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/ai-aggregator-v1.yml").read_text())
         for provider, job in (("aws", "aws-deploy"), ("gcp", "gcp-deploy"), ("vps", "vps-deploy"),
-                              ("akamai-cloud", "akamai-deploy"), ("existing", "existing-deploy")):
+                              ("akamai-cloud", "akamai-deploy")):
             with self.subTest(job=job):
                 declaration = workflow["jobs"][job]
                 self.assertIn("plan", declaration["needs"])
                 self.assertIn("github.event_name == 'workflow_dispatch'", declaration["if"])
                 self.assertIn(f"outputs.provider == '{provider}'", declaration["if"])
                 self.assertNotIn("outputs.deployment_environment", declaration["if"])
+
+    def test_akamai_resource_handoff_stays_with_iac_and_playbooks_owners(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ai-aggregator-v1.yml").read_text())
+        jobs = workflow["jobs"]
+        self.assertEqual(jobs["iac-resources"]["uses"], "./.github/workflows/iac-orchestrator.yml")
+        self.assertIn("resource_mode", jobs["iac-resources"]["with"])
+        deploy = jobs["akamai-deploy"]
+        self.assertIn("needs.iac-resources.outputs.result == 'applied_verified'", deploy["if"])
+        actions = [step.get("uses", "") for step in deploy["steps"]]
+        self.assertIn("./iac_modules/.github/actions/iac-receipt-verify", actions)
+        self.assertIn("./iac_modules/.github/actions/iac-caller-inventory", actions)
+        self.assertIn("./playbooks/.github/actions/ai-aggregator-deploy", actions)
+        self.assertFalse(any("ansible-playbook" in str(step.get("run", "")) or
+                             "terraform apply" in str(step.get("run", "")) for step in deploy["steps"]))
+        self.assertNotIn("existing-deploy", jobs)
+        inputs = workflow.get("on", workflow.get(True))["workflow_dispatch"]["inputs"]
+        self.assertNotIn("target_ip", inputs)
 
 
 if __name__ == "__main__":
