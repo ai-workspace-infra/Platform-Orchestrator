@@ -19,7 +19,7 @@ while (($#)); do
     --check) mode=check ;;
     --apply) mode=apply ;;
     --write-runtime) runtime_mode=enabled ;;
-    --runtime-environment) runtime_environment="${2:?missing --runtime-environment value}"; shift 2 ;;
+    --runtime-environment) runtime_environment="${2:?missing --runtime-environment value}"; shift ;;
     --runtime-environment=*) runtime_environment="${1#*=}" ;;
     -h|--help)
       printf 'Usage: %s [--check|--apply]\n' "$0"
@@ -126,8 +126,8 @@ for name in "${names[@]}"; do
   else
     vault policy read "${name}" >/dev/null
     vault read -format=json "auth/jwt/role/${name}" |
-      jq -e --arg claim "${workflow_claim}" --arg expected "${workflow_value}" \
-        '.data.bound_claims[$claim] == $expected' >/dev/null || {
+      jq -e --slurpfile expected "${role_file}" \
+        '.data.bound_claims == $expected[0].bound_claims and .data.token_policies == $expected[0].token_policies' >/dev/null || {
           echo "${name}: Vault JWT role does not match the declared workflow ref; run --apply" >&2
           exit 1
         }
@@ -169,7 +169,7 @@ if [[ "${runtime_mode}" == enabled ]]; then
   runtime_path="${runtime_environment}/serverless/gcp"
   if [[ "${mode}" == apply ]]; then
     echo "Writing runtime GCP identity to kv/${runtime_path} (values redacted)..."
-    VAULT_ADDR="${vault_addr}" vault kv put -mount=kv "${runtime_path}" \
+    VAULT_ADDR="${vault_addr}" vault kv patch -mount=kv "${runtime_path}" \
       GCP_WORKLOAD_IDENTITY_PROVIDER="${GCP_WORKLOAD_IDENTITY_PROVIDER}" \
       GCP_SERVICE_ACCOUNT_EMAIL="${GCP_SERVICE_ACCOUNT_EMAIL}" >/dev/null
   else
