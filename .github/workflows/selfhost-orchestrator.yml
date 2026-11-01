@@ -32,11 +32,11 @@ on:
         - ubuntu-latest
         - self-hosted
       deploy_tag:
-        description: "应用部署的不可变镜像版本（例如 daily-build-2026.07.30-r1）。operation=deploy、deploy+init 或 deploy+migrate 时必填；基础设施、迁移操作可留空。"
+        description: "业务部署版本：非 Flux 部署须填写符合环境规则的不可变制品 tag；受支持的 GitOps K3s deploy 可留空，使用声明中的固定 chart 与镜像。"
         required: false
         type: string
       source_ref:
-        description: '基础仓库来源 Git Ref；留空时使用 main。业务制品版本通过 deploy_tag 单独选择。'
+        description: '基础仓库来源 Git Ref；留空时使用 main。Flux 业务制品版本由 GitOps 声明选择。'
         required: false
         default: ""
         type: string

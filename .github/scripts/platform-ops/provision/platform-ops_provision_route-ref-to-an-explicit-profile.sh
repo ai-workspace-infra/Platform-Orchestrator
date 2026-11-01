@@ -670,9 +670,8 @@ fi
 : "${run_infrastructure:?route: run_infrastructure was never assigned on this trigger path}"
 : "${run_application_deploy:?route: run_application_deploy was never assigned on this trigger path}"
 
-# 应用交付必须使用明确的不可变镜像 tag。
-# 现已将 UI 统一收敛为 deploy_tag 作为主入口，
-# 此处直接读取即可，后续会强制拦截 main/latest 等动态 ref，确保镜像不可变性。
+# GitOps K3s deploy uses the validated chart and image pins in its declarations.
+# Other application delivery paths require an explicit immutable deploy_tag.
 if [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
   if [ "${operation:-}" = "destroy" ]; then
     deploy_tag=""
@@ -755,7 +754,7 @@ deploy_tag="${deploy_tag//\//-}"
 if [ "${run_application_deploy}" = "true" ] && [ "${gitops_k3s_artifacts:-false}" != "true" ]; then
   case "${deploy_tag}" in
     ""|latest|main)
-      echo "::error::application deployment requires an explicit immutable deploy_tag (for example, daily-build-2026.07.30-r1). Set workflow_dispatch input deploy_tag; deploy_ref is only a source checkout ref, and main/latest are not valid image versions." >&2
+      echo "::error::non-GitOps application deployment requires an explicit immutable deploy_tag valid for its environment; main/latest are not valid image versions." >&2
       exit 1
       ;;
   esac
