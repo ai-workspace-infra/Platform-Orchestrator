@@ -88,11 +88,6 @@ run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action
         required: false
   workflow_call:
     inputs:
-      runtime_inventory_handoff:
-        description: Select a verified single-host runtime inventory after a resources apply
-        type: boolean
-        required: false
-        default: false
       action:
         description: check/plan/apply/destroy
         type: string
@@ -150,15 +145,6 @@ run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action
         default: '{}'
         required: false
     outputs:
-      runtime_inventory_artifact:
-        description: Verified selected runtime CMDB artifact
-        value: ${{ jobs.summary.outputs.runtime_inventory_artifact }}
-      runtime_inventory_sha256:
-        description: Digest of the verified selected runtime CMDB
-        value: ${{ jobs.summary.outputs.runtime_inventory_sha256 }}
-      runtime_instance_id:
-        description: Verified runtime instance ID
-        value: ${{ jobs.summary.outputs.runtime_instance_id }}
       result:
         description: result
         value: ${{ jobs.summary.outputs.result }}
@@ -414,9 +400,6 @@ jobs:
       - destroy-bootstrap
     runs-on: ubuntu-latest
     outputs:
-      runtime_inventory_artifact: ${{ steps.runtime-artifact.outputs.artifact-id && format('runtime-inventory-{0}-{1}', github.run_id, github.run_attempt) || '' }}
-      runtime_inventory_sha256: ${{ steps.select.outputs.cmdb-sha256 }}
-      runtime_instance_id: ${{ steps.select.outputs.instance-id }}
       result: ${{ steps.summary.outputs.result }}
       gitops_sha: ${{ steps.summary.outputs.gitops_sha }}
       iac_sha: ${{ steps.summary.outputs.iac_sha }}
@@ -468,38 +451,5 @@ jobs:
         with:
           name: iac-summary-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/iac-summary
-          if-no-files-found: error
-          retention-days: 7
-
-      # The optional projection is generic: the action binds the selected
-      # single-host CMDB to the current IaC receipt, target, state and matrix.
-      - name: Verify current runtime receipt before inventory handoff
-        if: inputs.runtime_inventory_handoff
-        uses: ./iac_modules/.github/actions/iac-receipt-verify
-        with:
-          summary-file: ${{ runner.temp }}/iac-summary/summary.json
-          receipt-sha256: ${{ steps.summary.outputs.receipt_sha256 }}
-          run-id: ${{ github.run_id }}
-          run-attempt: ${{ github.run_attempt }}
-          gitops-sha: ${{ needs.prepare.outputs.gitops_sha }}
-          iac-sha: ${{ needs.prepare.outputs.iac_sha }}
-          target-manifest: ${{ inputs.target_manifest }}
-          action: apply
-          correlation-id: ${{ inputs.correlation_id }}
-      - id: select
-        if: inputs.runtime_inventory_handoff
-        uses: ./.github/actions/runtime-inventory-handoff
-        with:
-          bundle-dir: ${{ runner.temp }}/iac-summary
-          receipt-artifact-id: ${{ steps.receipt.outputs.artifact-id }}
-          inventory-artifact-id: ${{ steps.receipt.outputs.artifact-id }}
-          deploy-matrix: ${{ steps.summary.outputs.deploy_matrix }}
-          destination: ${{ runner.temp }}/runtime-inventory
-      - id: runtime-artifact
-        if: inputs.runtime_inventory_handoff
-        uses: actions/upload-artifact@v4
-        with:
-          name: runtime-inventory-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/runtime-inventory/cmdb.json
           if-no-files-found: error
           retention-days: 7
