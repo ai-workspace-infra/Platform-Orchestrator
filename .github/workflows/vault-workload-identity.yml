@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Configure or verify the Vault identity
+        description: Inspect, refresh, configure, or verify the Vault workload identity
         type: choice
-        options: [configure, verify]
+        options: [inspect, refresh, configure, verify]
         required: true
       gitops_ref:
         description: GitOps source ref; defaults to main
@@ -20,6 +20,10 @@ on:
         required: false
       operation_path:
         description: Reviewed workload identity operation declaration path
+        type: string
+        required: true
+      parent_run_id:
+        description: Completed Selfhost Orchestrator run whose IaC and bootstrap receipts bind this target
         type: string
         required: true
       environment:
@@ -31,6 +35,10 @@ on:
         description: Reviewed full Playbooks commit on main containing the identity owner
         type: string
         required: true
+      expected_previous_key_sha256:
+        description: Comma-separated fingerprints returned by inspect; required only for refresh
+        type: string
+        required: false
 
 permissions: {}
 concurrency:
@@ -52,11 +60,21 @@ jobs:
           MODE: ${{ inputs.mode }}
           OWNER_SHA: ${{ inputs.playbooks_sha }}
           GITOPS_REF: ${{ inputs.gitops_ref || 'main' }}
+          PARENT_RUN_ID: ${{ inputs.parent_run_id }}
+          EXPECTED_OLD_KEYS: ${{ inputs.expected_previous_key_sha256 }}
         run: |
           set -euo pipefail
           [[ "$REF_TYPE" == branch && "$REF_PROTECTED" == true && "$WORKFLOW_REF" == refs/heads/main ]]
-          [[ "$MODE" == configure || "$MODE" == verify ]]
+          [[ "$MODE" == configure || "$MODE" == inspect || "$MODE" == refresh || "$MODE" == verify ]]
           [[ "$OWNER_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PARENT_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          if [[ "$MODE" == refresh ]]; then
+            [[ "$EXPECTED_OLD_KEYS" =~ ^[0-9a-f]{64}(,[0-9a-f]{64}){0,7}$ ]]
+            IFS=',' read -ra keys <<< "$EXPECTED_OLD_KEYS"
+            [[ "${#keys[@]}" -eq "$(printf '%s\n' "${keys[@]}" | sort -u | wc -l | tr -d ' ')" ]]
+          else
+            [[ -z "$EXPECTED_OLD_KEYS" ]]
+          fi
           [[ -n "$GITOPS_REF" ]]
   identity:
     needs: validate
@@ -109,6 +127,7 @@ jobs:
           IDENTITY_GITOPS: ${{ github.workspace }}/gitops
           IDENTITY_GITOPS_SHA: ${{ steps.releases.outputs.gitops_sha }}
           IDENTITY_OPERATION: ${{ inputs.operation_path }}
+          IDENTITY_PARENT_RUN_ID: ${{ inputs.parent_run_id }}
         run: |
           python3 -m pip install PyYAML==6.0.2
           python3 .github/scripts/platform-ops/identity/prepare_workload_identity.py
@@ -173,7 +192,7 @@ jobs:
           output-dir: ${{ runner.temp }}/workload-identity-hostkey
       - name: Acquire restricted identity administrator
         id: admin
-        if: ${{ inputs.mode == 'configure' }}
+        if: ${{ inputs.mode != 'verify' }}
         uses: hashicorp/vault-action@v4
         with:
           url: ${{ steps.evidence.outputs.vault_address }}
@@ -193,6 +212,7 @@ jobs:
           VAULT_TOKEN: ${{ steps.admin.outputs.vault_token }}
         with:
           mode: ${{ inputs.mode }}
+          expected-previous-key-sha256: ${{ inputs.expected_previous_key_sha256 }}
           operation-path: ${{ inputs.operation_path }}
           cmdb: ${{ runner.temp }}/workload-identity-cmdb/cmdb.json
           cmdb-sha256: ${{ steps.cmdb.outputs.sha256 }}

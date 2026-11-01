@@ -38,7 +38,7 @@ def api(path, binary=False, token=None):
         process.stdout.close()
 
 
-def artifact_file(repo, artifact_id, run_id, attempt, name, filename, head_sha):
+def artifact_file(repo, artifact_id, run_id, attempt, name, filename, head_sha, allowed_conclusions=('success',)):
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo):raise ValueError('invalid repository')
     if any(type(x) is bool or not re.fullmatch('[1-9][0-9]*',str(x)) for x in (artifact_id,run_id,attempt)):raise ValueError('invalid artifact/run identity')
     meta=api(f'repos/{repo}/actions/artifacts/{artifact_id}')
@@ -48,7 +48,7 @@ def artifact_file(repo, artifact_id, run_id, attempt, name, filename, head_sha):
         str(meta.get('workflow_run',{}).get('id'))!=str(run_id) or
         str(run.get('run_attempt'))!=str(attempt) or run.get('head_sha')!=head_sha or
         run.get('repository',{}).get('full_name')!=repo or
-        run.get('status')!='completed' or run.get('conclusion')!='success'):
+        run.get('status')!='completed' or run.get('conclusion') not in set(allowed_conclusions)):
         raise ValueError('artifact provenance mismatch')
     archive=api(f'repos/{repo}/actions/artifacts/{artifact_id}/zip',binary=True)
     if len(archive)>2_000_000:raise ValueError('oversized artifact archive')
