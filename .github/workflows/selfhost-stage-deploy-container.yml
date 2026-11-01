@@ -314,26 +314,26 @@ jobs:
 
   stage-output:
     name: "Export deployment results"
-    if: ${{ always() && !cancelled() && needs.provision.result == 'success' && needs.deploy_base.result == 'success' }}
+    if: ${{ always() && !cancelled() && needs.provision.result == 'success' && needs.deploy_base.result != '' }}
     needs: [provision, deploy_base]
     runs-on: ubuntu-latest
     outputs:
       context: ${{ toJSON(needs) }}
     steps:
       - name: Checkout receipt verifier
-        if: ${{ needs.provision.outputs.run_application_deploy == 'true' && needs.provision.outputs.hosts_kubernetes != '[]' && needs.provision.outputs.hosts_kubernetes != '' }}
+        if: ${{ needs.deploy_base.result == 'success' }}
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Download target handover receipts
-        if: ${{ needs.provision.outputs.run_application_deploy == 'true' && needs.provision.outputs.hosts_kubernetes != '[]' && needs.provision.outputs.hosts_kubernetes != '' }}
+        if: ${{ needs.deploy_base.result == 'success' }}
         uses: actions/download-artifact@v8
         with:
           pattern: k3s-handover-*-${{ github.run_attempt }}
           path: ${{ runner.temp }}/k3s-handover-receipts
       - name: Verify target handover coverage
-        if: ${{ needs.provision.outputs.run_application_deploy == 'true' && needs.provision.outputs.hosts_kubernetes != '[]' && needs.provision.outputs.hosts_kubernetes != '' }}
+        if: ${{ needs.deploy_base.result == 'success' }}
         env:
           HANDOVER_DIRECTORY: ${{ runner.temp }}/k3s-handover-receipts
           EXPECTED_TARGETS: ${{ needs.provision.outputs.hosts_kubernetes }}
@@ -364,3 +364,6 @@ jobs:
           name: selfhost-stage-context-deploy
           path: ${{ runner.temp }}/stage-context.json
           if-no-files-found: error
+      - name: Fail when target delivery did not complete
+        if: ${{ needs.deploy_base.result != 'success' }}
+        run: exit 1
