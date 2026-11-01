@@ -195,9 +195,12 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
         self.assertEqual(resolve_job["env"]["INPUT_OFFLINE_MODE"], "off")
         self.assertNotIn("INPUT_AGENT_PROXY_PLAN", resolve_job["env"])
         self.assertIn("include_external_agent_proxy == true", resolve_job["env"]["INPUT_INCLUDE_EXTERNAL_AGENT_PROXY"])
-        self.assertIn("|| 'false'", resolve["jobs"]["stage-output"]["outputs"]["include_external_agent_proxy"])
+        self.assertIn("|| 'false'", resolve_job["outputs"]["include_external_agent_proxy"])
+        self.assertEqual(resolve["jobs"]["stage-output"]["outputs"]["context"],
+                         "${{ toJSON(needs.resolve-targets) }}")
         infra = load_workflow(ROOT / ".github/workflows/selfhost-stage-infra.yml")
-        self.assertIn("|| 'false'", infra["jobs"]["resolve-targets"]["outputs"]["include_external_agent_proxy"])
+        self.assertEqual(infra["jobs"]["resolve-targets"]["outputs"]["include_external_agent_proxy"],
+                         "${{ fromJSON(inputs.resolve_context || '{}').outputs.include_external_agent_proxy || '' }}")
         route_script = (ROOT / ".github/scripts/platform-ops/provision/platform-ops_provision_route-ref-to-an-explicit-profile.sh").read_text(encoding="utf-8")
         self.assertIn('include_external_agent_proxy="${INPUT_INCLUDE_EXTERNAL_AGENT_PROXY:-false}"', route_script)
         request_step = next(step for step in jobs["resolve"]["steps"] if step.get("id") == "request")
