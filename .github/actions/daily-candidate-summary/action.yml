@@ -24,7 +24,7 @@ runs:
         BUILD_RESULT: ${{ inputs.build-result }}
         GATE_RESULT: ${{ inputs.gate-result }}
         DISPATCH_RESULT: ${{ inputs.dispatch-result }}
-      run: ruby "$GITHUB_ACTION_PATH/summary.rb" write
+      run: python3 "$GITHUB_ACTION_PATH/summary.py" write
     - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       with:
         name: daily-candidate-summary-${{ github.run_id }}-${{ github.run_attempt }}
@@ -34,5 +34,5 @@ runs:
     - shell: bash
       env:
         ACCEPTED: ${{ steps.write.outputs.accepted }}
-      run: ruby "$GITHUB_ACTION_PATH/summary.rb" enforce
+      run: python3 "$GITHUB_ACTION_PATH/summary.py" enforce
 

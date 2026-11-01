@@ -4,8 +4,7 @@ inputs:
   dispatch-json: {required: true, description: Validated GitOps UAT dispatch declaration}
   candidate-manifest: {required: true, description: Candidate manifest path}
   candidate-fingerprint: {required: true, description: Candidate manifest fingerprint}
-  github-app-client-id: {required: true, description: Runtime GitHub App client ID}
-  github-app-private-key: {required: true, description: Runtime GitHub App private key}
+  github-token: {required: true, description: Repository-scoped UAT owner token}
   timeout-seconds: {required: false, default: "3600", description: Owner run timeout}
 outputs:
   receipt_path:
@@ -23,8 +22,7 @@ runs:
         UAT_DISPATCH_JSON: ${{ inputs.dispatch-json }}
         CANDIDATE_MANIFEST: ${{ inputs.candidate-manifest }}
         CANDIDATE_FINGERPRINT: ${{ inputs.candidate-fingerprint }}
-        GITHUB_APP_CLIENT_ID: ${{ inputs.github-app-client-id }}
-        GITHUB_APP_PRIVATE_KEY: ${{ inputs.github-app-private-key }}
+        GITHUB_TOKEN_INPUT: ${{ inputs.github-token }}
         UAT_OWNER_TIMEOUT_SECONDS: ${{ inputs.timeout-seconds }}
-      run: node "$GITHUB_ACTION_PATH/dispatch.mjs"
+      run: python3 "$GITHUB_ACTION_PATH/dispatch.py"
 

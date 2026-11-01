@@ -28,5 +28,5 @@ runs:
         ARTIFACTS_SHA: ${{ inputs.artifacts-sha }}
         IAC_SHA: ${{ inputs.iac-sha }}
         PLAYBOOKS_SHA: ${{ inputs.playbooks-sha }}
-      run: ruby "$GITHUB_ACTION_PATH/gate.rb"
+      run: python3 "$GITHUB_ACTION_PATH/gate.py"
 

@@ -65,6 +65,8 @@ jobs:
       iac_sha: ${{ steps.resolve.outputs.iac_sha }}
       playbooks_sha: ${{ steps.resolve.outputs.playbooks_sha }}
       uat_dispatch: ${{ steps.resolve.outputs.uat_dispatch }}
+      uat_owner: ${{ steps.resolve.outputs.uat_owner }}
+      uat_repository: ${{ steps.resolve.outputs.uat_repository }}
     steps:
       - name: Check out Orchestrator control plane
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -130,10 +132,11 @@ jobs:
           token: ${{ steps.infra-token.outputs.token }}
           persist-credentials: false
 
-      - name: Resolve policy, immutable SHAs, component matrix and candidate ID
-        id: resolve
+      - name: Resolve the reviewed component repository scope
+        id: declaration
         uses: ./.github/actions/resolve-daily-candidate
         with:
+          mode: declaration
           gitops-root: ${{ github.workspace }}/gitops
           artifacts-root: ${{ github.workspace }}/artifacts
           iac-root: ${{ github.workspace }}/iac_modules
@@ -144,8 +147,33 @@ jobs:
           snapshot-tag: ${{ inputs.snapshot_tag || '' }}
           deploy-after-build: ${{ inputs.deploy_after_build || false }}
           target-ref: ${{ inputs.target_ref || '' }}
-          github-app-client-id: ${{ vars.DAILY_SNAPSHOT_GITHUB_APP_CLIENT_ID }}
-          github-app-private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+
+      - name: Mint a read-only token for the declared component repositories
+        id: component-read-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          client-id: ${{ vars.DAILY_SNAPSHOT_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+          owner: ${{ steps.declaration.outputs.component_owner }}
+          repositories: ${{ steps.declaration.outputs.component_repositories }}
+          permission-contents: read
+
+      - name: Resolve immutable SHAs, component matrix and candidate ID
+        id: resolve
+        uses: ./.github/actions/resolve-daily-candidate
+        with:
+          mode: resolve
+          gitops-root: ${{ github.workspace }}/gitops
+          artifacts-root: ${{ github.workspace }}/artifacts
+          iac-root: ${{ github.workspace }}/iac_modules
+          playbooks-root: ${{ github.workspace }}/playbooks
+          policy-path: delivery/candidates/${{ inputs.delivery_scope || 'web-saas' }}-uat.yaml
+          source-ref: ${{ inputs.source_ref || 'main' }}
+          delivery-scope: ${{ inputs.delivery_scope || 'web-saas' }}
+          snapshot-tag: ${{ inputs.snapshot_tag || '' }}
+          deploy-after-build: ${{ inputs.deploy_after_build || false }}
+          target-ref: ${{ inputs.target_ref || '' }}
+          github-token: ${{ steps.component-read-token.outputs.token }}
 
   snapshot:
     name: "[2/5] Build | ${{ matrix.name }}"
@@ -182,6 +210,17 @@ jobs:
           repositories: artifacts
           permission-contents: read
 
+      - name: Mint a token for the exact component repository
+        id: component-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          client-id: ${{ vars.DAILY_SNAPSHOT_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+          owner: ${{ matrix.component.source_owner }}
+          repositories: ${{ matrix.component.source_repository_name }}
+          permission-actions: write
+          permission-contents: write
+
       - name: Check out the fixed Artifacts owner
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -199,8 +238,7 @@ jobs:
           candidate-id: ${{ needs.resolve-snapshot-tag.outputs.candidate_id }}
           source-ref: ${{ inputs.source_ref || 'main' }}
           owner-sha: ${{ needs.resolve-snapshot-tag.outputs.artifacts_sha }}
-          github-app-client-id: ${{ vars.DAILY_SNAPSHOT_GITHUB_APP_CLIENT_ID }}
-          github-app-private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+          github-token: ${{ steps.component-token.outputs.token }}
           registry-username: ${{ steps.vault.outputs.GHCR_USERNAME }}
           registry-token: ${{ steps.vault.outputs.GHCR_TOKEN }}
 
@@ -289,6 +327,17 @@ jobs:
           secrets: |
             kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
 
+      - name: Mint a token for the declared UAT owner
+        id: uat-owner-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          client-id: ${{ vars.DAILY_SNAPSHOT_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+          owner: ${{ needs.resolve-snapshot-tag.outputs.uat_owner }}
+          repositories: ${{ needs.resolve-snapshot-tag.outputs.uat_repository }}
+          permission-actions: write
+          permission-contents: write
+
       - name: Dispatch and validate the declared UAT owner
         id: dispatch
         uses: ./.github/actions/dispatch-uat-owner
@@ -296,8 +345,7 @@ jobs:
           dispatch-json: ${{ needs.resolve-snapshot-tag.outputs.uat_dispatch }}
           candidate-manifest: ${{ runner.temp }}/daily-candidate-manifest/candidate-manifest.json
           candidate-fingerprint: ${{ needs.snapshot-gate.outputs.candidate_fingerprint }}
-          github-app-client-id: ${{ vars.DAILY_SNAPSHOT_GITHUB_APP_CLIENT_ID }}
-          github-app-private-key: ${{ steps.vault.outputs.APP_PRIVATE_KEY }}
+          github-token: ${{ steps.uat-owner-token.outputs.token }}
 
       - name: Preserve the validated UAT owner receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
