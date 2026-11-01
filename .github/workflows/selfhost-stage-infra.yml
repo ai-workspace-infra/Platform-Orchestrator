@@ -93,7 +93,7 @@ jobs:
       terraform_workdir: ${{ fromJSON(inputs.resolve_context || '{}').outputs.terraform_workdir || '' }}
       run_infrastructure: ${{ fromJSON(inputs.resolve_context || '{}').outputs.run_infrastructure || '' }}
       run_application_deploy: ${{ fromJSON(inputs.resolve_context || '{}').outputs.run_application_deploy || '' }}
-      target_domains: ${{ fromJSON(inputs.resolve_context || '{}').outputs.target_domains || '' }}
+      delivery_scope: ${{ fromJSON(inputs.resolve_context || '{}').outputs.delivery_scope || '' }}
       deploy_tag: ${{ fromJSON(inputs.resolve_context || '{}').outputs.deploy_tag || '' }}
       terraform_action: ${{ fromJSON(inputs.resolve_context || '{}').outputs.terraform_action || '' }}
       toolkit_action: ${{ fromJSON(inputs.resolve_context || '{}').outputs.toolkit_action || '' }}
@@ -189,7 +189,7 @@ jobs:
       terraform_workdir: ${{ needs.resolve-targets.outputs.terraform_workdir }}
       run_infrastructure: ${{ needs.resolve-targets.outputs.run_infrastructure }}
       run_application_deploy: ${{ needs.resolve-targets.outputs.run_application_deploy }}
-      target_domains: ${{ needs.resolve-targets.outputs.target_domains }}
+      delivery_scope: ${{ needs.resolve-targets.outputs.delivery_scope }}
       deploy_tag: ${{ needs.resolve-targets.outputs.deploy_tag }}
       terraform_action: ${{ needs.resolve-targets.outputs.terraform_action }}
       toolkit_action: ${{ needs.resolve-targets.outputs.toolkit_action }}
@@ -289,7 +289,7 @@ jobs:
     - name: Build Agent Proxy IaC and non-IaC matrices
       id: agent_proxy_matrix
       if: ${{ needs.resolve-targets.outputs.run_infrastructure == 'true' && needs.resolve-targets.outputs.terraform_action == 'apply' && needs.resolve-targets.outputs.cloud_provider
-        == 'akamai-cloud' && contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.resolve-targets.outputs.target_domains) }}
+        == 'akamai-cloud' && contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), needs.resolve-targets.outputs.delivery_scope) }}
       env:
         CMDB_FILE: ${{ runner.temp }}/cmdb-artifact/cmdb.json
         HOSTS_MANIFEST_FILE: ${{ runner.temp }}/cmdb-artifact/hosts_manifest.json
@@ -318,7 +318,7 @@ jobs:
         echo "hosts_web_saas_native=${native}" >> "${GITHUB_OUTPUT}"
         echo "hosts_kubernetes=${kubernetes}" >> "${GITHUB_OUTPUT}"
     - name: Authenticate Vault for the existing application credential preparation
-      if: ${{ needs.resolve-targets.outputs.run_application_deploy == 'true' && needs.resolve-targets.outputs.terraform_action == 'apply' && (needs.resolve-targets.outputs.target_domains != 'web-saas' || steps.bootstrap_selection.outputs.hosts_kubernetes == '[]' || steps.bootstrap_selection.outputs.hosts_web_saas_native != '[]') }}
+      if: ${{ needs.resolve-targets.outputs.run_application_deploy == 'true' && needs.resolve-targets.outputs.terraform_action == 'apply' && (needs.resolve-targets.outputs.delivery_scope != 'web-saas' || steps.bootstrap_selection.outputs.hosts_kubernetes == '[]' || steps.bootstrap_selection.outputs.hosts_web_saas_native != '[]') }}
       uses: hashicorp/vault-action@v4
       with:
         url: ${{ env.VAULT_ADDR }}
@@ -334,7 +334,7 @@ jobs:
       run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_initialize-databases-credentials.sh
     - name: Initialize Agent Proxy Credentials
       if: ${{ needs.resolve-targets.outputs.run_application_deploy == 'true' && needs.resolve-targets.outputs.terraform_action == 'apply' && contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas
-        + agent-proxy"]'), needs.resolve-targets.outputs.target_domains) }}
+        + agent-proxy"]'), needs.resolve-targets.outputs.delivery_scope) }}
       env:
         VAULT_ENV_PATH: ${{ needs.resolve-targets.outputs.vault_env_path }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_initialize-agent-proxy-credentials.sh
@@ -363,7 +363,7 @@ jobs:
     - resolve-targets
     - iac
 
-  # target_domains=all is not complete until the UAT XConnect Zero control/data
+  # delivery_scope=all is not complete until the UAT XConnect Zero control/data
   # plane is reconciled. Keep this as a separate workflow so its existing-One
   # state and Vault role remain independent from provider-specific resources.
   # The external Gateway and One records are configurable inputs; the defaults

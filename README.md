@@ -220,7 +220,7 @@ Recommended first-run inputs:
 | `runner_type` | `ubuntu-latest` |
 | `deploy_tag` | An existing immutable image version, such as `daily-build-2026.07.30-r1` |
 | `infra_ref` / `playbooks_ref` / `gitops_ref` | Matching `main` or release refs across the three core repositories |
-| `target_domains` | Start with one domain; do not start with `all` |
+| `delivery_scope` | Start with one delivery scope; do not start with `all` |
 | `cloud_provider` | `vultr-vps`; this is the only end-to-end provider currently wired for the business domains |
 | `vault_env_path` | Match the target environment: `sit`, `uat`, or `prod` |
 | `run_infrastructure` | Enable when hosts or infrastructure must be created or updated |
@@ -279,7 +279,7 @@ When switching projects, update at least:
 
 1. The `ai-workspace-infra/iac_modules`, `playbooks`, `gitops`, and every reusable workflow `uses:` reference in `.github/workflows/selfhost-orchestrator.yml`.
 2. Service repositories, image registries, domains, and tags referenced inside `playbooks` and GitOps.
-3. `target_domains`, the Terraform host/resource matrix, job conditions, and Vault paths; remove domains that do not exist in the personal project.
+3. `delivery_scope`, the Terraform host/resource matrix, job conditions, and Vault paths; remove scopes that do not exist in the personal project.
 4. GitHub App installations, selected repositories, Contents/Actions permissions, and GitOps write access.
 5. `REPO`, `PLAYBOOKS_REPO`, workflow allowlists, and new policies/roles in [`vault_auth_split.sh`](scripts/create_vault_service_repo_roles.sh).
 

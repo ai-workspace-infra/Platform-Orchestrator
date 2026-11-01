@@ -3,7 +3,7 @@ set -euo pipefail
 
 environment="${VAULT_ENV_PATH:?VAULT_ENV_PATH must be set}"
 operation="${OPERATION:-plan}"
-target_domains="${TARGET_DOMAINS:-all}"
+delivery_scope="${DELIVERY_SCOPE:-all}"
 cloud_provider="${CLOUD_PROVIDER:-vultr-vps}"
 tag_ref="${TAG_REF:-}"
 deploy_cloudflare="${DEPLOY_CLOUDFLARE:-false}"
@@ -72,21 +72,21 @@ fi
 # The serverless workflow owns only the complete web-saas control plane. `all`
 # remains the UI-compatible full-domain selection, but its serverless segment
 # resolves to web-saas; other domains belong to the cloud-provider replica path.
-case "${target_domains}" in
+case "${delivery_scope}" in
   all)
     # `all` is the UI-compatible name for the one serverless domain currently
     # wired: the complete web-saas control plane.
-    resolved_target_domains="web-saas"
+    resolved_delivery_scope="web-saas"
     ;;
   web-saas)
-    resolved_target_domains="web-saas"
+    resolved_delivery_scope="web-saas"
     ;;
   ai-workspace|infra-platform|agent-proxy|'web-saas + agent-proxy')
-    echo "TARGET_DOMAINS=${target_domains} is not deployed by the serverless workflow; serverless is limited to web-saas. Route other domains through the cloud_provider environment replica path" >&2
+    echo "DELIVERY_SCOPE=${delivery_scope} is not deployed by the serverless workflow; serverless is limited to web-saas. Route other domains through the cloud_provider environment replica path" >&2
     exit 2
     ;;
   *)
-    echo "TARGET_DOMAINS must be one of: all, ai-workspace, web-saas, infra-platform, agent-proxy, web-saas + agent-proxy" >&2
+    echo "DELIVERY_SCOPE must be one of: all, ai-workspace, web-saas, infra-platform, agent-proxy, web-saas + agent-proxy" >&2
     exit 2
     ;;
 esac
@@ -202,4 +202,4 @@ if [[ "${operation}" == "deploy" || "${operation}" == "upgrade" || "${operation}
   exit 2
 fi
 
-echo "Dispatch validated: operation=${operation}, target_domains=${target_domains}, resolved_target_domains=${resolved_target_domains}, cloud_provider=${cloud_provider}, environment=${environment}, tag_ref=${tag_ref}, dns_mode=${serverless_dns_mode}"
+echo "Dispatch validated: operation=${operation}, delivery_scope=${delivery_scope}, resolved_delivery_scope=${resolved_delivery_scope}, cloud_provider=${cloud_provider}, environment=${environment}, tag_ref=${tag_ref}, dns_mode=${serverless_dns_mode}"

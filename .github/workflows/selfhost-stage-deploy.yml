@@ -78,7 +78,7 @@ jobs:
       terraform_workdir: ${{ fromJSON(inputs.provision_context || '{}').outputs.terraform_workdir || '' }}
       run_infrastructure: ${{ fromJSON(inputs.provision_context || '{}').outputs.run_infrastructure || '' }}
       run_application_deploy: ${{ fromJSON(inputs.provision_context || '{}').outputs.run_application_deploy || '' }}
-      target_domains: ${{ fromJSON(inputs.provision_context || '{}').outputs.target_domains || '' }}
+      delivery_scope: ${{ fromJSON(inputs.provision_context || '{}').outputs.delivery_scope || '' }}
       deploy_tag: ${{ fromJSON(inputs.provision_context || '{}').outputs.deploy_tag || '' }}
       terraform_action: ${{ fromJSON(inputs.provision_context || '{}').outputs.terraform_action || '' }}
       toolkit_action: ${{ fromJSON(inputs.provision_context || '{}').outputs.toolkit_action || '' }}
@@ -144,7 +144,7 @@ jobs:
   prod_availability:
     name: "[3] PROD | containers + HTTPS + API + DB availability"
     needs: [provision, deploy_web_saas]
-    if: ${{ !cancelled() && fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' && (fromJSON(inputs.payload_json || '{}').operation == 'native-availability' || (needs.provision.outputs.deployment_env == 'prod' && needs.provision.outputs.target_domains == 'web-saas' && needs.deploy_web_saas.result == 'success')) }}
+    if: ${{ !cancelled() && fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' && (fromJSON(inputs.payload_json || '{}').operation == 'native-availability' || (needs.provision.outputs.deployment_env == 'prod' && needs.provision.outputs.delivery_scope == 'web-saas' && needs.deploy_web_saas.result == 'success')) }}
     runs-on: ubuntu-latest
     environment: prod
     steps:
@@ -222,7 +222,7 @@ jobs:
       ${{ !cancelled() &&
       needs.provision.result == 'success' &&
       needs.provision.outputs.deployment_env == 'uat' &&
-      needs.provision.outputs.target_domains == 'all' &&
+      needs.provision.outputs.delivery_scope == 'all' &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' }}
     runs-on: ${{ fromJSON(inputs.payload_json || '{}').runner_type || 'ubuntu-latest' }}
@@ -272,7 +272,7 @@ jobs:
       ANSIBLE_PIPELINING:       "True"
       ANSIBLE_SSH_ARGS:         "-o ControlMaster=auto -o ControlPersist=60s -o IdentityFile=~/.ssh/id_deploy -o StrictHostKeyChecking=no"
       TARGET_DOMAIN_BASE:       ${{ needs.provision.outputs.target_domain_base }}
-      TARGET_DOMAINS:            ${{ needs.provision.outputs.target_domains }}
+      DELIVERY_SCOPE:            ${{ needs.provision.outputs.delivery_scope }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
@@ -289,7 +289,7 @@ jobs:
     - name: Checkout GitOps Agent Proxy resources
       if: >-
         ${{ contains(fromJSON('["all","web-saas","open-platform","ai-workspace","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","agent-proxy","web-saas + agent-proxy"]'),
-        needs.provision.outputs.target_domains) }}
+        needs.provision.outputs.delivery_scope) }}
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/gitops
@@ -300,7 +300,7 @@ jobs:
       if: >-
         ${{ needs.provision.outputs.deployment_env == 'prod' &&
         contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'),
-        needs.provision.outputs.target_domains) }}
+        needs.provision.outputs.delivery_scope) }}
       env:
         GITOPS_RUNTIME_SELECTION: ${{ github.workspace }}/gitops/topology/prod/runtime-selection.yaml
       run: |
@@ -315,7 +315,7 @@ jobs:
     # not enabled. Keep this source checkout scoped to AI Workspace runs so
     # other domains do not gain an unnecessary cross-repository dependency.
     - name: Load GitHub App private key for AI Workspace source
-      if: ${{ contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains) }}
+      if: ${{ contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.delivery_scope) }}
       id: xworkmate-vault
       uses: hashicorp/vault-action@v4
       with:
@@ -327,7 +327,7 @@ jobs:
           kv/data/CICD/github-app/daily-snapshot app_private_key | APP_PRIVATE_KEY
 
     - name: Create GitHub App installation token for AI Workspace source
-      if: ${{ contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains) }}
+      if: ${{ contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.delivery_scope) }}
       id: xworkmate-app-token
       uses: actions/create-github-app-token@v3
       with:
@@ -338,7 +338,7 @@ jobs:
         permission-contents: read
 
     - name: Checkout AI Workspace bridge source
-      if: ${{ contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains) }}
+      if: ${{ contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.delivery_scope) }}
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-lab/xworkmate-bridge
@@ -507,7 +507,7 @@ jobs:
       # deploys it after serverless web-saas, so restore the shared wildcard
       # certificate for agent-proxy-only runs as well; otherwise the playbook
       # correctly refuses to fall back to ACME on a fresh node.
-      if: ${{ steps.k3s_target.outputs.manifest == '' && (contains(needs.provision.outputs.target_domains, 'web-saas') || contains(needs.provision.outputs.target_domains, 'agent-proxy') || needs.provision.outputs.target_domains == 'all') }}
+      if: ${{ steps.k3s_target.outputs.manifest == '' && (contains(needs.provision.outputs.delivery_scope, 'web-saas') || contains(needs.provision.outputs.delivery_scope, 'agent-proxy') || needs.provision.outputs.delivery_scope == 'all') }}
       env:
         VAULT_CADDY_PATH: kv/data/CICD/domains/${{ needs.provision.outputs.target_domain_base }}
         TLS_VAULT_RESPONSE_FILE: ${{ runner.temp }}/domain-tls-vault.json
@@ -544,7 +544,7 @@ jobs:
 
     - name: Read the brand-domain certificate from its Vault KV path
       id: brand_tls_record
-      if: ${{ steps.k3s_target.outputs.manifest == '' && (needs.provision.outputs.deployment_env == 'prod' || startsWith(needs.provision.outputs.deployment_env, 'prod-v')) && needs.provision.outputs.target_domain_base == 'svc.plus' && contains(needs.provision.outputs.target_domains, 'web-saas') }}
+      if: ${{ steps.k3s_target.outputs.manifest == '' && (needs.provision.outputs.deployment_env == 'prod' || startsWith(needs.provision.outputs.deployment_env, 'prod-v')) && needs.provision.outputs.target_domain_base == 'svc.plus' && contains(needs.provision.outputs.delivery_scope, 'web-saas') }}
       env:
         VAULT_CADDY_PATH: kv/data/CICD/domains/xworktech.com
         TLS_VAULT_RESPONSE_FILE: ${{ runner.temp }}/brand-domain-tls-vault.json
@@ -620,7 +620,7 @@ jobs:
         # kv/data/uat/databases, while the bootstrap helper passes the Vault
         # service health/CLI address as an Ansible extra var locally.
         OPEN_PLATFORM_LOCAL_VAULT_ADDR: >-
-          ${{ needs.provision.outputs.target_domains == 'open-platform' &&
+          ${{ needs.provision.outputs.delivery_scope == 'open-platform' &&
           needs.provision.outputs.deployment_env == 'uat' &&
           needs.provision.outputs.cloud_provider == 'akamai-cloud' &&
           'http://127.0.0.1:8200' || '' }}
@@ -630,7 +630,7 @@ jobs:
         # before environment-scoped business secrets are migrated. Normal
         # service deployments keep strict Vault secret validation.
         OPEN_PLATFORM_DEPLOY_ONLY: >-
-          ${{ needs.provision.outputs.target_domains == 'open-platform' &&
+          ${{ needs.provision.outputs.delivery_scope == 'open-platform' &&
           needs.provision.outputs.deployment_env == 'uat' &&
           needs.provision.outputs.cloud_provider == 'akamai-cloud' &&
           'true' || 'false' }}
@@ -638,7 +638,7 @@ jobs:
         # for KV reads. A fresh local Vault must generate and persist its own
         # root token instead of treating that external token as local admin.
         VAULT_BOOTSTRAP_GENERATE_ROOT_TOKEN: >-
-          ${{ needs.provision.outputs.target_domains == 'open-platform' &&
+          ${{ needs.provision.outputs.delivery_scope == 'open-platform' &&
           needs.provision.outputs.deployment_env == 'uat' &&
           needs.provision.outputs.cloud_provider == 'akamai-cloud' &&
           'true' || 'false' }}
@@ -771,7 +771,7 @@ jobs:
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.deployment_env != 'prod' &&
       needs.provision.outputs.count != '0' &&
-      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
+      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.delivery_scope) &&
       needs.provision.outputs.hosts_web_saas_native != '[]' &&
       needs.provision.outputs.hosts_web_saas_native != '' }}
     runs-on: ubuntu-latest
@@ -877,7 +877,7 @@ jobs:
 
       # web-saas 域更新
       - name: Update web-saas tags
-        if: ${{ contains(needs.provision.outputs.target_domains, 'web-saas') || needs.provision.outputs.target_domains == 'all' }}
+        if: ${{ contains(needs.provision.outputs.delivery_scope, 'web-saas') || needs.provision.outputs.delivery_scope == 'all' }}
         env:
           DOMAIN: web-saas
           DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
@@ -894,7 +894,7 @@ jobs:
 
       # open-platform 域更新 (根据需要可以补充 MANAGED_IMAGES)
       - name: Update open-platform tags
-        if: ${{ contains(needs.provision.outputs.target_domains, 'open-platform') || needs.provision.outputs.target_domains == 'all' }}
+        if: ${{ contains(needs.provision.outputs.delivery_scope, 'open-platform') || needs.provision.outputs.delivery_scope == 'all' }}
         env:
           DOMAIN: open-platform
           DEPLOY_ENV: ${{ needs.provision.outputs.deployment_env }}
@@ -986,7 +986,7 @@ jobs:
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
-      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
+      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.delivery_scope) &&
       needs.provision.outputs.hosts_web_saas_native != '[]' &&
       needs.provision.outputs.hosts_web_saas_native != '' }}
     strategy:
@@ -1062,10 +1062,10 @@ jobs:
       needs.provision.outputs.terraform_action == 'apply' &&
       (fromJSON(inputs.payload_json || '{}').open_platform_service || 'none') != 'none' &&
       needs.provision.outputs.count != '0' &&
-      contains(fromJSON('["all","infra-platform","open-platform"]'), needs.provision.outputs.target_domains) &&
+      contains(fromJSON('["all","infra-platform","open-platform"]'), needs.provision.outputs.delivery_scope) &&
       !(needs.provision.outputs.deployment_env == 'uat' &&
       needs.provision.outputs.cloud_provider == 'akamai-cloud' &&
-      contains(fromJSON('["all","open-platform"]'), needs.provision.outputs.target_domains)) &&
+      contains(fromJSON('["all","open-platform"]'), needs.provision.outputs.delivery_scope)) &&
       needs.provision.outputs.hosts_infra_platform != '[]' &&
       needs.provision.outputs.hosts_infra_platform != '' }}
     strategy:
@@ -1090,11 +1090,11 @@ jobs:
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
       (needs.deploy_web_saas.result == 'success' ||
-      !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
+      !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), needs.provision.outputs.delivery_scope)) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.count != '0' &&
-      contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) &&
+      contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.delivery_scope) &&
       needs.provision.outputs.hosts_agent_proxy_iac != '[]' &&
       needs.provision.outputs.hosts_agent_proxy_iac != '' }}
     strategy:
@@ -1237,16 +1237,16 @@ jobs:
       ${{ always() && !cancelled() &&
       needs.provision.result == 'success' &&
       (needs.deploy_web_saas.result == 'success' ||
-      (needs.deploy_web_saas.result == 'skipped' && needs.provision.outputs.target_domains == 'agent-proxy')) &&
+      (needs.deploy_web_saas.result == 'skipped' && needs.provision.outputs.delivery_scope == 'agent-proxy')) &&
       (needs.accept_web_saas_upgrade.result == 'success' ||
       (needs.accept_web_saas_upgrade.result == 'skipped' &&
-      (needs.provision.outputs.deployment_env != 'uat' || needs.provision.outputs.target_domains == 'agent-proxy'))) &&
+      (needs.provision.outputs.deployment_env != 'uat' || needs.provision.outputs.delivery_scope == 'agent-proxy'))) &&
       contains(fromJSON('["uat","prod"]'), needs.provision.outputs.deployment_env) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       needs.provision.outputs.terraform_action == 'apply' &&
       needs.provision.outputs.include_external_agent_proxy == 'true' &&
       contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
-      needs.provision.outputs.target_domains) &&
+      needs.provision.outputs.delivery_scope) &&
       needs.provision.outputs.hosts_agent_proxy_non_iac != '[]' &&
       needs.provision.outputs.hosts_agent_proxy_non_iac != '' }}
     strategy:
@@ -1524,7 +1524,7 @@ jobs:
       (needs.provision.outputs.terraform_action == 'apply' ||
       needs.provision.outputs.reuse_existing_host == 'true') &&
       needs.provision.outputs.count != '0' &&
-      contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.target_domains) &&
+      contains(fromJSON('["all","ai-workspace"]'), needs.provision.outputs.delivery_scope) &&
       needs.provision.outputs.hosts_ai_workspace != '[]' &&
       needs.provision.outputs.hosts_ai_workspace != '' }}
     strategy:
@@ -1548,10 +1548,10 @@ jobs:
       needs.provision.result == 'success' &&
       needs.deploy_base.result == 'success' &&
       (needs.deploy_agent_proxy.result == 'success' ||
-      !contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
+      !contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.delivery_scope)) &&
       (needs.deploy_agent_proxy_non_iac.result == 'success' ||
       needs.provision.outputs.hosts_agent_proxy_non_iac == '[]' ||
-      !contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains)) &&
+      !contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.delivery_scope)) &&
       needs.provision.outputs.run_application_deploy == 'true' &&
       (needs.provision.outputs.terraform_action == 'apply' ||
       needs.provision.outputs.reuse_existing_host == 'true') &&
@@ -1646,15 +1646,15 @@ jobs:
         # The billing fan-out uses the same contract in every environment.
         # billing_service_base_url is derived from deployment_env, preserving
         # strict production/UAT endpoint and data-plane separation.
-        VECTOR_BILLING_INGEST_ENABLED: ${{ contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'true' || 'false' }}
+        VECTOR_BILLING_INGEST_ENABLED: ${{ contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.delivery_scope) && 'true' || 'false' }}
         VECTOR_BILLING_INGEST_ADDRESS: 127.0.0.1:8686
         VECTOR_BILLING_INGEST_URL: ${{ format('{0}/v1/ingest/snapshots', needs.provision.outputs.billing_service_base_url) }}
-        VECTOR_SNAPSHOT_URL: ${{ contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) && 'http://127.0.0.1:8686' || '' }}
+        VECTOR_SNAPSHOT_URL: ${{ contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.delivery_scope) && 'http://127.0.0.1:8686' || '' }}
         OBSERVABILITY_ENDPOINT: ${{ fromJSON(inputs.payload_json || '{}').observability_endpoint || 'https://observability.svc.plus' }}
       run: ${{ github.workspace }}/playbooks/scripts/pipeline/deploy-monitor-agent.sh
 
     - name: Verify Xray to Billing ingest chain
-      if: ${{ contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.target_domains) }}
+      if: ${{ contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), needs.provision.outputs.delivery_scope) }}
       working-directory: playbooks
       env:
         MATRIX_HOST: ${{ matrix.host }}

@@ -230,26 +230,26 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
       exit 1
     fi
   fi
-  target_domains="${INPUT_TARGET_DOMAINS:-web-saas}"
-  requested_target_domains="${target_domains}"
+  delivery_scope="${INPUT_DELIVERY_SCOPE:-web-saas}"
+  requested_delivery_scope="${delivery_scope}"
   
   if [ "${deployment_env}" = "sit" ]; then
     rf="all-in-one"
     resource_files_full="config/resources/${deployment_env}/all-in-one.yaml"
-  elif [ "${target_domains}" = "all" ]; then
+  elif [ "${delivery_scope}" = "all" ]; then
     rf="web-saas"
     resource_files_full="config/resources/${deployment_env}/web-saas.yaml"
-  elif [ "${target_domains}" = "web-saas + agent-proxy" ]; then
+  elif [ "${delivery_scope}" = "web-saas + agent-proxy" ]; then
     rf="web-saas-agent-proxy"
     resource_files_full="config/resources/${deployment_env}/web-saas.yaml,config/resources/${deployment_env}/agent-proxy.yaml"
   else
-    rf="${target_domains}"
-    resource_files_full="config/resources/${deployment_env}/${target_domains}.yaml"
+    rf="${delivery_scope}"
+    resource_files_full="config/resources/${deployment_env}/${delivery_scope}.yaml"
   fi
   
   cloud_provider="${INPUT_CLOUD_PROVIDER:-$(default_provider_for_environment "${deployment_env}")}"
   set_provider_metadata
-  if [[ "${deployment_env}" == prod-v* && ( "${target_domains}" != web-saas || ( "${cloud_provider}" != gcp-cloud && "${cloud_provider}" != akamai-cloud ) ) ]]; then
+  if [[ "${deployment_env}" == prod-v* && ( "${delivery_scope}" != web-saas || ( "${cloud_provider}" != gcp-cloud && "${cloud_provider}" != akamai-cloud ) ) ]]; then
     echo "::error::Versioned production profiles require a reviewed GCP or Akamai web-saas topology." >&2
     exit 1
   fi
@@ -264,8 +264,8 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   fi
   existing_target_host="${INPUT_EXISTING_TARGET_HOST:-}"
   existing_target_user="${INPUT_EXISTING_TARGET_USER:-root}"
-  if [[ "${deployment_env}" == "uat" && "${target_domains}" == "all" ]]; then
-    echo "::error::UAT target_domains=all is reserved for hybrid-orchestrator.yml. Dispatch the Hybrid workflow so each namespace keeps its declared provider; direct Selfhost all is disabled." >&2
+  if [[ "${deployment_env}" == "uat" && "${delivery_scope}" == "all" ]]; then
+    echo "::error::UAT delivery_scope=all is reserved for hybrid-orchestrator.yml. Dispatch the Hybrid workflow so each namespace keeps its declared provider; direct Selfhost all is disabled." >&2
     exit 1
   fi
   if [[ -n "${existing_target_host}" ]]; then
@@ -273,8 +273,8 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
       echo "::error::existing_target_host is UAT-only; existing production nodes are not deploy targets for this workflow." >&2
       exit 1
     }
-    [[ "${target_domains}" == ai-workspace ]] || {
-      echo "::error::existing_target_host is only supported with target_domains=ai-workspace." >&2
+    [[ "${delivery_scope}" == ai-workspace ]] || {
+      echo "::error::existing_target_host is only supported with delivery_scope=ai-workspace." >&2
       exit 1
     }
     [[ "${cloud_provider}" == gcp-cloud ]] || {
@@ -299,7 +299,7 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     # concrete provider account remains the next path component.
     state_project="${AKAMAI_UAT_PROJECT}"
   fi
-  if [[ "${requested_target_domains}" == "web-saas" && "${cloud_provider}" == "gcp-cloud" ]]; then
+  if [[ "${requested_delivery_scope}" == "web-saas" && "${cloud_provider}" == "gcp-cloud" ]]; then
     if [[ "${deployment_env}" == prod-v* ]]; then
       state_project="${deployment_env}.svc.plus"
       if [[ -n "${INPUT_STATE_PROJECT:-}" && "${INPUT_STATE_PROJECT}" != "${state_project}" ]]; then
@@ -329,26 +329,26 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     state_key=""
   elif [[ "${deployment_env}" == "uat" && "${cloud_provider}" == "akamai-cloud" ]]; then
     state_project="${INPUT_STATE_PROJECT:-${AKAMAI_UAT_PROJECT}}"
-    case "${requested_target_domains}" in
+    case "${requested_delivery_scope}" in
       web-saas|open-platform|ai-workspace)
-        terraform_namespace="${requested_target_domains}"
+        terraform_namespace="${requested_delivery_scope}"
         ;;
       agent-proxy-jp|agent-proxy-us|agent-proxy-sg)
-        terraform_namespace="${requested_target_domains}"
+        terraform_namespace="${requested_delivery_scope}"
         uat_akamai_region_namespace=true
-        target_domains=agent-proxy
-        resource_files_full="$(resolve_gitops_resource_files "${deployment_env}" "${cloud_provider}" "${requested_target_domains}")"
+        delivery_scope=agent-proxy
+        resource_files_full="$(resolve_gitops_resource_files "${deployment_env}" "${cloud_provider}" "${requested_delivery_scope}")"
         ;;
       all)
-        echo "::error::unreachable: UAT target_domains=all was not rejected before provider routing" >&2
+        echo "::error::unreachable: UAT delivery_scope=all was not rejected before provider routing" >&2
         exit 1
         ;;
       agent-proxy|'web-saas + agent-proxy'|infra-platform)
-        echo "::error::UAT Akamai resources have six isolated Terraform namespaces; aggregate target '${requested_target_domains}' is disabled. Select one workload or one agent-proxy region, or use target_domains=all for Stage A plan/infra fan-out." >&2
+        echo "::error::UAT Akamai resources have six isolated Terraform namespaces; aggregate target '${requested_delivery_scope}' is disabled. Select one workload or one agent-proxy region, or use delivery_scope=all for Stage A plan/infra fan-out." >&2
         exit 1
         ;;
       *)
-        echo "::error::Unsupported UAT Akamai target '${requested_target_domains}'. Select web-saas, open-platform, ai-workspace, agent-proxy-jp, agent-proxy-us, or agent-proxy-sg." >&2
+        echo "::error::Unsupported UAT Akamai target '${requested_delivery_scope}'. Select web-saas, open-platform, ai-workspace, agent-proxy-jp, agent-proxy-us, or agent-proxy-sg." >&2
         exit 1
         ;;
     esac
@@ -364,7 +364,7 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
     terraform_namespace="${rf}"
     # Hybrid UAT deliberately assigns the three regional Agent Proxy
     # namespaces to different Terraform providers (AWS/JP, GCP/US,
-    # Akamai/SG). Keep the namespace in target_domains so the child workflow
+    # Akamai/SG). Keep the namespace in delivery_scope so the child workflow
     # selects the split GitOps declaration and the same namespace becomes the
     # state/workspace suffix. The Akamai-specific branch above still maps its
     # playbook target to agent-proxy for backwards-compatible CMDB handling.
@@ -390,7 +390,7 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   # UI 使用单一 operation。下游 job 只消费解析后的执行意图，避免在
   # workflow 中重复拼接相互矛盾的开关条件。
   operation="${INPUT_OPERATION:-plan}"
-  if [[ "${requested_target_domains:-${target_domains:-}}" == "web-saas" && "${operation}" == "destroy" ]]; then
+  if [[ "${requested_delivery_scope:-${delivery_scope:-}}" == "web-saas" && "${operation}" == "destroy" ]]; then
     echo "::error::Persistent web-saas hosts cannot be destroyed by the shared orchestrator." >&2
     exit 1
   fi
@@ -416,7 +416,7 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
       terraform_action=apply; toolkit_action=deploy
       ;;
     deploy+init)
-      if [[ "$deployment_env" != uat || "$target_domains" != web-saas ]]; then
+      if [[ "$deployment_env" != uat || "$delivery_scope" != web-saas ]]; then
         echo "::error::deploy+init is restricted to the explicit UAT web-saas target." >&2
         exit 1
       fi
@@ -463,11 +463,11 @@ if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
   fi
 
   if [[ "${operation}" == "migrate" || "${operation}" == "deploy+migrate" ]]; then
-    case "${deployment_env}:${target_domains}" in
+    case "${deployment_env}:${delivery_scope}" in
       uat:all|uat:web-saas|"uat:web-saas + agent-proxy")
         ;;
       *)
-        echo "::error::Data migration is currently wired only for the UAT web-saas target. Use vault_env_path=uat and target_domains=all, web-saas, or web-saas + agent-proxy." >&2
+        echo "::error::Data migration is currently wired only for the UAT web-saas target. Use vault_env_path=uat and delivery_scope=all, web-saas, or web-saas + agent-proxy." >&2
         exit 1
         ;;
     esac
@@ -547,7 +547,7 @@ else
     set_provider_metadata
     terraform_workspace="sit-${STATE_PROJECT}-${cloud_provider}-${account}-all-in-one"
     resource_files_full="config/resources/sit/all-in-one.yaml"
-    state_key="terraform/sit/${STATE_PROJECT}/${cloud_provider}/${account}/all-in-one/terraform.tfstate"; target_domains=all
+    state_key="terraform/sit/${STATE_PROJECT}/${cloud_provider}/${account}/all-in-one/terraform.tfstate"; delivery_scope=all
     # PR 只做 terraform plan, 不 apply。四个 deploy job 都要求
     # terraform_action == 'apply', 所以 plan 会让它们全部 skip ——
     # PR 仍然校验 terraform 配置, 但不再创建真实 VPS。
@@ -562,7 +562,7 @@ else
         state_project="${STATE_PROJECT}"; [[ "${cloud_provider}" == "akamai-cloud" || "${cloud_provider}" == "gcp-cloud" ]] && state_project="${AKAMAI_UAT_PROJECT}"
         terraform_workspace="uat-${state_project}-${cloud_provider}-${account}-web-saas"
         resource_files_full="config/resources/uat/web-saas.yaml"
-        state_key="terraform/uat/${state_project}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; target_domains=web-saas
+        state_key="terraform/uat/${state_project}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; delivery_scope=web-saas
         # PR merge 后的 push 只做 IaC plan 校验，避免自动创建/变更真实资源。
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
@@ -574,7 +574,7 @@ else
         state_project="${STATE_PROJECT}"; [[ "${cloud_provider}" == "gcp-cloud" ]] && state_project="svc.plus"
         terraform_workspace="prod-${state_project}-${cloud_provider}-${account}-web-saas"
         resource_files_full="config/resources/prod/web-saas.yaml"
-        state_key="terraform/prod/${state_project}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; target_domains=web-saas
+        state_key="terraform/prod/${state_project}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; delivery_scope=web-saas
         # 与 main/release push 一样只做 plan 校验, 不自动 apply/部署 —— 这才是
         # 文件顶部注释说的设计: "pull_request 和 branch/tag push 都只跑
         # provision 阶段, 只有 workflow_dispatch 能真正 apply/deploy"。这里此前
@@ -598,7 +598,7 @@ else
         state_project="${STATE_PROJECT}"; [[ "${cloud_provider}" == "akamai-cloud" || "${cloud_provider}" == "gcp-cloud" ]] && state_project="${AKAMAI_UAT_PROJECT}"
         terraform_workspace="uat-${state_project}-${cloud_provider}-${account}-web-saas"
         resource_files_full="config/resources/uat/web-saas.yaml"
-        state_key="terraform/uat/${state_project}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; target_domains=web-saas
+        state_key="terraform/uat/${state_project}/${cloud_provider}/${account}/web-saas/terraform.tfstate"; delivery_scope=web-saas
         run_infrastructure=true; run_application_deploy=false
         terraform_action=plan; toolkit_action=none; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
     source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-uat
@@ -608,7 +608,7 @@ else
         set_provider_metadata
         terraform_workspace="sit-${STATE_PROJECT}-${cloud_provider}-${account}-all-in-one"
         resource_files_full="config/resources/sit/all-in-one.yaml"
-        state_key="terraform/sit/${STATE_PROJECT}/${cloud_provider}/${account}/all-in-one/terraform.tfstate"; target_domains=all
+        state_key="terraform/sit/${STATE_PROJECT}/${cloud_provider}/${account}/all-in-one/terraform.tfstate"; delivery_scope=all
         run_infrastructure=true; run_application_deploy=true
         terraform_action=apply; toolkit_action=deploy; infra_ref=main; playbooks_ref=main; gitops_ref=main; console_ref=main; toolkit_ref=main; offline_mode=off
     source_host="${SOURCE_HOST_DEFAULT}"; source_domain_base="${SOURCE_DOMAIN_BASE_DEFAULT}"; target_domain_base="${TARGET_DOMAIN_BASE_DEFAULT}"; env_suffix=-sit
@@ -622,7 +622,7 @@ fi
 # event/ref branches have selected the final environment/provider.
 if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ||
   "${uat_akamai_region_namespace:-false}" != "true" ]]; then
-  resource_files_full="$(resolve_gitops_resource_files "${deployment_env}" "${cloud_provider}" "${target_domains}")"
+  resource_files_full="$(resolve_gitops_resource_files "${deployment_env}" "${cloud_provider}" "${delivery_scope}")"
 fi
 
 uat_dns_update="${uat_dns_update:-false}"
@@ -643,14 +643,14 @@ if [ "${uat_dns_update}" = "true" ]; then
     echo "::error::uat_dns_update requires a non-empty target zone distinct from the source zone." >&2
     exit 1
   fi
-  case "${target_domains}" in
+  case "${delivery_scope}" in
     all|web-saas|"web-saas + agent-proxy") ;;
     agent-proxy)
       # The combined UAT path deploys Web SaaS serverlessly and provisions
       # only the Agent Proxy VPS. Its DNS stage publishes the agent-proxy A
       # record without requiring a selfhost web_saas host.
       if [[ "${INPUT_AGENT_CONTROLLER_URL:-$(environment_default "${deployment_env}" accounts_public_origin)}" != "$(environment_default "${deployment_env}" accounts_public_origin)" ]]; then
-        echo "::error::uat-records with target_domains=agent-proxy requires the serverless Accounts controller URL." >&2
+        echo "::error::uat-records with delivery_scope=agent-proxy requires the serverless Accounts controller URL." >&2
         exit 1
       fi
       ;;
@@ -760,9 +760,9 @@ if [ "${run_application_deploy}" = "true" ] && [ "${gitops_k3s_artifacts:-false}
   esac
 fi
 
-terraform_namespace="${terraform_namespace:-${rf:-${target_domains}}}"
+terraform_namespace="${terraform_namespace:-${rf:-${delivery_scope}}}"
 terraform_project="${state_project:-${STATE_PROJECT}}"
-for key in deployment_env resource_file resource_files_full terraform_workspace state_key terraform_namespace terraform_project run_infrastructure run_application_deploy target_domains terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider provider_tree provider_gitops_dir provider_provisioner provider_credential_mode account source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag agent_controller_url billing_service_base_url include_external_agent_proxy reuse_existing_host existing_target_host existing_target_user; do
+for key in deployment_env resource_file resource_files_full terraform_workspace state_key terraform_namespace terraform_project run_infrastructure run_application_deploy delivery_scope terraform_action toolkit_action deploy_ref infra_ref playbooks_ref gitops_ref console_ref toolkit_ref offline_mode cloud_provider provider_tree provider_gitops_dir provider_provisioner provider_credential_mode account source_host source_domain_base target_domain_base env_suffix dns_mode deploy_tag agent_controller_url billing_service_base_url include_external_agent_proxy reuse_existing_host existing_target_host existing_target_user; do
   value="${!key:-}"
   echo "$key=$value" >> "$GITHUB_OUTPUT"
 done

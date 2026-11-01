@@ -278,7 +278,7 @@ import yaml
 doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
 on = doc.get("on", doc.get(True))
 inputs = on["workflow_dispatch"]["inputs"]
-assert inputs["target_domains"]["default"] == "all"
+assert inputs["delivery_scope"]["default"] == "all"
 assert set(inputs["operation"]["options"]) >= {"plan", "apply", "deploy", "destroy"}
 assert inputs["xconnect_migration"]["default"] is False
 assert inputs["apply_accounts_schema_migration"]["default"] is False

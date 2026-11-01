@@ -337,21 +337,21 @@ jobs:
               name='Serverless Orchestrator'
               workflow='serverless-orchestrator.yml'
               operation='deploy'
-              target_domains='web-saas'
+              delivery_scope='web-saas'
               topology_mode='serverless'
               ;;
             uat)
               name='Serverless Orchestrator'
               workflow='serverless-orchestrator.yml'
               operation='deploy'
-              target_domains='web-saas'
+              delivery_scope='web-saas'
               topology_mode='serverless'
               ;;
             prod)
               name='Selfhost Orchestrator'
               workflow='selfhost-orchestrator.yml'
               operation='deploy'
-              target_domains='web-saas'
+              delivery_scope='web-saas'
               topology_mode='selfhost'
               ;;
             *)
@@ -364,9 +364,9 @@ jobs:
             --arg name "${name}" \
             --arg workflow "${workflow}" \
             --arg operation "${operation}" \
-            --arg target_domains "${target_domains}" \
+            --arg delivery_scope "${delivery_scope}" \
             --arg topology_mode "${topology_mode}" \
-            '{include:[{environment:$environment,name:$name,workflow:$workflow,operation:$operation,target_domains:$target_domains,topology_mode:$topology_mode}]}')"
+            '{include:[{environment:$environment,name:$name,workflow:$workflow,operation:$operation,delivery_scope:$delivery_scope,topology_mode:$topology_mode}]}')"
           printf 'matrix=%s\n' "${matrix_json}" >> "$GITHUB_OUTPUT"
 
   dispatch-environment:
@@ -475,7 +475,7 @@ jobs:
           DEPLOY_ENV: ${{ matrix.environment }}
           DISPATCH_WORKFLOW: ${{ matrix.workflow }}
           DISPATCH_OPERATION: ${{ matrix.operation }}
-          DISPATCH_TARGET_DOMAINS: ${{ matrix.target_domains }}
+          DISPATCH_DELIVERY_SCOPE: ${{ matrix.delivery_scope }}
           TARGET_DOMAIN_BASE: ${{ steps.gitops.outputs.target_domain_base }}
           SKIP_STRIPE_CATALOG: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_stripe_catalog }}
           WEBSITE_CONTENT_REF: ${{ steps.release.outcome == 'success' && needs.snapshot-gate.outputs.snapshot_tag || '' }}

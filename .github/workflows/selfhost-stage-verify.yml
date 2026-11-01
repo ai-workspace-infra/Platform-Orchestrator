@@ -107,7 +107,7 @@ jobs:
       ${{ always() && !cancelled() && needs.stage-context.result == 'success' &&
       fromJSON(inputs.provision_context).result == 'success' &&
       fromJSON(inputs.migration_context || '{}').switch_dns.result == 'success' &&
-      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), fromJSON(inputs.provision_context || '{}').outputs.target_domains) &&
+      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), fromJSON(inputs.provision_context || '{}').outputs.delivery_scope) &&
       fromJSON(inputs.provision_context).outputs.hosts_web_saas != '[]' &&
       fromJSON(inputs.provision_context).outputs.hosts_web_saas != '' }}
     runs-on: ${{ fromJSON(inputs.payload_json || '{}').runner_type || 'ubuntu-latest' }}
@@ -196,7 +196,7 @@ jobs:
       ${{ always() && !cancelled() && needs.stage-context.result == 'success' &&
       fromJSON(inputs.provision_context).result == 'success' &&
       fromJSON(inputs.migration_context || '{}').switch_dns.result == 'success' &&
-      contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), fromJSON(inputs.provision_context || '{}').outputs.target_domains) &&
+      contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), fromJSON(inputs.provision_context || '{}').outputs.delivery_scope) &&
       fromJSON(inputs.provision_context).outputs.hosts_agent_proxy_iac != '[]' &&
       fromJSON(inputs.provision_context).outputs.hosts_agent_proxy_iac != '' }}
     runs-on: ${{ fromJSON(inputs.payload_json || '{}').runner_type || 'ubuntu-latest' }}
@@ -308,7 +308,7 @@ jobs:
         AI_WORKSPACE_RESULT: ${{ fromJSON(inputs.deploy_context || '{}').deploy_ai_workspace.result || 'skipped' }}
         MONITOR_AGENT_RESULT: ${{ fromJSON(inputs.deploy_context || '{}').deploy_monitor_agent.result || 'skipped' }}
         DEPLOYMENT_ENV: ${{ fromJSON(inputs.provision_context || '{}').outputs.deployment_env }}
-        TARGET_DOMAINS: ${{ fromJSON(inputs.provision_context || '{}').outputs.target_domains }}
+        DELIVERY_SCOPE: ${{ fromJSON(inputs.provision_context || '{}').outputs.delivery_scope }}
         TERRAFORM_NAMESPACE: ${{ fromJSON(inputs.provision_context || '{}').outputs.terraform_namespace }}
         TERRAFORM_STATE_KEY: ${{ fromJSON(inputs.provision_context || '{}').outputs.state_key }}
         DEPLOY_TAG: ${{ fromJSON(inputs.provision_context || '{}').outputs.deploy_tag }}

@@ -511,7 +511,7 @@ jobs:
       INPUT_CLOUD_PROVIDER: ${{ fromJSON(inputs.payload_json || '{}').cloud_provider }}
       INPUT_CLOUD_ACCOUNT: ${{ fromJSON(inputs.payload_json || '{}').cloud_account }}
       INPUT_VAULT_ENV_PATH: ${{ fromJSON(inputs.payload_json || '{}').vault_env_path }}
-      INPUT_TARGET_DOMAINS: ${{ fromJSON(inputs.payload_json || '{}').target_domains }}
+      INPUT_DELIVERY_SCOPE: ${{ fromJSON(inputs.payload_json || '{}').delivery_scope }}
       INPUT_INSTANCE_PLAN: ${{ fromJSON(inputs.payload_json || '{}').instance_plan || '4C8G' }}
       INPUT_AGENT_PROXY_PLAN: ${{ fromJSON(inputs.payload_json || '{}').agent_proxy_plan || '1C2G' }}
       INPUT_OPERATION: ${{ fromJSON(inputs.payload_json || '{}').operation }}
@@ -534,7 +534,7 @@ jobs:
       terraform_workdir: ${{ steps.route.outputs.terraform_workdir }}
       run_infrastructure: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' && steps.route.outputs.run_infrastructure || 'false' }}
       run_application_deploy: ${{ fromJSON(inputs.payload_json || '{}').__parent_event_name == 'workflow_dispatch' && steps.route.outputs.run_application_deploy || 'false' }}
-      target_domains: ${{ steps.route.outputs.target_domains }}
+      delivery_scope: ${{ steps.route.outputs.delivery_scope }}
       deploy_tag: ${{ steps.route.outputs.deploy_tag }}
       terraform_action: ${{ steps.route.outputs.terraform_action }}
       toolkit_action: ${{ steps.route.outputs.toolkit_action }}
@@ -643,7 +643,7 @@ jobs:
     - name: Resolve Agent Proxy machine service origins from GitOps
       id: agent_proxy_origins
       if: ${{ steps.route.outputs.run_application_deploy == 'true' && steps.route.outputs.terraform_action != 'destroy' && contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas
-        + agent-proxy"]'), steps.route.outputs.target_domains) }}
+        + agent-proxy"]'), steps.route.outputs.delivery_scope) }}
       run: ${{ github.workspace }}/.github/scripts/platform-ops/provision/platform-ops_provision_resolve-agent-proxy-service-origins.sh
       env:
         AGENT_CONTROLLER_URL: ${{ steps.route.outputs.agent_controller_url }}
@@ -652,14 +652,14 @@ jobs:
         GITOPS_SERVERLESS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/serverless/runtime-topology.yaml
     - name: Render GitOps selfhost routing declaration
       if: ${{ steps.route.outputs.deployment_env != 'prod-v6' && (steps.route.outputs.run_infrastructure == 'true' || steps.route.outputs.toolkit_action == 'migrate') && steps.route.outputs.terraform_action != 'destroy'
-        && contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), steps.route.outputs.target_domains) }}
+        && contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), steps.route.outputs.delivery_scope) }}
       run: ${{ github.workspace }}/.github/scripts/gitops/prepare_gitops_routing_config.sh
       env:
         GITOPS_ROUTING_YAML: ${{ github.workspace }}/gitops/topology/${{ steps.route.outputs.deployment_env }}/selfhost/runtime-topology.yaml
         GITOPS_ROUTING_OUTPUT: ${{ runner.temp }}/selfhost-edge-routing.json
     - name: Validate GitOps selfhost routing contract
       if: ${{ steps.route.outputs.deployment_env != 'prod-v6' && (steps.route.outputs.run_infrastructure == 'true' || steps.route.outputs.toolkit_action == 'migrate') && steps.route.outputs.terraform_action != 'destroy'
-        && contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), steps.route.outputs.target_domains) }}
+        && contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), steps.route.outputs.delivery_scope) }}
       run: python3 ${{ github.workspace }}/.github/scripts/gitops/validate_selfhost_contract.py
       env:
         GITOPS_ROUTING_CONFIG: ${{ runner.temp }}/selfhost-edge-routing.json
@@ -668,7 +668,7 @@ jobs:
     - name: Resolve Accounts migration target from GitOps
       id: resolve_migration_target
       if: ${{ steps.route.outputs.deployment_env != 'prod-v6' && (steps.route.outputs.run_infrastructure == 'true' || steps.route.outputs.toolkit_action == 'migrate') && steps.route.outputs.terraform_action != 'destroy'
-        && contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), steps.route.outputs.target_domains) }}
+        && contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), steps.route.outputs.delivery_scope) }}
       run: ${{ github.workspace }}/.github/scripts/gitops/resolve_gitops_migration_target.sh
       env:
         GITOPS_ROUTING_CONFIG: ${{ runner.temp }}/selfhost-edge-routing.json
