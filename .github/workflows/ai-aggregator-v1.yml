@@ -28,10 +28,10 @@ on:
         type: choice
         options: [plan, apply, provision, stage, activate]
       environment:
-        description: "GitOps environment name under topology/<environment>/selfhost"
+        description: "Choose the GitOps deployment environment"
         required: true
-        default: uat
-        type: string
+        type: choice
+        options: [uat, prod]
       deployment_profile:
         description: "GitOps topology profile; single-node is the default cloud all-in-one path"
         required: true

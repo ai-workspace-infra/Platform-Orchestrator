@@ -140,6 +140,14 @@ class DeploymentTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_environment_must_be_selected_as_uat_or_prod_input(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ai-aggregator-v1.yml").read_text())
+        triggers = workflow.get("on") or workflow[True]
+        environment = triggers["workflow_dispatch"]["inputs"]["environment"]
+        self.assertEqual(environment["type"], "choice")
+        self.assertEqual(environment["options"], ["uat", "prod"])
+        self.assertNotIn("default", environment)
+
     def test_mutations_require_plan_and_use_event_provider(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/ai-aggregator-v1.yml").read_text())
         for provider, job in (("aws", "aws-deploy"), ("gcp", "gcp-deploy"), ("vps", "vps-deploy"),
