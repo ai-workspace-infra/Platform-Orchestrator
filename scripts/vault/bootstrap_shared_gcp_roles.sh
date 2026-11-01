@@ -19,7 +19,7 @@ while (($#)); do
     --check) mode=check ;;
     --apply) mode=apply ;;
     --write-runtime) runtime_mode=enabled ;;
-    --runtime-environment) runtime_environment="${2:?missing --runtime-environment value}"; shift 2 ;;
+    --runtime-environment) runtime_environment="${2:?missing --runtime-environment value}"; shift ;;
     --runtime-environment=*) runtime_environment="${1#*=}" ;;
     -h|--help)
       printf 'Usage: %s [--check|--apply]\n' "$0"
@@ -126,8 +126,8 @@ for name in "${names[@]}"; do
   else
     vault policy read "${name}" >/dev/null
     vault read -format=json "auth/jwt/role/${name}" |
-      jq -e --arg claim "${workflow_claim}" --arg expected "${workflow_value}" \
-        '.data.bound_claims[$claim] == $expected' >/dev/null || {
+      jq -e --slurpfile expected "${role_file}" \
+        '.data.bound_claims == $expected[0].bound_claims and .data.token_policies == $expected[0].token_policies' >/dev/null || {
           echo "${name}: Vault JWT role does not match the declared workflow ref; run --apply" >&2
           exit 1
         }
@@ -140,6 +140,24 @@ if [[ "${runtime_mode}" == enabled ]]; then
     echo "--runtime-environment must be uat, prod, or shared" >&2
     exit 2
   }
+  if [[ -z "${GCP_WORKLOAD_IDENTITY_PROVIDER:-}" ]]; then
+    : "${PROJECT_ID:?PROJECT_ID is required when GCP_WORKLOAD_IDENTITY_PROVIDER is omitted}"
+    : "${POOL_ID:?POOL_ID is required when GCP_WORKLOAD_IDENTITY_PROVIDER is omitted}"
+    : "${PROVIDER_ID:?PROVIDER_ID is required when GCP_WORKLOAD_IDENTITY_PROVIDER is omitted}"
+    command -v gcloud >/dev/null 2>&1 || {
+      echo "gcloud is required to resolve GCP_WORKLOAD_IDENTITY_PROVIDER" >&2
+      exit 2
+    }
+    project_number="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')" || {
+      echo "cannot resolve project number for ${PROJECT_ID}" >&2
+      exit 1
+    }
+    export GCP_WORKLOAD_IDENTITY_PROVIDER="projects/${project_number}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"
+  fi
+  if [[ -z "${GCP_SERVICE_ACCOUNT_EMAIL:-}" ]]; then
+    : "${PROJECT_ID:?PROJECT_ID is required when GCP_SERVICE_ACCOUNT_EMAIL is omitted}"
+    export GCP_SERVICE_ACCOUNT_EMAIL="github-actions-${runtime_environment}@${PROJECT_ID}.iam.gserviceaccount.com"
+  fi
   [[ "${GCP_WORKLOAD_IDENTITY_PROVIDER:-}" =~ ^projects/[0-9]+/locations/global/workloadIdentityPools/[a-z][a-z0-9-]{0,31}/providers/[a-z][a-z0-9-]{0,31}$ ]] || {
     echo "GCP_WORKLOAD_IDENTITY_PROVIDER must be a full active provider resource name" >&2
     exit 2
@@ -151,7 +169,7 @@ if [[ "${runtime_mode}" == enabled ]]; then
   runtime_path="${runtime_environment}/serverless/gcp"
   if [[ "${mode}" == apply ]]; then
     echo "Writing runtime GCP identity to kv/${runtime_path} (values redacted)..."
-    VAULT_ADDR="${vault_addr}" vault kv put -mount=kv "${runtime_path}" \
+    VAULT_ADDR="${vault_addr}" vault kv patch -mount=kv "${runtime_path}" \
       GCP_WORKLOAD_IDENTITY_PROVIDER="${GCP_WORKLOAD_IDENTITY_PROVIDER}" \
       GCP_SERVICE_ACCOUNT_EMAIL="${GCP_SERVICE_ACCOUNT_EMAIL}" >/dev/null
   else
