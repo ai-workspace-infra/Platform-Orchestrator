@@ -11,14 +11,19 @@ source "${script_dir}/source_gitops.sh"
 declaration_reader="${script_dir}/vault_declarations.py"
 vault_addr="${VAULT_ADDR:-https://vault.svc.plus}"
 mode=check
+runtime_mode=disabled
+runtime_environment=uat
 
 while (($#)); do
   case "$1" in
     --check) mode=check ;;
     --apply) mode=apply ;;
+    --write-runtime) runtime_mode=enabled ;;
+    --runtime-environment) runtime_environment="${2:?missing --runtime-environment value}"; shift 2 ;;
+    --runtime-environment=*) runtime_environment="${1#*=}" ;;
     -h|--help)
       printf 'Usage: %s [--check|--apply]\n' "$0"
-  printf 'Targets only the reviewed shared GCP and Vault node JWT roles and policies.\n'
+  printf 'Targets reviewed shared GCP/Vault roles and optionally kv/<env>/serverless/gcp runtime identity.\n'
       exit 0
       ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
@@ -129,5 +134,35 @@ for name in "${names[@]}"; do
     echo "${name}: present and workflow claim matches"
   fi
 done
+
+if [[ "${runtime_mode}" == enabled ]]; then
+  [[ "${runtime_environment}" =~ ^(uat|prod|shared)$ ]] || {
+    echo "--runtime-environment must be uat, prod, or shared" >&2
+    exit 2
+  }
+  [[ "${GCP_WORKLOAD_IDENTITY_PROVIDER:-}" =~ ^projects/[0-9]+/locations/global/workloadIdentityPools/[a-z][a-z0-9-]{0,31}/providers/[a-z][a-z0-9-]{0,31}$ ]] || {
+    echo "GCP_WORKLOAD_IDENTITY_PROVIDER must be a full active provider resource name" >&2
+    exit 2
+  }
+  [[ "${GCP_SERVICE_ACCOUNT_EMAIL:-}" =~ ^[A-Za-z0-9][A-Za-z0-9-]{4,29}@[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam\.gserviceaccount\.com$ ]] || {
+    echo "GCP_SERVICE_ACCOUNT_EMAIL must be a valid service-account email" >&2
+    exit 2
+  }
+  runtime_path="${runtime_environment}/serverless/gcp"
+  if [[ "${mode}" == apply ]]; then
+    echo "Writing runtime GCP identity to kv/${runtime_path} (values redacted)..."
+    VAULT_ADDR="${vault_addr}" vault kv put -mount=kv "${runtime_path}" \
+      GCP_WORKLOAD_IDENTITY_PROVIDER="${GCP_WORKLOAD_IDENTITY_PROVIDER}" \
+      GCP_SERVICE_ACCOUNT_EMAIL="${GCP_SERVICE_ACCOUNT_EMAIL}" >/dev/null
+  else
+    VAULT_ADDR="${vault_addr}" vault kv get -mount=kv -format=json "${runtime_path}" |
+      jq -e --arg provider "${GCP_WORKLOAD_IDENTITY_PROVIDER}" --arg account "${GCP_SERVICE_ACCOUNT_EMAIL}" \
+        '.data.data.GCP_WORKLOAD_IDENTITY_PROVIDER == $provider and .data.data.GCP_SERVICE_ACCOUNT_EMAIL == $account' >/dev/null || {
+          echo "kv/${runtime_path}: runtime identity does not match supplied active values; run --apply" >&2
+          exit 1
+        }
+    echo "kv/${runtime_path}: runtime identity matches (values redacted)"
+  fi
+fi
 
 echo "Shared GCP Vault role/policy ${mode}: OK"

@@ -41,6 +41,9 @@ for field in TF_STATE_ENDPOINT TF_STATE_BUCKET TF_STATE_REGION TF_STATE_ACCESS_K
 done
 grep -Fq 'secret_path="CICD/shared/iac_state"' "${state_script}"
 grep -Fq 'GCP_ENVIRONMENT must be uat, prod, or shared' "${bootstrap_script}"
+grep -Fq -- '--write-runtime' "${roles_script}"
+grep -Fq 'kv/${runtime_path}' "${roles_script}"
+grep -Fq 'GCP_WORKLOAD_IDENTITY_PROVIDER must be a full active provider resource name' "${roles_script}"
 grep -Fq 'GCP_ACCOUNT_ID=open-platform-prod' "${howto}"
 grep -Fq 'GCP_PROJECT_ID=open-platform-prod' "${howto}"
 grep -Fq 'GCP_ACCESS_TOKEN' "${howto}"
