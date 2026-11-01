@@ -24,7 +24,7 @@ These values are the public operation contract. Keep the choices and their routi
 | --- | --- | --- |
 | `runner_type` | Runner selection | `ubuntu-latest` |
 | `operation` | Select the operation above | `plan` |
-| `target_domains` | Business domain selection | `web-saas` |
+| `delivery_scope` | Delivery scope selection | `web-saas` |
 | `vault_env_path` | Environment and isolated generation profile | `uat` |
 | `source_ref` | Infrastructure repository ref | Empty resolves to `main`; business artifacts use `deploy_tag`. |
 | `deploy_tag` | Immutable application artifact version | Required for `deploy`, `deploy+init`, and `deploy+migrate`; may be empty for other operations. |
@@ -45,6 +45,8 @@ These values are the public operation contract. Keep the choices and their routi
 | `xconnect_gateway_ref` | UAT XConnect Gateway record key | `tw-xconnect.svc.plus` |
 | `existing_target_host` | Existing-host deployment target | Empty; accepted only by its supported UAT route. |
 
+`delivery_scope` is the Orchestrator dispatch input. GitOps `ResourceMatrix.spec.target_domains` remains a declaration-schema field and is not an alias for the domain-suffix input `target_domain_base`.
+
 The account form is unified as `cloud_account`; the resolver still accepts the old `akamai_account` field from existing internal callers during transition. The Agent controller URL is resolved from the selected environment contract. Vault uses the public `https://vault.svc.plus` endpoint and is not caller-configurable.
 
 ## PROD plan request
@@ -55,7 +57,7 @@ The current non-mutating PROD validation request is:
 source_ref=main
 operation=plan
 vault_env_path=prod-v6
-target_domains=web-saas
+delivery_scope=web-saas
 cloud_provider=akamai-cloud
 cloud_account=manbuzhe2026
 instance_plan=2C4G

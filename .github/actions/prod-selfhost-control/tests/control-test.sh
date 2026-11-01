@@ -22,7 +22,7 @@ jq '.transfer.database_cutover_approved=true' "$contract" > "$fixtures/bad.json"
 saved="$contract"; export contract="$fixtures/bad.json"; reject validate_contract; export contract="$saved"
 jq '.source.ready="false"' "$contract" > "$fixtures/bad.json"
 export contract="$fixtures/bad.json"; reject validate_contract; export contract="$saved"
-jq -n --arg sha "$GITHUB_SHA" '{inputs:{operation:"native-core-users-compare",vault_env_path:"prod",target_domains:"web-saas",
+jq -n --arg sha "$GITHUB_SHA" '{inputs:{operation:"native-core-users-compare",vault_env_path:"prod",delivery_scope:"web-saas",
   cloud_provider:"gcp-cloud",cloud_account:"xworktech",target_domain_base:"svc.plus",dns_mode:"none",runner_type:"ubuntu-latest",offline_mode:"off",source_ref:$sha}}' > "$GITHUB_EVENT_PATH"
 pass validate_input
 GITHUB_RUN_ATTEMPT=2 reject validate_input

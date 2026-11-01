@@ -174,8 +174,8 @@ KV 权限摘要：
 | `runner_type` | `ubuntu-latest` |
 | `deploy_tag` | 已存在的不可变镜像版本，例如 `daily-build-2026.07.30-r1` |
 | `infra_ref` / `playbooks_ref` / `gitops_ref` | 三个核心仓库使用匹配的 `main` 或 release ref |
-| `target_domains` | 先选一个业务域，不要第一次直接选 `all` |
-| `cloud_provider` | 当前业务域链路只有 `vultr-vps` 端到端可用 |
+| `delivery_scope` | 先选一个交付范围，不要第一次直接选 `all` |
+| `cloud_provider` | 当前交付范围链路只有 `vultr-vps` 端到端可用 |
 | `vault_env_path` | 与目标环境一致：`sit`、`uat` 或 `prod` |
 | `run_infrastructure` | 要创建或更新主机时勾选 |
 | `run_application_deploy` | 要部署应用时勾选；必须同时勾选 infrastructure |
@@ -229,13 +229,13 @@ platform-ops-toolkit
 
 ## 切换到个人项目
 
-当前 workflow 是为 `ai-workspace-infra` 编排的，`web-saas`、`ai-workspace`、`agent-proxy`、`infra-platform` 都是当前项目的业务域，不是通用模块。
+当前 workflow 是为 `ai-workspace-infra` 编排的，`web-saas`、`ai-workspace`、`agent-proxy`、`infra-platform` 都是当前项目的交付范围，不是通用模块。
 
 切换个人项目时至少修改：
 
 1. `.github/workflows/selfhost-orchestrator.yml` 中的 `ai-workspace-infra/iac_modules`、`playbooks`、`gitops` 和所有 reusable workflow `uses:`。
 2. `playbooks` 和 GitOps 内部引用的 service repository、镜像 registry、域名和 tag。
-3. `target_domains`、Terraform host/resource matrix、job 条件和 Vault 路径，删除个人项目不存在的业务域。
+3. `delivery_scope`、Terraform host/resource matrix、job 条件和 Vault 路径，删除个人项目不存在的交付范围。
 4. GitHub App 的安装组织、selected repositories、Contents/Actions 权限，以及自动更新 GitOps 所需的写权限。
 5. [`vault_auth_split.sh`](scripts/create_vault_service_repo_roles.sh) 的 `REPO`、`PLAYBOOKS_REPO`、workflow allowlist 和新的 policy/role。
 
@@ -262,7 +262,7 @@ rg -n 'ai-workspace-infra|ai-workspace-xstream|compassvpn|svc\.plus|onwalk\.net'
 
 ### 为什么 AWS/GCP/Azure 失败？
 
-这些是预留的多云选项；当前业务域交付链路只有 `vultr-vps` 端到端接通。
+这些是预留的多云选项；当前交付范围链路只有 `vultr-vps` 端到端接通。
 
 ## 详细文档
 

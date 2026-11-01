@@ -154,28 +154,28 @@ dispatch_selfhost() {
   fi
   payload="$(jq -n \
     --arg ref "${CHILD_REF}" --arg runner_type "${RUNNER_TYPE}" --arg deploy_tag "${DEPLOY_TAG}" \
-    --arg source_ref "${SOURCE_REF}" --arg operation "${child_operation}" --arg target_domains "${namespace}" \
+    --arg source_ref "${SOURCE_REF}" --arg operation "${child_operation}" --arg delivery_scope "${namespace}" \
     --arg provider "${provider}" --arg account "${account}" --arg profile "${profile}" --arg agent_profile "${agent_profile}" \
     --arg target_domain_base "${TARGET_DOMAIN_BASE}" --arg observability_endpoint "${OBSERVABILITY_ENDPOINT}" \
     --arg gateway "${XCONNECT_GATEWAY_REF}" \
     --arg existing_host "${existing_host}" \
     --arg dns_mode "${dns_mode}" \
-    '{ref:$ref,inputs:{runner_type:$runner_type,deploy_tag:$deploy_tag,source_ref:$source_ref,offline_mode:"off",source_host:"install.svc.plus",source_domain_base:"svc.plus",target_domain_base:$target_domain_base,observability_endpoint:$observability_endpoint,operation:$operation,target_domains:$target_domains,cloud_provider:$provider,cloud_account:$account,include_external_agent_proxy:"false",instance_plan:$profile,agent_proxy_plan:$agent_profile,dns_mode:$dns_mode,vault_env_path:"uat",skip_stripe_catalog:"true",xconnect_gateway_ref:$gateway,existing_target_host:$existing_host}}')"
+    '{ref:$ref,inputs:{runner_type:$runner_type,deploy_tag:$deploy_tag,source_ref:$source_ref,offline_mode:"off",source_host:"install.svc.plus",source_domain_base:"svc.plus",target_domain_base:$target_domain_base,observability_endpoint:$observability_endpoint,operation:$operation,delivery_scope:$delivery_scope,cloud_provider:$provider,cloud_account:$account,include_external_agent_proxy:"false",instance_plan:$profile,agent_proxy_plan:$agent_profile,dns_mode:$dns_mode,vault_env_path:"uat",skip_stripe_catalog:"true",xconnect_gateway_ref:$gateway,existing_target_host:$existing_host}}')"
   dispatch_and_wait selfhost-orchestrator.yml "${payload}" "${namespace} (${provider}, ${profile}, agent=${agent_profile})"
 }
 
 dispatch_serverless() {
-  local child_operation="$1" target_domains="${2:-all}" payload
+  local child_operation="$1" delivery_scope="${2:-all}" payload
   # Pages/Workers is the public SSR/edge gateway. It receives both origins
   # from GitOps and applies selfhost-first routing; Cloud Run remains the
   # elastic/fallback origin for web-saas, not a replacement for its full-stack
   # Selfhost backend.
   payload="$(jq -n \
-    --arg ref "${CHILD_REF}" --arg operation "${child_operation}" --arg tag "${DEPLOY_TAG}" --arg target_domains "${target_domains}" \
+    --arg ref "${CHILD_REF}" --arg operation "${child_operation}" --arg tag "${DEPLOY_TAG}" --arg delivery_scope "${delivery_scope}" \
     --arg adopt "${ADOPT_ACCOUNTS_BASELINE}" --arg apply "${APPLY_ACCOUNTS_SCHEMA_MIGRATION}" \
     --arg expected "${ACCOUNTS_SCHEMA_EXPECTED_VERSION}" --arg target "${ACCOUNTS_SCHEMA_TARGET_VERSION}" \
     --arg checksum "${ACCOUNTS_SCHEMA_SHA256}" \
-    '{ref:$ref,inputs:{operation:$operation,target_domains:$target_domains,cloud_provider:"gcp-cloud",vault_env_path:"uat",tag_ref:$tag,deploy_cloudflare:"true",deploy_cloud_run:"true",skip_stripe_catalog:"true",dns_mode:"none",runner_type:"ubuntu-latest",adopt_accounts_baseline:$adopt,apply_accounts_schema_migration:$apply,accounts_schema_expected_version:$expected,accounts_schema_target_version:$target,accounts_schema_sha256:$checksum}}')"
+    '{ref:$ref,inputs:{operation:$operation,delivery_scope:$delivery_scope,cloud_provider:"gcp-cloud",vault_env_path:"uat",tag_ref:$tag,deploy_cloudflare:"true",deploy_cloud_run:"true",skip_stripe_catalog:"true",dns_mode:"none",runner_type:"ubuntu-latest",adopt_accounts_baseline:$adopt,apply_accounts_schema_migration:$apply,accounts_schema_expected_version:$expected,accounts_schema_target_version:$target,accounts_schema_sha256:$checksum}}')"
   dispatch_and_wait serverless-orchestrator.yml "${payload}" "web-saas serverless"
   if [[ "${child_operation}" == deploy && "${DRY_RUN}" != true ]]; then
     collect_uat_artifact_manifest "${CHILD_RUN_ID}"

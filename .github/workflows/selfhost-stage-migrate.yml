@@ -137,17 +137,17 @@ jobs:
       (needs.trigger_data_migration.result == 'skipped' &&
       fromJSON(needs.stage-context.outputs.provision_context).outputs.toolkit_action != 'migrate' &&
       fromJSON(needs.stage-context.outputs.provision_context).outputs.toolkit_action != 'deploy+migrate')) &&
-      (fromJSON(needs.stage-context.outputs.deploy_context).deploy_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains)) &&
+      (fromJSON(needs.stage-context.outputs.deploy_context).deploy_web_saas.result == 'success' || !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.delivery_scope)) &&
       (fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env != 'uat' ||
-      !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains) ||
+      !contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.delivery_scope) ||
       fromJSON(needs.stage-context.outputs.deploy_context).accept_web_saas_upgrade.result == 'success') &&
-      (fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env != 'prod' || fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains != 'web-saas' || fromJSON(needs.stage-context.outputs.deploy_context).prod_availability.result == 'success') &&
+      (fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env != 'prod' || fromJSON(needs.stage-context.outputs.provision_context).outputs.delivery_scope != 'web-saas' || fromJSON(needs.stage-context.outputs.deploy_context).prod_availability.result == 'success') &&
       (fromJSON(needs.stage-context.outputs.deploy_context).deploy_infra_platform.result == 'success' ||
       fromJSON(needs.stage-context.outputs.deploy_context).deploy_infra_platform.result == 'skipped' ||
-      !contains(fromJSON('["all","infra-platform","open-platform"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains)) &&
-      (fromJSON(needs.stage-context.outputs.deploy_context).deploy_agent_proxy.result == 'success' || !contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains)) &&
-      (fromJSON(needs.stage-context.outputs.deploy_context).deploy_agent_proxy_non_iac.result == 'success' || fromJSON(needs.stage-context.outputs.provision_context).outputs.hosts_agent_proxy_non_iac == '[]' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains)) &&
-      (fromJSON(needs.stage-context.outputs.deploy_context).deploy_ai_workspace.result == 'success' || !contains(fromJSON('["all","ai-workspace"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains)) &&
+      !contains(fromJSON('["all","infra-platform","open-platform"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.delivery_scope)) &&
+      (fromJSON(needs.stage-context.outputs.deploy_context).deploy_agent_proxy.result == 'success' || !contains(fromJSON('["all","agent-proxy","agent-proxy-jp","agent-proxy-us","agent-proxy-sg","web-saas + agent-proxy"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.delivery_scope)) &&
+      (fromJSON(needs.stage-context.outputs.deploy_context).deploy_agent_proxy_non_iac.result == 'success' || fromJSON(needs.stage-context.outputs.provision_context).outputs.hosts_agent_proxy_non_iac == '[]' || !contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.delivery_scope)) &&
+      (fromJSON(needs.stage-context.outputs.deploy_context).deploy_ai_workspace.result == 'success' || !contains(fromJSON('["all","ai-workspace"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.delivery_scope)) &&
       fromJSON(needs.stage-context.outputs.provision_context).outputs.terraform_action == 'apply' &&
       contains(fromJSON('["prod-cutover","uat-records"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.dns_mode) }}
     runs-on: ${{ fromJSON(inputs.payload_json || '{}').runner_type || 'ubuntu-latest' }}
@@ -159,7 +159,7 @@ jobs:
       PROVISION_SOURCE_DOMAIN_BASE:  ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.source_domain_base }}
       INPUT_RUN_INFRASTRUCTURE:      ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.run_infrastructure }}
       DEPLOY_ENV:                    ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env }}
-      TARGET_DOMAINS:                ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains }}
+      DELIVERY_SCOPE:                ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.delivery_scope }}
       AGENT_CONTROLLER_URL:          ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.agent_controller_url }}
       DNS_SERVICE_NAMES:             console accounts billing
       VAULT_ADDR:                    https://vault.svc.plus
@@ -188,7 +188,7 @@ jobs:
         ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env == 'prod' &&
         fromJSON(needs.stage-context.outputs.provision_context).outputs.dns_mode == 'prod-cutover' &&
         contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
-        fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains) }}
+        fromJSON(needs.stage-context.outputs.provision_context).outputs.delivery_scope) }}
       uses: actions/checkout@v7
       with:
         repository: ai-workspace-infra/gitops
@@ -256,7 +256,7 @@ jobs:
         ${{ fromJSON(needs.stage-context.outputs.provision_context).outputs.deployment_env == 'prod' &&
         fromJSON(needs.stage-context.outputs.provision_context).outputs.dns_mode == 'prod-cutover' &&
         contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
-        fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains) }}
+        fromJSON(needs.stage-context.outputs.provision_context).outputs.delivery_scope) }}
       working-directory: playbooks
       env:
         CLOUDFLARE_DNS_API_TOKEN: ${{ steps.vault.outputs.CLOUDFLARE_DNS_API_TOKEN }}
@@ -306,7 +306,7 @@ jobs:
     - name: Remove temporary agent controller host pin
       if: >-
         ${{ contains(fromJSON('["all","agent-proxy","web-saas + agent-proxy"]'),
-        fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains) }}
+        fromJSON(needs.stage-context.outputs.provision_context).outputs.delivery_scope) }}
       run: ${{ github.workspace }}/playbooks/scripts/pipeline/remove-temporary-agent-controller-host.sh
   bootstrap_stripe_catalog:
     name: "[4/5] Configure | Stripe catalog"
@@ -317,7 +317,7 @@ jobs:
       fromJSON(needs.stage-context.outputs.provision_context).result == 'success' &&
       needs.switch_dns.result == 'success' &&
       fromJSON(inputs.payload_json || '{}').skip_stripe_catalog != true &&
-      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.target_domains) }}
+      contains(fromJSON('["all","web-saas","web-saas + agent-proxy"]'), fromJSON(needs.stage-context.outputs.provision_context).outputs.delivery_scope) }}
     runs-on: ${{ fromJSON(inputs.payload_json || '{}').runner_type || 'ubuntu-latest' }}
     steps:
     - name: Checkout platform toolkit

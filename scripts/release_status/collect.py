@@ -147,7 +147,7 @@ def legacy_serverless_metadata(run, run_jobs):
     for field, pattern in {'environment': ('VAULT_ENV_PATH', r'uat|prod|sit'),
                            'tag': ('TAG_REF', r'[A-Za-z0-9._-]+'),
                            'operation': ('OPERATION', r'[a-z+-]+'),
-                           'target': ('TARGET_DOMAINS', r'[a-z -]+')}.items():
+                           'target': ('DELIVERY_SCOPE', r'[a-z -]+')}.items():
         key, allowed = pattern
         found = set(re.findall(r'^\S+\s+  ' + key + r': (' + allowed + r')\s*$', text, re.M))
         if len(found) != 1: return None

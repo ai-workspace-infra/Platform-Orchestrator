@@ -11,8 +11,8 @@ name: Serverless Stage / Verify & Report
           仅修复已审阅 r3 UAT schema（不部署、不切 DNS）；destroy 销毁（Prod 禁止）
         required: true
         type: string
-      target_domains:
-        description: 选择要执行的业务域 (Business Domain)。serverless 仅部署 web-saas；默认 all 在 serverless 中解析为 web-saas，其它业务域走
+      delivery_scope:
+        description: 选择交付范围 (Delivery Scope)。serverless 仅部署 web-saas；默认 all 在 serverless 中解析为 web-saas，其它范围走
           cloud_provider 环境副本链路。
         required: false
         default: all
@@ -151,7 +151,7 @@ jobs:
           RELEASE_ENV: ${{ inputs.vault_env_path || 'uat' }}
           RELEASE_TAG: ${{ inputs.tag_ref }}
           RELEASE_OPERATION: ${{ inputs.operation }}
-          RELEASE_TARGET: ${{ inputs.target_domains || 'all' }}
+          RELEASE_TARGET: ${{ inputs.delivery_scope || 'all' }}
           STAGE_CONTEXTS: ${{ toJSON(inputs) }}
           STAGE_RESULTS: ${{ inputs.stage_results }}
           VERIFY_RESULT: ${{ needs.verify.result }}

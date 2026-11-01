@@ -82,7 +82,7 @@ def dispatch_inputs(tag, action="compare"):
         "observability_endpoint": "https://observability.svc.plus",
         "xray_exporter_image": "",
         "operation": {"copy": "native-core-users", "compare": "native-core-users-compare", "availability": "native-availability"}[action],
-        "target_domains": "web-saas",
+        "delivery_scope": "web-saas",
         "open_platform_service": "all",
         "cloud_provider": "gcp-cloud",
         "cloud_account": "xworktech",

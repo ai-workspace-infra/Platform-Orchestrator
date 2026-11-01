@@ -11,7 +11,7 @@ validate_input() {
     .inputs as $i |
     $repository == "ai-workspace-infra/platform-ops-toolkit" and
     ($ref | test("^refs/tags/v[0-9][0-9.r-]*$")) and ($sha | test("^[0-9a-f]{40}$")) and
-    $i.vault_env_path == "prod" and $i.target_domains == "web-saas" and
+    $i.vault_env_path == "prod" and $i.delivery_scope == "web-saas" and
     $i.cloud_provider == "gcp-cloud" and $i.cloud_account == "xworktech" and
     $i.target_domain_base == "svc.plus" and $i.runner_type == "ubuntu-latest" and $i.offline_mode == "off" and
     (["", "https://vault.svc.plus"] | index($i.vault_addr // "")) != null and

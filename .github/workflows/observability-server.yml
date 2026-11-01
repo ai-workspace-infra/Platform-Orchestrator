@@ -519,7 +519,7 @@ jobs:
             '{ref:"main",inputs:{
               runner_type:"ubuntu-latest",
               operation:$operation,
-              target_domains:"open-platform",
+              delivery_scope:"open-platform",
               open_platform_service:"observability",
               cloud_provider:$cloud_provider,
               vault_env_path:$vault_env_path,

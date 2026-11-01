@@ -1,7 +1,7 @@
 # Serverless Orchestrator 矩阵部署
 
 `.github/workflows/serverless-orchestrator.yml` 的手动执行页提供制品版本、环境、执行开关，
-以及与 Selfhost 编排器一致的业务域和云服务商选择。UAT 是默认环境；路由、域名、Worker
+以及与 Selfhost 编排器一致的交付范围和云服务商选择。UAT 是默认环境；路由、域名、Worker
 名称和数据库模式统一从 GitOps 读取。
 
 ## 三种运行模式
@@ -294,7 +294,7 @@ For an application deployment, the normal UAT dispatch is:
 
 ```text
 vault_env_path=uat                 # default
-target_domains=all                 # default; equivalent to the full web-saas control plane
+delivery_scope=all                 # default; equivalent to the full web-saas control plane
 cloud_provider=vultr-vps           # default; the VPS replica/migration path currently supports only Vultr
 tag_ref=daily-build-YYYY.MM.DD-rN  # required immutable snapshot
 deploy_cloud_run=true              # default
@@ -303,8 +303,8 @@ dns_mode=none                      # default; use uat-records or prod-cutover on
 ```
 
 The Serverless workflow only deploys the complete `web-saas` control plane
-(Cloudflare, Cloud Run, and Supabase). `target_domains=web-saas` selects that segment directly;
-`target_domains=all` keeps the full-domain form compatible and resolves its Serverless segment
+(Cloudflare, Cloud Run, and Supabase). `delivery_scope=web-saas` selects that segment directly;
+`delivery_scope=all` selects the full scope and resolves its Serverless segment
 to `web-saas`. Other domains are not deployed by this workflow; they use the
 `cloud_provider` environment-replica path. Multi-cloud choices are visible for compatibility
 but are rejected until their replica path is connected. `vultr-vps` is the only accepted value

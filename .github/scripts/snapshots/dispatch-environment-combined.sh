@@ -6,7 +6,7 @@ snapshot_tag="${SNAPSHOT_TAG:?SNAPSHOT_TAG must be set}"
 deploy_env="${DEPLOY_ENV:?DEPLOY_ENV must be set}"
 workflow="${DISPATCH_WORKFLOW:?DISPATCH_WORKFLOW must be set}"
 operation="${DISPATCH_OPERATION:-deploy}"
-target_domains="${DISPATCH_TARGET_DOMAINS:-web-saas}"
+delivery_scope="${DISPATCH_DELIVERY_SCOPE:-web-saas}"
 target_domain_base="${TARGET_DOMAIN_BASE:?TARGET_DOMAIN_BASE must be set}"
 target_repo="${TARGET_REPOSITORY:-ai-workspace-infra/Platform-Orchestrator}"
 skip_stripe_catalog="${SKIP_STRIPE_CATALOG:-false}"
@@ -48,7 +48,7 @@ case "${workflow}" in
       exit 2
     }
     args+=(
-      -f "target_domains=${target_domains}"
+      -f "delivery_scope=${delivery_scope}"
       -f "deploy_tag=${snapshot_tag}"
       -f source_ref=main
       -f runner_type=ubuntu-latest
@@ -68,7 +68,7 @@ case "${workflow}" in
       -f "deploy_tag=${snapshot_tag}"
       -f "source_ref=${snapshot_tag}"
       -f runner_type=ubuntu-latest
-      -f target_domains=web-saas
+      -f delivery_scope=web-saas
       -f open_platform_service=none
       -f cloud_provider=gcp-cloud
       -f cloud_account=xworktech

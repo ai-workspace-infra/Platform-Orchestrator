@@ -49,7 +49,7 @@ jobs:
       terraform_workdir: ${{ fromJSON(inputs.provision_context || '{}').outputs.terraform_workdir || '' }}
       run_infrastructure: ${{ fromJSON(inputs.provision_context || '{}').outputs.run_infrastructure || '' }}
       run_application_deploy: ${{ fromJSON(inputs.provision_context || '{}').outputs.run_application_deploy || '' }}
-      target_domains: ${{ fromJSON(inputs.provision_context || '{}').outputs.target_domains || '' }}
+      delivery_scope: ${{ fromJSON(inputs.provision_context || '{}').outputs.delivery_scope || '' }}
       deploy_tag: ${{ fromJSON(inputs.provision_context || '{}').outputs.deploy_tag || '' }}
       terraform_action: ${{ fromJSON(inputs.provision_context || '{}').outputs.terraform_action || '' }}
       toolkit_action: ${{ fromJSON(inputs.provision_context || '{}').outputs.toolkit_action || '' }}
@@ -146,7 +146,7 @@ jobs:
       ANSIBLE_PIPELINING:       "True"
       ANSIBLE_SSH_ARGS:         "-o ControlMaster=auto -o ControlPersist=60s -o IdentityFile=~/.ssh/id_deploy -o StrictHostKeyChecking=no"
       TARGET_DOMAIN_BASE:       ${{ needs.provision.outputs.target_domain_base }}
-      TARGET_DOMAINS:            ${{ needs.provision.outputs.target_domains }}
+      DELIVERY_SCOPE:            ${{ needs.provision.outputs.delivery_scope }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7

@@ -81,8 +81,8 @@ on:
         default: "plan"
         type: choice
         options: [plan, infra, deploy, deploy+init, deploy+migrate, migrate, destroy]
-      target_domains:
-        description: "选择要执行的业务域 (Business Domain)"
+      delivery_scope:
+        description: "选择交付范围 (Delivery Scope)；与目标域名后缀分开设置"
         required: true
         default: "web-saas"
         type: choice
@@ -104,7 +104,7 @@ on:
         type: choice
         options: [none, all, vault, iam, observability]
       cloud_provider:
-        description: "云服务商（按 UAT Hybrid/GitOps provider registry 选择；不要用单一 provider 覆盖 target_domains=all；ULightHost existing 由 external adapter 处理）"
+        description: "云服务商（按 UAT Hybrid/GitOps provider registry 选择；不要用单一 provider 覆盖 delivery_scope=all；ULightHost existing 由 external adapter 处理）"
         required: true
         default: "gcp-cloud"
         type: choice
@@ -183,9 +183,9 @@ permissions:
 
 concurrency:
   # Aggregate UAT deployment is a parent orchestrator that dispatches child
-  # runs of this same workflow. Include target_domains so the parent `all`
+  # runs of this same workflow. Include delivery_scope so the parent `all`
   # lock does not block its isolated namespace child lock.
-  group: deploy-env-migration-${{ github.event.inputs.vault_env_path || 'uat' }}-${{ github.event.inputs.cloud_provider || 'auto' }}-${{ github.event.inputs.cloud_account || 'profile' }}-${{ github.event.inputs.target_domains || 'auto' }}
+  group: deploy-env-migration-${{ github.event.inputs.vault_env_path || 'uat' }}-${{ github.event.inputs.cloud_provider || 'auto' }}-${{ github.event.inputs.cloud_account || 'profile' }}-${{ github.event.inputs.delivery_scope || 'auto' }}
   cancel-in-progress: false
 
 

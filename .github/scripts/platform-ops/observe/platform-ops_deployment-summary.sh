@@ -22,7 +22,7 @@ render_summary() {
   printf '| Terraform namespace | `%s` |\n' "${TERRAFORM_NAMESPACE:-unknown}"
   echo
   printf 'Deployment environment: `%s`\n' "${DEPLOYMENT_ENV:-unknown}"
-  printf 'Target domains: `%s`\n' "${TARGET_DOMAINS:-unknown}"
+  printf 'Delivery scope: `%s`\n' "${DELIVERY_SCOPE:-unknown}"
   printf 'Terraform state: `%s`\n' "${TERRAFORM_STATE_KEY:-unknown}"
   printf 'Deploy tag: `%s`\n' "${DEPLOY_TAG:-unknown}"
   printf 'Agent Proxy controller: `%s`\n' "${AGENT_CONTROLLER_URL:-not-configured}"
@@ -35,14 +35,14 @@ else
 fi
 
 if [[ ( "${DEPLOYMENT_ENV:-}" == uat || "${DEPLOYMENT_ENV:-}" == prod ) && "${RUN_APPLICATION_DEPLOY:-false}" == true &&
-      ( "${TARGET_DOMAINS:-}" == all || "${TARGET_DOMAINS:-}" == *web-saas* ) &&
+      ( "${DELIVERY_SCOPE:-}" == all || "${DELIVERY_SCOPE:-}" == *web-saas* ) &&
       "${WEB_SAAS_ACCEPTANCE_RESULT:-}" != success ]]; then
   echo "::error::BLOCKED: Web SaaS runtime acceptance was failed, skipped or not executed; deployment success is not business acceptance." >&2
   exit 1
 fi
 
-if [[ "${DEPLOYMENT_ENV:-}" == "uat" && "${TARGET_DOMAINS:-}" == "all" &&
+if [[ "${DEPLOYMENT_ENV:-}" == "uat" && "${DELIVERY_SCOPE:-}" == "all" &&
       "${XCONNECT_ZERO_UAT_RESULT:-}" != "success" ]]; then
-  echo "::error::UAT target_domains=all requires a successful XConnect Zero UAT run" >&2
+  echo "::error::UAT delivery_scope=all requires a successful XConnect Zero UAT run" >&2
   exit 1
 fi

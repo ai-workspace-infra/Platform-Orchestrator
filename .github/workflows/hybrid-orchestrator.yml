@@ -23,7 +23,7 @@ on:
         default: plan
         type: choice
         options: [plan, apply, deploy, destroy]
-      target_domains:
+      delivery_scope:
         description: 'UAT scope; all runs the versioned eight-row inventory (deploy skips shared infrastructure)'
         required: true
         default: all
@@ -143,7 +143,7 @@ on:
         type: string
 
 concurrency:
-  group: hybrid-uat-${{ inputs.target_domains || 'all' }}-${{ inputs.operation || 'plan' }}
+  group: hybrid-uat-${{ inputs.delivery_scope || 'all' }}-${{ inputs.operation || 'plan' }}
   cancel-in-progress: false
 
 jobs:
