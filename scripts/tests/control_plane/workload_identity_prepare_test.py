@@ -28,13 +28,13 @@ class Prepare(unittest.TestCase):
     def test_materializes_only_verified_receipts(self):
         from unittest.mock import patch
         with patch.object(m.resolver,'load',return_value=self.config):
-            result=m.prepare(self.root,'candidate.yaml',self.sha,self.out,lambda spec:self.data)
+            result=m.prepare(self.root,'candidate.yaml',self.sha,self.out,'123','example/repo',lambda spec,**kwargs:self.data)
         self.assertEqual((Path(result['directory'])/'inventory.json').read_bytes(),b'i')
         self.assertEqual((Path(result['directory'])/'bootstrap.json').stat().st_mode & 0o777,0o600)
         self.assertEqual(result['environment'],'uat')
     def test_dirty_or_wrong_checkout_stops_before_fetch(self):
         calls=[];(self.root/'candidate.yaml').write_text('changed')
-        with self.assertRaises(ValueError):m.prepare(self.root,'candidate.yaml',self.sha,self.out,lambda spec:calls.append(spec))
+        with self.assertRaises(ValueError):m.prepare(self.root,'candidate.yaml',self.sha,self.out,'123','example/repo',lambda spec,**kwargs:calls.append(spec))
         self.assertEqual(calls,[])
         self.assertEqual(list(self.out.iterdir()),[])
 

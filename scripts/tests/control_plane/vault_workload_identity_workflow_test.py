@@ -9,7 +9,7 @@ class Workflow(unittest.TestCase):
         self.steps=self.w['jobs']['identity']['steps']
     def test_reviewed_inputs_and_protected_ref(self):
         trigger=self.w.get('on',self.w.get(True))['workflow_dispatch']['inputs']
-        self.assertEqual(set(trigger),{'mode','gitops_ref','operation_path','environment','playbooks_sha'})
+        self.assertEqual(set(trigger),{'mode','gitops_ref','operation_path','parent_run_id','environment','playbooks_sha','expected_previous_key_sha256'})
         self.assertEqual(self.w['jobs']['identity']['needs'],'validate')
         self.assertEqual(self.w['jobs']['identity']['environment'],'${{ inputs.environment }}')
         guard=self.w['jobs']['validate']['steps'][0]['run']
@@ -17,7 +17,7 @@ class Workflow(unittest.TestCase):
     def test_main_source_is_resolved_without_a_gitops_tag(self):
         trigger=self.w.get('on',self.w.get(True))['workflow_dispatch']['inputs']
         self.assertEqual(trigger['gitops_ref']['default'], 'main')
-        self.assertEqual(trigger['mode']['options'], ['configure', 'verify'])
+        self.assertEqual(trigger['mode']['options'], ['inspect', 'refresh', 'configure', 'verify'])
         action=next(x for x in self.steps if x.get('uses')=='./playbooks/.github/actions/workload-identity-operation')
         self.assertNotIn('gitops-tag', action['with'])
         self.assertEqual(action['with']['gitops-sha'], '${{ steps.releases.outputs.gitops_sha }}')
@@ -30,9 +30,10 @@ class Workflow(unittest.TestCase):
         self.assertEqual(action['with']['operation-path'],'${{ inputs.operation_path }}')
         self.assertEqual(action['with']['bootstrap-receipt'],'${{ steps.evidence.outputs.directory }}/bootstrap.json')
         admin=next(x for x in self.steps if x.get('id')=='admin')
-        self.assertEqual(admin['if'],"${{ inputs.mode == 'configure' }}")
+        self.assertEqual(admin['if'],"${{ inputs.mode != 'verify' }}")
         self.assertEqual(admin['with']['role'],'${{ steps.evidence.outputs.admin_role }}')
         self.assertTrue(admin['with']['outputToken'])
+        self.assertEqual(action['with']['expected-previous-key-sha256'], '${{ inputs.expected_previous_key_sha256 }}')
     def test_provider_guard_and_no_host_mutations_in_pipeline(self):
         guard=next(x for x in self.steps if x.get('name')=='Verify environment and provider')['run']
         self.assertIn('"$DECLARED_ENVIRONMENT" == "$REQUESTED_ENVIRONMENT"',guard)

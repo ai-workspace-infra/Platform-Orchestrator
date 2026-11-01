@@ -11,7 +11,7 @@ import resolve_workload_identity as resolver
 import verify_workload_identity_evidence as evidence
 
 
-def prepare(checkout, operation_path, commit, output_root, verify=evidence.verify):
+def prepare(checkout, operation_path, commit, output_root, parent_run_id, repository, verify=evidence.verify):
     root=Path(checkout).resolve()
     if not re.fullmatch(r'[0-9a-f]{40}',commit or ''):raise ValueError('immutable GitOps commit required')
     env={k:os.environ[k] for k in ('PATH','HOME','LANG','LC_ALL') if k in os.environ}
@@ -19,13 +19,14 @@ def prepare(checkout, operation_path, commit, output_root, verify=evidence.verif
     dirty=subprocess.check_output(['git','-C',str(root),'status','--porcelain','--untracked-files=all'],text=True,env=env).strip()
     if head!=commit or dirty:raise ValueError('GitOps checkout is not the clean selected commit')
     spec=resolver.load(root,operation_path)
-    checked=verify(spec)
+    checked=verify(spec,parent_run_id=parent_run_id,repository=repository)
     destination=Path(output_root)/'workload-identity-inputs'
     destination.mkdir(mode=0o700,parents=False,exist_ok=False)
     for name,key in (('bootstrap.json','bootstrap'),('summary.json','summary'),('inventory.json','inventory')):
         fd=os.open(destination/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
         with os.fdopen(fd,'wb') as stream:stream.write(checked[key])
     return {'directory':str(destination),'operation_path':operation_path,'gitops_sha':commit,
+            'parent_run_id':str(parent_run_id),
             'bootstrap_sha256':checked['bootstrap_sha256'],'summary_sha256':checked['summary_sha256'],
             'bootstrap_gitops_sha':spec['evidence']['bootstrap']['gitopsSha'],
             'iac_sha':spec['evidence']['iac']['iacSha'],'iac_target_manifest':checked['iac_catalog_manifest'],
@@ -39,7 +40,9 @@ def prepare(checkout, operation_path, commit, output_root, verify=evidence.verif
 
 
 def main():
-    result=prepare(os.environ['IDENTITY_GITOPS'],os.environ['IDENTITY_OPERATION'],os.environ['IDENTITY_GITOPS_SHA'],os.environ['RUNNER_TEMP'])
+    result=prepare(os.environ['IDENTITY_GITOPS'],os.environ['IDENTITY_OPERATION'],
+                   os.environ['IDENTITY_GITOPS_SHA'],os.environ['RUNNER_TEMP'],
+                   os.environ['IDENTITY_PARENT_RUN_ID'],os.environ['GITHUB_REPOSITORY'])
     with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as output:
         for key,value in result.items():
             if any(c in str(value) for c in '\r\n'):raise ValueError('invalid output value')

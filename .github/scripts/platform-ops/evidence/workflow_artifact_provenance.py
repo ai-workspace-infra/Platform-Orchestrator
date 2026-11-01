@@ -3,8 +3,8 @@ import hashlib
 import re
 
 
-def verify_artifact(api, artifact_file, spec):
-    """Return a verified artifact member from the declared successful run."""
+def verify_artifact(api, artifact_file, spec, allowed_conclusions=('success',)):
+    """Return a verified artifact member from an explicitly accepted run result."""
     required = {'repository','run_id','attempt','workflow','event','ref','commit','artifact_id',
                 'artifact_name','artifact_digest','filename','file_sha256'}
     if set(spec) != required:
@@ -23,14 +23,16 @@ def verify_artifact(api, artifact_file, spec):
     if (run.get('id')!=spec['run_id'] or run.get('run_attempt')!=spec['attempt']
         or run.get('repository',{}).get('full_name')!=repo or run.get('event')!=spec['event']
         or run.get('path')!=spec['workflow'] or run.get('head_branch')!=spec['ref']
-        or run.get('head_sha')!=spec['commit'] or run.get('status')!='completed' or run.get('conclusion')!='success'):
+        or run.get('head_sha')!=spec['commit'] or run.get('status')!='completed'
+        or run.get('conclusion') not in set(allowed_conclusions)):
         raise ValueError('run provenance mismatch')
     if (artifact.get('id')!=spec['artifact_id'] or artifact.get('name')!=spec['artifact_name']
         or artifact.get('digest')!=spec['artifact_digest'] or artifact.get('expired') is not False
         or artifact.get('workflow_run',{}).get('id')!=spec['run_id']
         or artifact.get('workflow_run',{}).get('head_sha')!=spec['commit']):
         raise ValueError('artifact provenance mismatch')
-    raw=artifact_file(repo,spec['artifact_id'],spec['run_id'],spec['attempt'],spec['artifact_name'],spec['filename'],spec['commit'])
+    raw=artifact_file(repo,spec['artifact_id'],spec['run_id'],spec['attempt'],spec['artifact_name'],
+                      spec['filename'],spec['commit'],allowed_conclusions=allowed_conclusions)
     if hashlib.sha256(raw).hexdigest()!=spec['file_sha256']:
         raise ValueError('artifact member digest mismatch')
     return raw

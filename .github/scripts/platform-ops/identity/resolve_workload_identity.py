@@ -47,21 +47,9 @@ def validate(document):
         for path in (target['declaration'],target['iacTargetManifest']):
             if not isinstance(path,str) or not path.endswith('.yaml') or Path(path).is_absolute() or '..' in Path(path).parts:
                 raise ContractError('invalid declaration path')
-        for part in ('bootstrap','iac'):
-            row=evidence[part]
-            if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+',row['repository']) or not (row['ref'] == 'main' or re.fullmatch(r'v[0-9][A-Za-z0-9.+-]*',row['ref'])):
-                raise ContractError('reviewed repository and source ref required')
-            if row['event'] != 'workflow_dispatch' or not re.fullmatch(r'\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml',row['workflow']):
-                raise ContractError('reviewed workflow dispatch required')
-            if not re.fullmatch(r'[A-Za-z0-9_.-]+',row['artifactName']) or not re.fullmatch(r'[A-Za-z0-9_.-]+\.json',row['filename']):
-                raise ContractError('invalid artifact identity')
-            for key in ('runId','attempt','artifactId'):
-                if type(row[key]) is not int or row[key] <= 0:raise ContractError('invalid evidence identifier')
-            for key in ('commit','gitopsSha' if part=='bootstrap' else 'iacSha'):
-                if not re.fullmatch(r'[0-9a-f]{40}',row[key]):raise ContractError('immutable commit required')
-            if not re.fullmatch(r'sha256:[0-9a-f]{64}',row['artifactDigest']) or not re.fullmatch(r'[0-9a-f]{64}',row['fileSha256']):
-                raise ContractError('immutable artifact digest required')
-        if not re.fullmatch(r'[0-9a-f]{64}',evidence['iac']['inventorySha256']):raise ContractError('inventory digest required')
+        if evidence.get('source') != 'current-run' or not re.fullmatch(
+                r'\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml', evidence.get('workflow', '')):
+            raise ContractError('current protected run evidence selector required')
         return spec
     except (KeyError,TypeError):
         raise ContractError('missing identity declaration field') from None
