@@ -215,6 +215,17 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
         self.assertEqual(verify_inputs["migration_context"]["required"], "false")
         self.assertEqual(verify_inputs["migration_run_id"]["required"], "false")
 
+    def test_deploy_routes_only_a_complete_kubernetes_target_set(self):
+        request = {'operation': 'deploy', 'dns_mode': 'none', 'skip_stripe_catalog': True}
+        def context(k8s, hosts):
+            return json.dumps({'outputs': {'hosts_kubernetes': json.dumps(k8s), 'bootstrap_hosts': json.dumps(hosts)}})
+        self.assertEqual(stage_dispatch.deploy_workflow(request, context(['node'], ['node'])), 'selfhost-stage-deploy-container.yml')
+        self.assertEqual(stage_dispatch.deploy_workflow(request, context([], ['native'])), 'selfhost-stage-deploy.yml')
+        for k8s, hosts in [(['node'], ['node', 'native']), (['node', 'node'], ['node']), (['node'], [])]:
+            with self.assertRaises(SystemExit): stage_dispatch.deploy_workflow(request, context(k8s, hosts))
+        with self.assertRaises(SystemExit): stage_dispatch.deploy_workflow({**request, 'dns_mode': 'prod-cutover'}, context(['node'], ['node']))
+        with self.assertRaises(SystemExit): stage_dispatch.deploy_workflow(request, '{}')
+
     def test_verify_allows_missing_migration_only_for_non_migrating_requests(self):
         common = {"migration_context": "", "migration_run_id": ""}
         self.assertTrue(stage_dispatch.migration_stage_may_be_skipped({"operation": "plan"}))

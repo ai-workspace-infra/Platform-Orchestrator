@@ -42,6 +42,30 @@ PRIOR_STAGE_CONTEXTS = {
 }
 
 
+def deploy_workflow(request: dict, context_text: str) -> str:
+    """Route a verified IaC target set to one deployment owner workflow."""
+    try:
+        outputs = json.loads(context_text)['outputs']
+        kubernetes = json.loads(outputs.get('hosts_kubernetes') or '[]')
+        bootstrap = json.loads(outputs.get('bootstrap_hosts') or '[]')
+        if not isinstance(kubernetes, list) or not isinstance(bootstrap, list):
+            raise ValueError()
+        if any(not isinstance(item, str) or not item for item in kubernetes + bootstrap):
+            raise ValueError()
+        if len(set(kubernetes)) != len(kubernetes) or len(set(bootstrap)) != len(bootstrap):
+            raise ValueError()
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+        raise SystemExit('Invalid deployment target set in IaC context') from None
+    if not kubernetes:
+        return STAGES['deploy']
+    if sorted(kubernetes) != sorted(bootstrap):
+        raise SystemExit('Mixed Kubernetes and standalone targets require separate delivery runs')
+    if (request.get('operation') != 'deploy' or request.get('dns_mode') != 'none'
+            or request.get('skip_stripe_catalog') is not True):
+        raise SystemExit('Container handover requires deploy, dns_mode=none and skip_stripe_catalog=true')
+    return 'selfhost-stage-deploy-container.yml'
+
+
 def require_positive_decimal(value: str, label: str) -> str:
     if not value.isascii() or not value.isdecimal() or int(value) < 1:
         raise SystemExit(f"{label} must be a positive decimal integer")
@@ -237,6 +261,8 @@ def main():
         key: os.environ.get("SELFHOST_" + key.upper(), "")
         for key in STAGE_CONTEXT_FIELDS[stage]
     }
+    if stage == 'deploy':
+        workflow = deploy_workflow(request, contexts['provision_context'])
     if len(json.dumps(request)) > 60000 or len(json.dumps(contexts)) > 60000:
         raise SystemExit("Stage input exceeds the workflow_dispatch payload limit")
 
