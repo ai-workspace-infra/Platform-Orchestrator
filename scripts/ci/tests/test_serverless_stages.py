@@ -29,19 +29,15 @@ class ServerlessStages(unittest.TestCase):
     def test_exact_five_stage_parent_and_same_run_local_calls(self):
         parent = workflow('serverless-orchestrator.yml')
         jobs = parent['jobs']
-        self.assertEqual(list(jobs), ['prepare', 'database', 'backend', 'frontend', 'configure', 'summary'])
-        self.assertTrue(jobs['prepare']['name'].startswith('[1/6]'))
-        self.assertTrue(jobs['database']['name'].startswith('[2/6]'))
-        self.assertTrue(jobs['configure']['name'].startswith('[5/6]'))
-        self.assertTrue(jobs['summary']['name'].startswith('[6/6]'))
+        self.assertEqual(list(jobs), ['resolve', 'infra', 'deploy', 'migrate', 'summary'])
+        self.assertTrue(jobs['resolve']['name'].startswith('[1/5]'))
+        self.assertTrue(jobs['infra']['name'].startswith('[2/5]'))
+        self.assertTrue(jobs['summary']['name'].startswith('[5/5]'))
         self.assertIn('always()', jobs['summary']['if'])
         self.assertFalse(parent['concurrency']['cancel-in-progress'])
         self.assertEqual(parent['concurrency']['group'], "serverless-${{ inputs.environment || 'uat' }}")
-        frontend_components = [c['name'] for c in jobs['frontend']['strategy']['matrix']['component']]
-        self.assertIn('frontend-router', frontend_components)
-        self.assertIn('edge-gateway', frontend_components)
-        self.assertIn('ssr-worker', frontend_components)
-        self.assertIn('pages-portal', frontend_components)
+        self.assertEqual(jobs['deploy']['uses'], './.github/workflows/serverless-stage-deploy.yml')
+        self.assertEqual(jobs['summary']['uses'], './.github/workflows/serverless-stage-verify.yml')
 
     def test_all_consumed_inputs_are_declared_and_passed_with_native_types(self):
         import re
