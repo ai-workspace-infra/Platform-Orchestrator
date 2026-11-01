@@ -18,6 +18,10 @@ class ResolverTests(unittest.TestCase):
         self.d['spec']['evidence']={'bootstrap':{**common,'gitopsSha':'d'*40},'iac':{**common,'iacSha':'e'*40,'inventorySha256':'f'*64}}
     def test_generic_target_and_separate_environment(self):
         self.assertEqual(m.validate(self.d)['target']['runtime'],'kubernetes')
+    def test_main_evidence_ref_is_allowed(self):
+        for row in self.d['spec']['evidence'].values(): row['ref'] = 'main'
+        self.assertEqual(m.validate(self.d)['evidence']['bootstrap']['ref'], 'main')
+
     def test_rejects_scope_escape_and_ambiguous_denial(self):
         for group,key,value in [('target','declaration','../outside.yaml'),('identity','allowedPath','kv/data/*'),('identity','deniedPath','kv/data/uat/cert'),('vault','address','http://vault.example.com')]:
             with self.subTest(group=group,key=key):

@@ -1,20 +1,19 @@
 name: Vault workload identity
 
-# Identity configuration, authorization verification, and narrowly staged V6
-# Flux releases are separate operations. Each is bound to a protected release,
-# reviewed immutable GitOps tag, and trusted bootstrap/IaC evidence.
+# Identity configuration and verification use a resolved GitOps commit and trusted evidence.
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Configure or verify the Vault identity, or release a bounded V6 Flux stage
+        description: Configure or verify the Vault identity
         type: choice
-        options: [configure, verify, release-root, release-eso, release-identity]
+        options: [configure, verify]
         required: true
-      gitops_tag:
-        description: Reviewed immutable GitOps release tag containing an identity operation
+      gitops_ref:
+        description: GitOps source ref; defaults to main
         type: string
-        required: true
+        default: main
+        required: false
       operation_path:
         description: Reviewed workload identity operation declaration path
         type: string
@@ -48,13 +47,13 @@ jobs:
           REF_PROTECTED: ${{ github.ref_protected }}
           MODE: ${{ inputs.mode }}
           OWNER_SHA: ${{ inputs.playbooks_sha }}
-          GITOPS_TAG: ${{ inputs.gitops_tag }}
+          GITOPS_REF: ${{ inputs.gitops_ref || 'main' }}
         run: |
           set -euo pipefail
           [[ "$REF_TYPE" == branch && "$REF_PROTECTED" == true && "$WORKFLOW_REF" == refs/heads/main ]]
-          [[ "$MODE" == configure || "$MODE" == verify || "$MODE" == release-root || "$MODE" == release-eso || "$MODE" == release-identity ]]
+          [[ "$MODE" == configure || "$MODE" == verify ]]
           [[ "$OWNER_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$GITOPS_TAG" =~ ^v[0-9][A-Za-z0-9.+-]*$ ]]
+          [[ -n "$GITOPS_REF" ]]
   identity:
     needs: validate
     runs-on: ubuntu-latest
@@ -79,24 +78,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ai-workspace-infra/gitops
-          ref: ${{ inputs.gitops_tag }}
+          ref: ${{ inputs.gitops_ref || 'main' }}
           fetch-depth: 0
           path: gitops
           persist-credentials: false
-      - name: Validate reviewed owners and release
+      - name: Validate reviewed owners and source
         id: releases
         shell: bash
         env:
           OWNER_SHA: ${{ inputs.playbooks_sha }}
-          GITOPS_TAG: ${{ inputs.gitops_tag }}
+          GITOPS_REF: ${{ inputs.gitops_ref || 'main' }}
         run: |
           set -euo pipefail
           [[ "$OWNER_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$GITOPS_TAG" =~ ^v[0-9][A-Za-z0-9.+-]*$ ]]
+          [[ -n "$GITOPS_REF" ]]
           [[ "$(git -C playbooks rev-parse HEAD)" == "$OWNER_SHA" ]]
           git -C playbooks merge-base --is-ancestor "$OWNER_SHA" refs/remotes/origin/main
-          GITOPS_SHA="$(git -C gitops rev-parse "refs/tags/$GITOPS_TAG^{commit}")"
-          [[ "$(git -C gitops rev-parse HEAD)" == "$GITOPS_SHA" ]]
+          GITOPS_SHA="$(git -C gitops rev-parse HEAD)"
           git -C gitops merge-base --is-ancestor "$GITOPS_SHA" refs/remotes/origin/main
           test -f playbooks/.github/actions/workload-identity-operation/action.yml
           echo "gitops_sha=$GITOPS_SHA" >> "$GITHUB_OUTPUT"
@@ -196,7 +194,6 @@ jobs:
           cmdb-sha256: ${{ steps.cmdb.outputs.sha256 }}
           gitops: ${{ github.workspace }}/gitops
           gitops-sha: ${{ steps.releases.outputs.gitops_sha }}
-          gitops-tag: ${{ inputs.gitops_tag }}
           bootstrap-receipt: ${{ steps.evidence.outputs.directory }}/bootstrap.json
           known-hosts: ${{ steps.identity.outputs.known-hosts }}
           receipt: ${{ runner.temp }}/workload-identity-receipt.json

@@ -49,8 +49,8 @@ def validate(document):
                 raise ContractError('invalid declaration path')
         for part in ('bootstrap','iac'):
             row=evidence[part]
-            if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+',row['repository']) or not re.fullmatch(r'v[0-9][A-Za-z0-9.+-]*',row['ref']):
-                raise ContractError('reviewed repository and stable tag required')
+            if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+',row['repository']) or not (row['ref'] == 'main' or re.fullmatch(r'v[0-9][A-Za-z0-9.+-]*',row['ref'])):
+                raise ContractError('reviewed repository and source ref required')
             if row['event'] != 'workflow_dispatch' or not re.fullmatch(r'\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml',row['workflow']):
                 raise ContractError('reviewed workflow dispatch required')
             if not re.fullmatch(r'[A-Za-z0-9_.-]+',row['artifactName']) or not re.fullmatch(r'[A-Za-z0-9_.-]+\.json',row['filename']):

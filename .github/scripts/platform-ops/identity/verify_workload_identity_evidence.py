@@ -24,9 +24,9 @@ def artifact_contract(row):
 
 def verify(spec, api=matrix.api, artifact_file=matrix.artifact_file):
     e=spec['evidence'];target=spec['target']; boot=e['bootstrap'];iac=e['iac']
-    # Pin each release ref to its declared reviewed commit, not only the run metadata.
+    # Immutable tags must still resolve to their recorded commit; main provenance is verified against the run SHA.
     for row in (boot,iac):
-        if api('repos/'+row['repository']+'/commits/'+row['ref']).get('sha') != row['commit']:
+        if row['ref'] != 'main' and api('repos/'+row['repository']+'/commits/'+row['ref']).get('sha') != row['commit']:
             raise ValueError('evidence ref no longer resolves to expected commit')
     raw_boot=provenance.verify_artifact(api,artifact_file,artifact_contract(boot))
     raw_iac=provenance.verify_artifact(api,artifact_file,artifact_contract(iac))
