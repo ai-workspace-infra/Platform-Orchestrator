@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: operate
+#   execution-path: direct-ansible, composite-actions
+#   flux-reconciliation: no
 name: Selfhost | Migrate & Configure
 run-name: Selfhost Stage ${{ inputs.correlation_id }}
 

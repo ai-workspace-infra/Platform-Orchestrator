@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: orchestrate
+#   execution-path: github-actions
+#   flux-reconciliation: conditional
 name: Selfhost Orchestrator
 
 # =============================================================================

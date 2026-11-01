@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: release
+#   execution-path: github-actions
+#   flux-reconciliation: no
 name: Auto Release on Tag
 
 on:

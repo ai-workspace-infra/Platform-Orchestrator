@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: operate
+#   execution-path: direct-ansible, composite-actions, reusable-workflows
+#   flux-reconciliation: no
 name: ZITADEL server
 
 on:

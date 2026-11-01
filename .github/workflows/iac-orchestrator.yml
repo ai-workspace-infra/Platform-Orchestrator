@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: orchestrate
+#   execution-path: composite-actions, reusable-workflows
+#   flux-reconciliation: no
 name: IaC Orchestrator
 run-name: 'iac:${{ inputs.correlation_id || github.run_id }} / ${{ inputs.action }} / ${{ inputs.environment }}'
 'on':

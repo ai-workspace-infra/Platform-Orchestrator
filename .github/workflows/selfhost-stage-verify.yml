@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: validate
+#   execution-path: direct-ansible, composite-actions
+#   flux-reconciliation: no
 name: Selfhost | Verify & Report
 run-name: Selfhost Stage ${{ inputs.correlation_id }}
 

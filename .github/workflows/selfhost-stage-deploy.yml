@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: deploy
+#   execution-path: direct-ansible, composite-actions, reusable-workflows
+#   flux-reconciliation: no
 name: Selfhost | Deploy (legacy mixed mode)
 run-name: Selfhost Stage ${{ inputs.correlation_id }}
 

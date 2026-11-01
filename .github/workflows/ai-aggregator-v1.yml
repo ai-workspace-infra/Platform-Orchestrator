@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: orchestrate
+#   execution-path: direct-ansible, direct-terraform, direct-cli, composite-actions
+#   flux-reconciliation: no
 name: AI Aggregator Orchestrator
 
 on:

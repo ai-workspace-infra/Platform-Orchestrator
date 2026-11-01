@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: release
+#   execution-path: direct-cli, composite-actions
+#   flux-reconciliation: no
 name: Daily Snapshot Orchestrator
 
 on:

@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: deploy
+#   execution-path: reusable-workflows
+#   flux-reconciliation: no
 name: Dev Host Lifecycle (dev-k3s-v5)
 run-name: 'dev-host:${{ inputs.operation }} / dev-k3s-v5'
 # Create, resize (re-apply the declared plan) or destroy the disposable Dev K3s host.

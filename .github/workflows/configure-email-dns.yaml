@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: operate
+#   execution-path: direct-ansible
+#   flux-reconciliation: no
 name: Configure Email DNS
 
 # Reconciles the transactional-email DNS of every zone declared in GitOps:

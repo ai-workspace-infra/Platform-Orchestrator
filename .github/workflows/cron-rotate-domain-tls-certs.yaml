@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: operate
+#   execution-path: github-actions
+#   flux-reconciliation: no
 name: "Cron: Rotate Domain TLS Certificates"
 
 on:

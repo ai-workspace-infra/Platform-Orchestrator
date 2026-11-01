@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: operate
+#   execution-path: composite-actions
+#   flux-reconciliation: no
 name: Selfhost | Resolve & Validate
 run-name: Selfhost Stage ${{ inputs.correlation_id }}
 

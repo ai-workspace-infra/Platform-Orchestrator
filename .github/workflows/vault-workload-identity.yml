@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: operate
+#   execution-path: composite-actions
+#   flux-reconciliation: no
 name: Vault workload identity
 
 # Identity configuration and verification use a resolved GitOps commit and trusted evidence.

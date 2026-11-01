@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: operate
+#   execution-path: composite-actions
+#   flux-reconciliation: no
 name: Serverless Stage / Migrate & Configure
 'on':
   workflow_call:

@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: deploy
+#   execution-path: direct-ansible
+#   flux-reconciliation: no
 name: Global Mesh Multi-Cloud VPS Pipeline
 
 on:

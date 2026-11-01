@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: validate
+#   execution-path: github-actions
+#   flux-reconciliation: no
 name: Feature Vault denied caller probe
 on:
   workflow_dispatch:

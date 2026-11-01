@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: validate
+#   execution-path: github-actions
+#   flux-reconciliation: no
 name: UAT Regional Entry Acceptance
 on:
   workflow_dispatch:

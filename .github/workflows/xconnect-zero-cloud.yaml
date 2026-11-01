@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: deploy
+#   execution-path: direct-cli, composite-actions
+#   flux-reconciliation: no
 name: XConnect Zero Cloud and Network Bootstrap
 on:
   workflow_dispatch:

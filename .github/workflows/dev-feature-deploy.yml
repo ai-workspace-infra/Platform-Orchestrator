@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: deploy
+#   execution-path: reusable-workflows
+#   flux-reconciliation: conditional
 name: Dev XConnect referral deployment
 run-name: 'dev-${{ inputs.operation }}:${{ inputs.phase }} / ${{ inputs.stage }} / GitOps PR${{ inputs.candidate_pr }}'
 on:

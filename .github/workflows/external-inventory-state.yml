@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: operate
+#   execution-path: direct-cli
+#   flux-reconciliation: no
 name: External Provider Inventory State
 
 on:

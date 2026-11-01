@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: validate
+#   execution-path: direct-cli, composite-actions
+#   flux-reconciliation: no
 name: PROD Agent Proxy Diagnostics
 on:
   workflow_dispatch:

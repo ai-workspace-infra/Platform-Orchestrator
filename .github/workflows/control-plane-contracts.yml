@@ -1,3 +1,7 @@
+# workflow-meta:
+#   purpose: validate
+#   execution-path: github-actions
+#   flux-reconciliation: no
 name: Control Plane Contracts
 
 on:
