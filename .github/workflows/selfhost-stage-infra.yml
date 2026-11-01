@@ -217,7 +217,7 @@ jobs:
       hosts_agent_proxy_iac: ${{ steps.agent_proxy_matrix.outputs.hosts_agent_proxy_iac || steps.matrix.outputs.hosts_agent_proxy || '[]' }}
       hosts_agent_proxy_non_iac: ${{ steps.agent_proxy_matrix.outputs.hosts_agent_proxy_non_iac || '[]' }}
       agent_proxy_region_count: ${{ steps.agent_proxy_matrix.outputs.agent_proxy_region_count || '0' }}
-      include_external_agent_proxy: ${{ needs.resolve-targets.outputs.include_external_agent_proxy || 'true' }}
+      include_external_agent_proxy: ${{ needs.resolve-targets.outputs.include_external_agent_proxy || 'false' }}
       reuse_existing_host: ${{ needs.resolve-targets.outputs.reuse_existing_host || 'false' }}
       existing_target_host: ${{ needs.resolve-targets.outputs.existing_target_host || '' }}
       existing_target_user: ${{ needs.resolve-targets.outputs.existing_target_user || '' }}

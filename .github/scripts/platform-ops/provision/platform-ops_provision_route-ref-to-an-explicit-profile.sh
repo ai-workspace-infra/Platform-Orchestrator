@@ -711,7 +711,7 @@ fi
 : "${deploy_tag+x}"
 validate_deploy_tag_policy "${deployment_env}" "${deploy_tag}"
 
-include_external_agent_proxy="${INPUT_INCLUDE_EXTERNAL_AGENT_PROXY:-true}"
+include_external_agent_proxy="${INPUT_INCLUDE_EXTERNAL_AGENT_PROXY:-false}"
 if [[ "${uat_akamai_region_namespace:-false}" == "true" ]]; then
   include_external_agent_proxy=false
 fi

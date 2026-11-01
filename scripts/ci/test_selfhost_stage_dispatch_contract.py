@@ -179,6 +179,27 @@ class SelfhostStageDispatchContractTest(unittest.TestCase):
         self.assertEqual(list(jobs), list(PARENT_JOBS))
         self.assertFalse(any(job.startswith('v6-') for job in jobs))
         self.assertNotIn("id-token", parent["permissions"])
+        dispatch_inputs = parent["on"]["workflow_dispatch"]["inputs"]
+        self.assertNotIn("offline_mode", dispatch_inputs)
+        self.assertNotIn("agent_proxy_plan", dispatch_inputs)
+        for field in ("source_host", "xconnect_gateway_ref"):
+            self.assertEqual(dispatch_inputs[field]["required"], "false", field)
+            self.assertEqual(dispatch_inputs[field].get("default", ""), "", field)
+        self.assertEqual(dispatch_inputs["include_external_agent_proxy"]["required"], "false")
+        self.assertEqual(dispatch_inputs["include_external_agent_proxy"]["default"], "false")
+        resolve = load_workflow(ROOT / ".github/workflows/selfhost-stage-resolve.yml")
+        resolve_job = next(
+            job for job in resolve["jobs"].values()
+            if "INPUT_OFFLINE_MODE" in job.get("env", {})
+        )
+        self.assertEqual(resolve_job["env"]["INPUT_OFFLINE_MODE"], "off")
+        self.assertNotIn("INPUT_AGENT_PROXY_PLAN", resolve_job["env"])
+        self.assertIn("include_external_agent_proxy == true", resolve_job["env"]["INPUT_INCLUDE_EXTERNAL_AGENT_PROXY"])
+        self.assertIn("|| 'false'", resolve["jobs"]["stage-output"]["outputs"]["include_external_agent_proxy"])
+        infra = load_workflow(ROOT / ".github/workflows/selfhost-stage-infra.yml")
+        self.assertIn("|| 'false'", infra["jobs"]["resolve-targets"]["outputs"]["include_external_agent_proxy"])
+        route_script = (ROOT / ".github/scripts/platform-ops/provision/platform-ops_provision_route-ref-to-an-explicit-profile.sh").read_text(encoding="utf-8")
+        self.assertIn('include_external_agent_proxy="${INPUT_INCLUDE_EXTERNAL_AGENT_PROXY:-false}"', route_script)
         request_step = next(step for step in jobs["resolve"]["steps"] if step.get("id") == "request")
         self.assertEqual(
             request_step["env"]["REQUEST_INPUTS_JSON"],
