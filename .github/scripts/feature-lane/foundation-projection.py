@@ -16,7 +16,7 @@ def load(name, path):
     spec.loader.exec_module(module)
     return module
 
-def project(policy, receipt, env, resolver, reader):
+def project(policy, receipt, env, foundation_reader, reader):
     repo = env.get('GITHUB_REPOSITORY', '')
     source = receipt.get('source', {})
     expected_ref = repo + '/.github/workflows/feature-lane-deploy.yml@refs/heads/main'
@@ -30,7 +30,7 @@ def project(policy, receipt, env, resolver, reader):
     locator = policy.get('sit_foundation')
     if not isinstance(locator, dict) or set(locator) != {'run_id', 'summary_artifact_id', 'bootstrap_artifact_id'}:
         raise ValueError('reviewed SIT foundation locator required')
-    raw, identity = resolver.foundation(reader, locator['run_id'], locator['summary_artifact_id'], locator['bootstrap_artifact_id'])
+    raw, identity = foundation_reader.foundation(reader, locator['run_id'], locator['summary_artifact_id'], locator['bootstrap_artifact_id'])
     if hashlib.sha256(raw.encode()).hexdigest() != identity['cmdb_sha256']:
         raise ValueError('foundation CMDB digest mismatch')
     return raw, identity
@@ -38,9 +38,9 @@ def project(policy, receipt, env, resolver, reader):
 def main():
     env = os.environ
     trusted = load('feature_trusted', ROOT / '.github/scripts/feature-lane/trusted.py')
-    resolver = load('dev_feature_foundation', ROOT / '.github/actions/dev-feature-resolve/resolve.py')
+    foundation_reader = load('feature_lane_foundation', ROOT / '.github/scripts/feature-lane/foundation.py')
     receipt = json.loads(Path(env['FEATURE_RECEIPT_FILE']).read_text())
-    raw, identity = project(trusted.policy_at(env['GITHUB_SHA']), receipt, env, resolver, trusted.reader)
+    raw, identity = project(trusted.policy_at(env['GITHUB_SHA']), receipt, env, foundation_reader, trusted.reader)
     destination = Path(env['RUNNER_TEMP']) / 'feature-foundation'
     destination.mkdir(parents=True, exist_ok=True)
     (destination / 'cmdb.json').write_text(raw)

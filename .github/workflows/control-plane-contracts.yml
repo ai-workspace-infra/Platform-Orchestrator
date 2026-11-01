@@ -16,7 +16,7 @@ on:
       - scripts/tests/control_plane/**
       - scripts/vault/**
       - scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_oidc_roles.sh
-      - scripts/tests/test_akamai_dev_oidc_contract.py
+      - scripts/tests/test_akamai_oidc_contract.py
   push:
     branches: [main]
     paths:
@@ -29,7 +29,7 @@ on:
       - scripts/tests/control_plane/**
       - scripts/vault/**
       - scripts/cloud/bootstrap/Akamai-Cloud/bootstrap_akamai_oidc_roles.sh
-      - scripts/tests/test_akamai_dev_oidc_contract.py
+      - scripts/tests/test_akamai_oidc_contract.py
 
 permissions:
   contents: read
@@ -88,10 +88,10 @@ jobs:
           GITOPS_ROOT: ${{ github.workspace }}/contract/gitops-vault
         run: python3 scripts/vault/vault_declarations.py materialize-test-fixtures
 
-      - name: Verify explicit Dev identity contracts with fake Vault
+      - name: Verify Akamai identity contracts with fake Vault
         run: |
           python3 scripts/tests/control_plane/prod_release_tag_policy_test.py -v
-          python3 scripts/tests/test_akamai_dev_oidc_contract.py -v
+          python3 scripts/tests/test_akamai_oidc_contract.py -v
           bash scripts/tests/akamai_vault_bootstrap_contract_test.sh
 
       - name: Verify reviewed feature candidate and tag preflight contracts
