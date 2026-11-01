@@ -46,10 +46,26 @@ on:
         description: "Immutable Playbooks ref"
         required: true
         default: main
-      target:
-        description: "Inventory host to inspect or stage"
-        required: true
-        default: jp-xhttp-contabo.svc.plus
+      target_ip:
+        description: "Existing AWS host public IPv4; required for provider=existing"
+        required: false
+        default: ''
+        type: string
+      target_hostname:
+        description: "Existing host inventory name/FQDN; required for provider=existing"
+        required: false
+        default: ''
+        type: string
+      target_domain:
+        description: "Public service domain declared in GitOps; required for provider=existing"
+        required: false
+        default: ''
+        type: string
+      ssh_user:
+        description: "SSH user declared for the existing host; required for provider=existing"
+        required: false
+        default: ''
+        type: string
       provider:
         description: "Cloud selected by this dispatch; GitOps provides the corresponding resource template"
         required: true
@@ -119,6 +135,10 @@ jobs:
       domain_base: ${{ steps.provider.outputs.domain_base }}
       gitops_ref: ${{ steps.gitops_revision.outputs.ref }}
       deployment_enabled: ${{ steps.provider.outputs.deployment_enabled }}
+      target_ip: ${{ steps.provider.outputs.target_ip }}
+      target_hostname: ${{ steps.provider.outputs.target_hostname }}
+      target_domain: ${{ steps.provider.outputs.target_domain }}
+      ssh_user: ${{ steps.provider.outputs.ssh_user }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -141,13 +161,54 @@ jobs:
           REQUESTED_ENVIRONMENT: ${{ inputs.environment }}
           DEPLOYMENT_PROFILE: ${{ inputs.deployment_profile }}
           OPERATION: ${{ inputs.operation }}
+          TARGET_IP: ${{ inputs.target_ip }}
+          TARGET_HOSTNAME: ${{ inputs.target_hostname }}
+          TARGET_DOMAIN: ${{ inputs.target_domain }}
+          SSH_USER: ${{ inputs.ssh_user }}
         run: |
           python3 scripts/ci/resolve_ai_aggregator_deployment.py \
             --environment "$REQUESTED_ENVIRONMENT" \
             --profile "$DEPLOYMENT_PROFILE" \
             --provider "$REQUESTED_PROVIDER" \
             --operation "$OPERATION" \
+            --target-ip "$TARGET_IP" \
+            --target-hostname "$TARGET_HOSTNAME" \
+            --target-domain "$TARGET_DOMAIN" \
+            --ssh-user "$SSH_USER" \
             --output "$GITHUB_OUTPUT"
+      - name: Configure AWS read access for existing-target verification
+        if: ${{ inputs.provider == 'existing' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_IAC_ROLE_ARN }}
+          aws-region: ap-northeast-1
+      - name: Resolve existing target from AWS facts and render CMDB
+        if: ${{ inputs.provider == 'existing' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
+        env:
+          TARGET_IP: ${{ steps.provider.outputs.target_ip }}
+          TARGET_HOSTNAME: ${{ steps.provider.outputs.target_hostname }}
+          TARGET_DOMAIN: ${{ steps.provider.outputs.target_domain }}
+          SSH_USER: ${{ steps.provider.outputs.ssh_user }}
+          GITOPS_MANIFEST: ${{ steps.provider.outputs.manifest_path }}
+        run: |
+          set -euo pipefail
+          facts="$RUNNER_TEMP/ai-aggregator-target-lightsail.json"
+          aws lightsail get-instances --region ap-northeast-1 --output json > "$facts"
+          python3 scripts/ci/render_ai_aggregator_existing_cmdb.py \
+            --manifest "$GITOPS_MANIFEST" \
+            --lightsail-facts "$facts" \
+            --ip "$TARGET_IP" \
+            --hostname "$TARGET_HOSTNAME" \
+            --domain "$TARGET_DOMAIN" \
+            --ssh-user "$SSH_USER" \
+            --output "$RUNNER_TEMP/ai-aggregator-existing-cmdb.json"
+      - name: Share run-local CMDB with the protected deployment job
+        if: ${{ inputs.provider == 'existing' && (inputs.operation == 'stage' || inputs.operation == 'activate') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-aggregator-existing-cmdb-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ai-aggregator-existing-cmdb.json
+          retention-days: 1
 
   plan:
     needs: [validate, resolve-provider]
@@ -964,30 +1025,30 @@ jobs:
           REQUESTED_ENVIRONMENT: ${{ inputs.environment }}
           DEPLOYMENT_PROFILE: ${{ inputs.deployment_profile }}
           OPERATION: ${{ inputs.operation }}
+          TARGET_IP: ${{ inputs.target_ip }}
+          TARGET_HOSTNAME: ${{ inputs.target_hostname }}
+          TARGET_DOMAIN: ${{ inputs.target_domain }}
+          SSH_USER: ${{ inputs.ssh_user }}
         run: |
           python3 scripts/ci/resolve_ai_aggregator_deployment.py \
             --environment "$REQUESTED_ENVIRONMENT" \
             --profile "$DEPLOYMENT_PROFILE" \
             --provider "$REQUESTED_PROVIDER" \
             --operation "$OPERATION" \
+            --target-ip "$TARGET_IP" \
+            --target-hostname "$TARGET_HOSTNAME" \
+            --target-domain "$TARGET_DOMAIN" \
+            --ssh-user "$SSH_USER" \
             --output "$RUNNER_TEMP/ai-aggregator-deployment-output"
           python3 scripts/ci/validate_ai_aggregator_manifest.py \
             "${{ needs.resolve-provider.outputs.manifest_path }}"
-      - name: Resolve declared target hosts
-        id: target_hosts
-        env:
-          GITOPS_MANIFEST: ${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
-        run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-          import yaml
-
-          manifest = yaml.safe_load(Path(os.environ['GITOPS_MANIFEST']).read_text())
-          hosts = sorted({node['inventory_host'] for node in manifest['spec']['nodes']})
-          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
-              output.write(f"hosts={','.join(hosts)}\n")
-          PY
+      - name: Download the run-local CMDB verified against AWS facts
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-aggregator-existing-cmdb-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ai-aggregator-existing-cmdb
+      - name: Set the verified CMDB source for Ansible
+        run: echo "AI_WORKSPACE_CMDB_JSON=${RUNNER_TEMP}/ai-aggregator-existing-cmdb/ai-aggregator-existing-cmdb.json" >> "$GITHUB_ENV"
       - name: Login to Vault with GitHub OIDC
         id: vault_login
         uses: hashicorp/vault-action@v4
@@ -997,15 +1058,43 @@ jobs:
           role: ${{ vars.VAULT_JWT_ROLE }}
           jwtGithubAudience: vault
           exportToken: true
+          secrets: |
+            kv/data/CICD/prod SSH_PRIVATE_DEPLOY_KEY_B64 | AI_AGGREGATOR_SSH_KEY_B64
+      - name: Prepare runner-local SSH key
+        id: ssh_key
+        env:
+          SSH_KEY_B64: ${{ steps.vault_login.outputs.AI_AGGREGATOR_SSH_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/ai-aggregator-ssh/id_deploy"
+          mkdir -m 700 -p "$(dirname "$key")"
+          printf '%s' "$SSH_KEY_B64" | base64 --decode > "$key"
+          chmod 600 "$key"
+          ssh-keygen -y -f "$key" >/dev/null
+          echo "path=$key" >> "$GITHUB_OUTPUT"
+      - name: Verify SSH reachability as the declared user
+        working-directory: playbooks
+        env:
+          TARGET_HOSTNAME: ${{ needs.resolve-provider.outputs.target_hostname }}
+        run: >-
+          ansible -i inventory/terraform_cmdb.py "$TARGET_HOSTNAME"
+          -m ansible.builtin.ping --private-key "${{ steps.ssh_key.outputs.path }}"
       - name: Deploy to existing persistent nodes
         working-directory: playbooks
         env:
           VAULT_ADDR: https://vault.svc.plus
+          TARGET_HOSTNAME: ${{ needs.resolve-provider.outputs.target_hostname }}
         run: |
-          ansible-playbook -i inventory.ini --limit "${{ steps.target_hosts.outputs.hosts }}" \
+          ansible-playbook -i inventory/terraform_cmdb.py --limit "$TARGET_HOSTNAME" \
+            --private-key "${{ steps.ssh_key.outputs.path }}" \
             deploy-ai-aggregator-v1.yml \
             -e ai_aggregator_operation=${{ inputs.operation }} \
             -e ai_aggregator_manifest_file=${{ github.workspace }}/${{ needs.resolve-provider.outputs.manifest_path }}
+      - name: Remove runner-local SSH key
+        if: ${{ always() }}
+        env:
+          SSH_KEY_PATH: ${{ steps.ssh_key.outputs.path }}
+        run: test -z "$SSH_KEY_PATH" || rm -f -- "$SSH_KEY_PATH"
       - name: Verify selected endpoints
         if: ${{ inputs.operation == 'activate' }}
         env:
